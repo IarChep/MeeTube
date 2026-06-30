@@ -21,12 +21,13 @@
 
 namespace yt {
 
+// Synchronous: returns a hardcoded category list from list(). No transport needed.
 class CategoryRequest : public ServiceRequest {
     Q_OBJECT
 public:
     explicit CategoryRequest(QObject *parent = 0) : ServiceRequest(parent) {}
 public Q_SLOTS:
-    virtual void list(const QString &resourceId);
+    void list(const QString &resourceId);
 Q_SIGNALS:
     void ready(const QList<CT::Category> &categories);
 protected:

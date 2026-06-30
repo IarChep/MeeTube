@@ -18,19 +18,27 @@
 #define STREAMSREQUEST_H
 #include "servicerequest.h"
 #include "servicedatatypes.h"
+#include "innertube/itransport.h"
 
 namespace yt {
 
 class StreamsRequest : public ServiceRequest {
     Q_OBJECT
 public:
-    explicit StreamsRequest(QObject *parent = 0) : ServiceRequest(parent) {}
+    explicit StreamsRequest(ITransport *t, QObject *parent = 0) : ServiceRequest(parent), m_t(t) {}
 public Q_SLOTS:
-    virtual void get(const QString &videoId);
+    void get(const QString &videoId);
+    // Forget the in-flight reply: marking the request Canceled makes the captured
+    // callback return early before it parses/delivers (and stops the client fallback
+    // chain). The transport also aborts the network reply (we passed `this` as owner).
+    void cancel();
 Q_SIGNALS:
     void ready(const QList<CT::Stream> &streams);
 protected:
     void deliver(const QList<CT::Stream> &streams);
+private:
+    void tryClient(const QString &videoId, ClientId client, ClientId fallbackOrSame);
+    ITransport *m_t;
 };
 
 }

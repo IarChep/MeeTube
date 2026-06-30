@@ -16,10 +16,6 @@ add_library(meetube-core STATIC
     requests/streamsrequest.cpp
     requests/commentrequest.cpp
     requests/categoryrequest.cpp
-    requests/ytvideorequest.cpp
-    requests/ytstreamsrequest.cpp
-    requests/ytcommentrequest.cpp
-    requests/ytcategoryrequest.cpp
     innertube/innertube.cpp
     models/servicelistmodel.cpp
     models/videomodel.cpp
