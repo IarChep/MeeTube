@@ -47,6 +47,21 @@ private slots:
         for (int i=0;i<h.size();++i) if (h[i].first=="Authorization") { sawAuth=true; QCOMPARE(h[i].second, QByteArray("Bearer tok")); }
         QVERIFY(sawAuth);
     }
+    // P3.4: the bearer must NOT be attached to IOS/ANDROID (their /player rejects it
+    // with 400), but must be on WEB/TVHTML5.
+    void bearerSkippedForMobile() {
+        Session s; s.bearer = "tok";
+        QVERIFY(hasAuth(ContextBuilder::headers(ClientId::WEB, s)));
+        QVERIFY(hasAuth(ContextBuilder::headers(ClientId::TVHTML5, s)));
+        QVERIFY(!hasAuth(ContextBuilder::headers(ClientId::IOS, s)));
+        QVERIFY(!hasAuth(ContextBuilder::headers(ClientId::ANDROID, s)));
+        QVERIFY(!hasAuth(ContextBuilder::headers(ClientId::ANDROID_VR, s)));
+    }
+private:
+    static bool hasAuth(const QList<QPair<QByteArray,QByteArray> > &h) {
+        for (int i = 0; i < h.size(); ++i) if (h[i].first == "Authorization") return true;
+        return false;
+    }
 };
 QTEST_MAIN(TestContext)
 #include "tst_meetube_context.moc"

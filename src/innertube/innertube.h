@@ -22,6 +22,8 @@
 #include <QVariantMap>
 #include "innertube/innertubeclient.h"
 #include "innertube/session.h"
+#include "innertube/accountstore.h"
+#include "innertube/accountmanager.h"
 #include "requests/videorequest.h"
 #include "requests/streamsrequest.h"
 #include "requests/commentrequest.h"
@@ -60,10 +62,18 @@ public:
     Q_INVOKABLE QVariantList navEntries() const;       // hardcoded (ported from the YouTube plugin)
     Q_INVOKABLE QVariantList searchTypes() const;      // hardcoded (ported from the YouTube plugin)
 
+    AccountStore*   accountStore()   { return &m_store; }
+    AccountManager* accountManager() { return &m_manager; }
+    // QML context-property convenience (exposed as `account`).
+    Q_INVOKABLE QObject* account()   { return &m_manager; }
+
 private:
     explicit Innertube(QObject *parent = 0);
     static Innertube *self;
+    // Declaration order matters: m_manager is constructed from &m_client and &m_store.
     InnertubeClient m_client;
+    AccountStore    m_store;
+    AccountManager  m_manager;
 };
 
 }

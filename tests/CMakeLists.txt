@@ -31,3 +31,6 @@ mt_test(tst_meetube_model)
 # onOwnerDestroyed) + the request Canceled guard. Drives the real m_nam over a
 # local QTcpServer loopback (QtNetwork) and the async FakeTransport.
 mt_test(tst_meetube_client)
+# Auth: AccountStore (QSettings round-trip) + AccountManager device-code flow over
+# the FakeTransport postForm seam.
+mt_test(tst_meetube_account)

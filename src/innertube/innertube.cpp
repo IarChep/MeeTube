@@ -20,7 +20,8 @@ namespace yt {
 
 Innertube *Innertube::self = 0;
 
-Innertube::Innertube(QObject *parent) : QObject(parent), m_client(this) {
+Innertube::Innertube(QObject *parent)
+    : QObject(parent), m_client(this), m_store(QString(), this), m_manager(&m_client, &m_store, this) {
     if (!self) self = this;
 }
 

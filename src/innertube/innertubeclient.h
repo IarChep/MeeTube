@@ -25,6 +25,7 @@ public:
 
     TransportReply *post(const QString &endpoint, ClientId client, const nlohmann::json &body, QObject *owner = 0);
     TransportReply *get(const QString &url, QObject *owner = 0);
+    TransportReply *postForm(const QString &url, const QMap<QString, QString> &fields, QObject *owner = 0);
 
 private Q_SLOTS:
     // Capture the server-issued responseContext.visitorData from the first reply that

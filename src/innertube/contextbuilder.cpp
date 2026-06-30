@@ -36,7 +36,10 @@ QList<QPair<QByteArray, QByteArray> > ContextBuilder::headers(ClientId id, const
     h << qMakePair(QByteArray("Cookie"), QByteArray(Catalog::kConsentCookie));
     if (!s.visitorData.isEmpty())
         h << qMakePair(QByteArray("X-Goog-Visitor-Id"), s.visitorData.toUtf8());
-    if (!s.bearer.isEmpty())
+    // Bearer only on WEB/TVHTML5-family clients: the IOS/ANDROID /player endpoint
+    // rejects a Bearer with 400 INVALID_ARGUMENT (research §6.1, Dmitry-confirmed),
+    // and playback is always anonymous anyway.
+    if (!s.bearer.isEmpty() && id != ClientId::IOS && id != ClientId::ANDROID && id != ClientId::ANDROID_VR)
         h << qMakePair(QByteArray("Authorization"), QByteArray("Bearer ") + s.bearer.toUtf8());
     return h;
 }

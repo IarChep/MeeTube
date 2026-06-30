@@ -2,6 +2,7 @@
 #define YT_ITRANSPORT_H
 #include <QObject>
 #include <QString>
+#include <QMap>
 #include <nlohmann/json.hpp>
 #include "clientconfig.h"
 namespace yt {
@@ -42,6 +43,10 @@ public:
     // never fires. When null the transport parents the handle to itself.
     virtual TransportReply *post(const QString &endpoint, ClientId client, const nlohmann::json &body, QObject *owner = 0) = 0;
     virtual TransportReply *get(const QString &url, QObject *owner = 0) = 0;
+    // application/x-www-form-urlencoded POST to an arbitrary (non-youtubei) URL —
+    // used for the OAuth device-code / token endpoints, which are not youtubei calls
+    // and must not get the JSON context block. Reply.json is the parsed response.
+    virtual TransportReply *postForm(const QString &url, const QMap<QString, QString> &fields, QObject *owner = 0) = 0;
 };
 }
 #endif

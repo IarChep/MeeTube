@@ -138,6 +138,20 @@ TransportReply *InnertubeClient::get(const QString &url, QObject *owner)
     return rep;
 }
 
+TransportReply *InnertubeClient::postForm(const QString &url, const QMap<QString, QString> &fields, QObject *owner)
+{
+    QByteArray body;
+    for (QMap<QString, QString>::const_iterator it = fields.constBegin(); it != fields.constEnd(); ++it) {
+        if (!body.isEmpty()) body += '&';
+        body += QUrl::toPercentEncoding(it.key()) + '=' + QUrl::toPercentEncoding(it.value());
+    }
+    QNetworkRequest req((QUrl(url)));
+    req.setRawHeader("Content-Type", "application/x-www-form-urlencoded");
+    QNetworkReply *reply = m_nam.post(req, body);
+    // No visitorData capture: OAuth endpoints are not youtubei calls.
+    return new NamReply(reply, m_timeoutMs, owner ? owner : this);
+}
+
 void InnertubeClient::captureVisitorData()
 {
     if (!m_session.visitorData.isEmpty())
