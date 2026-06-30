@@ -1,0 +1,28 @@
+<RCC>
+    <qresource prefix="/">
+        <!-- entry point -->
+        <file>qml/main.qml</file>
+
+        <!-- pages -->
+        <file>qml/pages/MainPage.qml</file>
+        <file>qml/pages/VideoPage.qml</file>
+
+        <!-- components -->
+        <file>qml/components/Avatar.qml</file>
+
+        <!-- components: header -->
+        <file>qml/components/header/HeaderBar.qml</file>
+
+        <!-- components: delegates -->
+        <file>qml/components/delegates/VideoDelegate.qml</file>
+
+        <!-- components: sheets -->
+        <file>qml/components/sheets/CommentsSheet.qml</file>
+
+        <!-- shared js -->
+        <file>qml/js/UIConstants.js</file>
+
+        <!-- assets -->
+        <file>qml/images/avatar-mask.png</file>
+    </qresource>
+</RCC>

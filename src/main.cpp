@@ -13,6 +13,7 @@
 #include "models/videomodel.h"
 #include "models/servicemetatypes.h"
 #include "innertube/innertube.h"
+#include "harmattan/maskeditem.h"
 
 Q_DECL_EXPORT int main(int argc, char *argv[])
 {
@@ -43,6 +44,7 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
 
     registerMeeTubeMetaTypes();
     qmlRegisterType<VideoModel>("MeeTube", 1, 0, "VideoModel");
+    qmlRegisterType<MaskedItem>("MeeTube", 1, 0, "MaskedItem");
 
     QmlApplicationViewer viewer;
     viewer.rootContext()->setContextProperty("innertube", yt::Innertube::instance());
