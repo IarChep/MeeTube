@@ -79,9 +79,9 @@ Page {
         color: UI.COLOR_SECONDARY_FOREGROUND
         font.pixelSize: UI.FONT_SMALL
         visible: videoModel.count === 0
-        text: videoModel.status === 1 ? "Загрузка…"
-            : videoModel.status === 4 ? ("Не удалось загрузить.\n" + videoModel.errorString)
-            : "Нет видео."
+        text: videoModel.status === 1 ? "Loading…"
+            : videoModel.status === 4 ? ("Failed to load.\n" + videoModel.errorString)
+            : "No videos."
     }
 
     ToolBarLayout {
@@ -96,11 +96,11 @@ Page {
         id: mainMenu
         MenuLayout {
             MenuItem {
-                text: "Категория"
+                text: "Category"
                 onClicked: appWindow.openCategoryDialog()
             }
             MenuItem {
-                text: "Выход"
+                text: "Quit"
                 onClicked: Qt.quit()
             }
         }

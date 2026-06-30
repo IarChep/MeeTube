@@ -102,9 +102,9 @@ Page {
                         width: parent.width
                         // likes count is MOCK. TODO Phase 2/3: real like/view metadata.
                         text: "@" + (videoData && videoData.username ? videoData.username : "")
-                              + "  •  12K лайков  •  "
+                              + "  •  12K likes  •  "
                               + (videoData && videoData.viewCount ? videoData.viewCount : "0")
-                              + " просмотров"
+                              + " views"
                         color: UI.COLOR_SECONDARY_FOREGROUND
                         font.pixelSize: UI.FONT_XSMALL
                         elide: Text.ElideRight
@@ -229,7 +229,7 @@ Page {
                     }
                     spacing: UI.PADDING_SMALL
                     Text {
-                        text: "Комментарии"
+                        text: "Comments"
                         color: UI.COLOR_FOREGROUND
                         font.pixelSize: UI.FONT_DEFAULT
                         font.bold: true
@@ -237,7 +237,7 @@ Page {
                     // First comment is MOCK. TODO Phase 2/3: real CommentModel.
                     Text {
                         width: parent.width
-                        text: "Алексей: Отличное видео, спасибо!"
+                        text: "Alex: Great video, thanks!"
                         color: UI.COLOR_SECONDARY_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
                         elide: Text.ElideRight
@@ -258,7 +258,7 @@ Page {
                         left: parent.left; leftMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
                     }
-                    text: "Похожие видео"
+                    text: "Related videos"
                     color: UI.COLOR_FOREGROUND
                     font.pixelSize: UI.FONT_LARGE
                     font.bold: true

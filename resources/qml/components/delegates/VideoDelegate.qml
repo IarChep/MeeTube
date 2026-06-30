@@ -95,7 +95,7 @@ Item {
                 }
                 Text {
                     width: parent.width
-                    text: (viewCount ? viewCount + " просмотров" : "")
+                    text: (viewCount ? viewCount + " views" : "")
                           + (date ? " • " + date : "")
                     color: UI.COLOR_SECONDARY_FOREGROUND
                     font.pixelSize: UI.FONT_XSMALL
