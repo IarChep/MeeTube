@@ -9,6 +9,8 @@ const ClientInfo &clientInfo(ClientId id) {
         "com.google.ios.youtube/20.49.6 (iPhone16,2; U; CPU iOS 18_0 like Mac OS X)", 5 };
     static const ClientInfo ANDROID = { "ANDROID", "20.10.38",
         "com.google.android.youtube/20.10.38 (Linux; U; Android 14; en_US; SM-S928B) gzip", 3 };
+    static const ClientInfo ANDROID_VR = { "ANDROID_VR", "1.65.10",
+        "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip", 28 };
     static const ClientInfo TV    = { "TVHTML5", "7.20260114.12.00",
         "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko)", 7 };
     switch (id) {
@@ -16,6 +18,7 @@ const ClientInfo &clientInfo(ClientId id) {
         case ClientId::WEB_SAFARI: return SAFARI;
         case ClientId::IOS:        return IOS;
         case ClientId::ANDROID:    return ANDROID;
+        case ClientId::ANDROID_VR: return ANDROID_VR;
         case ClientId::TVHTML5:    return TV;
     }
     return WEB;

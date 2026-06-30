@@ -11,16 +11,19 @@ bool isPlayable(const nlohmann::json &p, QString *reason) {
     return true;
 }
 
-QList<CT::Stream> parseStreams(const nlohmann::json &p) {
+QList<CT::Stream> parseStreams(const nlohmann::json &p, bool *sawCipheredOnly) {
     QList<CT::Stream> out;
+    if (sawCipheredOnly) *sawCipheredOnly = false;
     if (!p.contains("streamingData")) return out;
     const nlohmann::json &sd = p.at("streamingData");
     const QString hls = jstr(sd, "hlsManifestUrl");
     if (!hls.isEmpty()) { CT::Stream s; s.id = "hls"; s.description = "HLS (adaptive)"; s.url = hls; out << s; }
+    int formatsSeen = 0;
     if (sd.contains("formats") && sd.at("formats").is_array()) {
         for (const auto &f : sd.at("formats")) {
+            ++formatsSeen;
             const QString url = jstr(f, "url");
-            if (url.isEmpty()) continue;                 // skip ciphered formats (no decipher in Phase 1)
+            if (url.isEmpty()) continue;                 // skip ciphered formats (no decipher — out of scope)
             CT::Stream s;
             s.id = QString::number(jint(f, "itag"));
             s.description = jstr(f, "qualityLabel");
@@ -30,6 +33,8 @@ QList<CT::Stream> parseStreams(const nlohmann::json &p) {
             out << s;
         }
     }
+    // Nothing playable but formats were present → every format was ciphered.
+    if (sawCipheredOnly) *sawCipheredOnly = out.isEmpty() && formatsSeen > 0;
     return out;
 }
 

@@ -35,4 +35,10 @@ void ServiceRequest::fail(const QString &error) {
 
 void ServiceRequest::cancel() { setStatus(Canceled); }
 
+bool ServiceRequest::aborted(const Reply &r) {
+    if (status() == Canceled) return true;          // owner canceled — drop silently
+    if (!r.ok) { fail(r.error); return true; }       // transport error / timeout → fail
+    return false;
+}
+
 }

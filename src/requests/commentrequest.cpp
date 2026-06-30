@@ -24,28 +24,37 @@ void CommentRequest::list(const QString &videoId, const QString &page) {
     setStatus(Loading);
     if (!page.isEmpty()) { fetchPage(page); return; }
     // Step 1: POST /next by videoId to discover the comments-section continuation token.
+    m_mode = ModeDiscover;
     nlohmann::json body{ {"videoId", videoId.toStdString()} };
-    m_t->post("next", ClientId::WEB, body, [this](const Reply &r) {
-        if (status() == ServiceRequest::Canceled) return;
-        if (!r.ok) { fail(r.error); return; }
+    connect(m_t->post("next", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+}
+
+void CommentRequest::fetchPage(const QString &token) {
+    m_mode = ModePage;
+    nlohmann::json body{ {"continuation", token.toStdString()} };
+    connect(m_t->post("next", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+}
+
+void CommentRequest::onFinished() {
+    TransportReply *rep = qobject_cast<TransportReply *>(sender());
+    if (!rep) return;
+    const Reply r = rep->result();
+    rep->deleteLater();
+    if (aborted(r)) return;
+    if (m_mode == ModeDiscover) {
         // Find the comments-section panel's continuation token.
         QString token;
         if (r.json.contains("engagementPanels"))
             token = findContinuationToken(r.json.at("engagementPanels"));
-        if (token.isEmpty()) { deliver(QList<CT::Comment>(), QString()); return; }  // comments disabled
+        // No panel/token == comments disabled: deliver an empty, successful page
+        // (the model distinguishes this from a failure by status Ready + count 0).
+        if (token.isEmpty()) { deliver(QList<CT::Comment>(), QString()); return; }
         fetchPage(token);
-    }, this);
-}
-
-void CommentRequest::fetchPage(const QString &token) {
-    nlohmann::json body{ {"continuation", token.toStdString()} };
-    m_t->post("next", ClientId::WEB, body, [this](const Reply &r) {
-        if (status() == ServiceRequest::Canceled) return;
-        if (!r.ok) { fail(r.error); return; }
+    } else {
         QString next;
         QList<CT::Comment> c = parseComments(r.json, &next);
         deliver(c, next);
-    }, this);
+    }
 }
 
 void CommentRequest::cancel() { setStatus(Canceled); }

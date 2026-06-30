@@ -4,6 +4,7 @@
 #include <QString>
 #include <QMap>
 #include <QQueue>
+#include <QList>
 #include <nlohmann/json.hpp>
 #include "innertube/itransport.h"
 
@@ -15,45 +16,58 @@ inline nlohmann::json loadFixture(const char *name) {
     return nlohmann::json::parse(b.constData(), b.constData() + b.size(), nullptr, false);
 }
 
+// A TransportReply whose finished() is fired on demand by FakeTransport::flush().
+// Deliberately NOT a Q_OBJECT: it only emits the finished() signal inherited from
+// yt::TransportReply, so this header needs no moc.
+class FakeReply : public yt::TransportReply {
+public:
+    FakeReply(const yt::Reply &r, QObject *owner) : yt::TransportReply(owner), m_r(r) {}
+    yt::Reply result() const { return m_r; }
+    void fire() { emit finished(); }
+private:
+    yt::Reply m_r;
+};
+
+// Synchronous in-process transport for tests. post()/get() return a (not yet fired)
+// FakeReply so the request can connect() to it first — exactly like the real client,
+// whose reply arrives via the event loop. flush() then delivers everything.
 class FakeTransport : public yt::ITransport {
 public:
     void queue(const QString &endpoint, const nlohmann::json &reply) { m_q[endpoint].enqueue(reply); }
     QList<nlohmann::json> sent;   // bodies actually posted, for assertions
 
-    // Async mode: when set, post()/get() stash the prepared reply + callback
-    // instead of invoking cb() inline; flush() delivers them. This lets a test
-    // cancel() a request between the post and the delivery, exercising the
-    // production Canceled guard (cb returns early). Default off so the existing
-    // synchronous tests are unaffected.
-    void setAsync(bool on) { m_async = on; }
-
-    void post(const QString &endpoint, yt::ClientId, const nlohmann::json &body, yt::ReplyFn cb, QObject * = 0) {
+    yt::TransportReply *post(const QString &endpoint, yt::ClientId, const nlohmann::json &body, QObject *owner = 0) {
         sent << body;
         yt::Reply r;
         if (!m_q[endpoint].isEmpty()) { r.ok = true; r.json = m_q[endpoint].dequeue(); }
         else { r.ok = false; r.error = "no fixture queued for " + endpoint; }
-        deliver(r, cb);
+        FakeReply *rep = new FakeReply(r, owner);
+        m_pending << rep;
+        return rep;
     }
-    void get(const QString &, yt::ReplyFn cb, QObject * = 0) {
+    yt::TransportReply *get(const QString &, QObject *owner = 0) {
         yt::Reply r; r.ok = false; r.error = "no get fixture";
-        deliver(r, cb);
+        FakeReply *rep = new FakeReply(r, owner);
+        m_pending << rep;
+        return rep;
     }
 
-    // Invoke all stashed callbacks (async mode). No-op in synchronous mode.
+    // Deliver every queued reply. Drains to completion: a handler that posts the next
+    // step (StreamsRequest's ANDROID fallback, CommentRequest's second /next) enqueues
+    // a new reply, which this loop then delivers too — so one flush() runs a whole
+    // multi-step chain. A request that cancel()s itself before flush() still gets its
+    // reply fired here, but its onFinished() guard (aborted()) short-circuits delivery.
     void flush() {
-        QList<QPair<yt::Reply, yt::ReplyFn> > pending = m_pending;
-        m_pending.clear();
-        for (int i = 0; i < pending.size(); ++i)
-            pending[i].second(pending[i].first);
+        while (!m_pending.isEmpty()) {
+            QList<FakeReply *> batch = m_pending;
+            m_pending.clear();
+            for (int i = 0; i < batch.size(); ++i)
+                if (batch[i]) batch[i]->fire();
+        }
     }
 
 private:
-    void deliver(const yt::Reply &r, yt::ReplyFn cb) {
-        if (m_async) m_pending << qMakePair(r, cb);
-        else         cb(r);
-    }
     QMap<QString, QQueue<nlohmann::json> > m_q;
-    QList<QPair<yt::Reply, yt::ReplyFn> > m_pending;
-    bool m_async = false;
+    QList<FakeReply *> m_pending;
 };
 #endif

@@ -1,12 +1,13 @@
 #ifndef YT_SESSION_H
 #define YT_SESSION_H
-#include <string>
+#include <QString>
 namespace yt {
 struct Session {
-    std::string visitorData;
-    std::string hl = "en";
-    std::string gl = "US";
-    std::string bearer;   // empty in Phase 1
+    QString visitorData;
+    QString hl;
+    QString gl;
+    QString bearer;   // empty until auth lands (Phase 3)
+    Session() : hl(QLatin1String("en")), gl(QLatin1String("US")) {}
 };
 }
 #endif

@@ -11,8 +11,8 @@ using namespace yt;
 
 // A trivial loopback HTTP server the InnertubeClient::get() path can hit over
 // plain http://127.0.0.1:<port>. It lets a test drive the real lifetime
-// machinery (track/onFinished/onTimeout/onOwnerDestroyed) without touching the
-// production network code: three behaviours, picked per-connection:
+// machinery (NamReply finish/timeout/owner-death) without touching the production
+// network code: two behaviours, picked per-connection:
 //   Respond  — send a minimal 200 + JSON body, then close (normal finish).
 //   Hang     — accept and hold the socket open, never reply (drives timeout /
 //              owner-death; the request stays in-flight until aborted).
@@ -52,13 +52,12 @@ private slots:
         qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
     }
 
-    // ---- part (a): request-level Canceled guard, async FakeTransport ---------
+    // ---- part (a): request-level Canceled guard, FakeTransport -----------------
     // Start a request (status -> Loading), cancel() it, THEN flush the transport.
-    // The captured callback's `if (status()==Canceled) return;` guard must
-    // suppress delivery: no ready/failed, status stays Canceled.
+    // onFinished()'s aborted() guard must suppress delivery: no ready/failed, status
+    // stays Canceled.
     void canceledGuardSuppressesDelivery() {
         FakeTransport t;
-        t.setAsync(true);
         t.queue("browse", loadFixture("browse_feed.json"));
 
         VideoRequest req(&t);
@@ -66,23 +65,22 @@ private slots:
         QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
 
         req.list("FEwhat_to_watch", QString());
-        QCOMPARE((int)req.status(), (int)ServiceRequest::Loading);  // not delivered yet
+        QCOMPARE((int)req.status(), (int)ServiceRequest::Loading);  // posted, not delivered
         QCOMPARE(t.sent.size(), 1);                                 // the POST went out
 
         req.cancel();
         QCOMPARE((int)req.status(), (int)ServiceRequest::Canceled);
 
-        t.flush();   // now the stashed callback runs — guard must short-circuit it
+        t.flush();   // fires the reply — the aborted() guard must short-circuit it
 
         QCOMPARE(readySpy.count(), 0);
         QCOMPARE(failedSpy.count(), 0);
         QCOMPARE((int)req.status(), (int)ServiceRequest::Canceled);
     }
 
-    // Control: in async mode WITHOUT a cancel, flush() delivers normally.
+    // Control: without a cancel, flush() delivers normally.
     void asyncDeliversWhenNotCanceled() {
         FakeTransport t;
-        t.setAsync(true);
         t.queue("browse", loadFixture("browse_feed.json"));
         VideoRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
@@ -93,64 +91,62 @@ private slots:
         QCOMPARE((int)req.status(), (int)ServiceRequest::Ready);
     }
 
-    // ---- part (b): InnertubeClient internals, real m_nam over loopback -------
+    // ---- part (b): InnertubeClient internals, real m_nam over loopback ---------
 
-    // Normal finish: the callback is invoked exactly once and the reply is
-    // cleaned up. Exercises track() + onFinished() + detach() (no double-dispatch).
+    // Normal finish: finished() fires exactly once and result() is ok. Exercises
+    // NamReply::onReplyFinished() (single dispatch, no double-fire).
     void normalFinishDispatchesOnce() {
         LoopbackServer srv(LoopbackServer::Respond);
         InnertubeClient client;
         QObject owner;
-        int calls = 0; bool ok = false;
-        client.get(srv.url(), [&](const Reply &r) { ++calls; ok = r.ok; }, &owner);
+        TransportReply *rep = client.get(srv.url(), &owner);
+        QSignalSpy spy(rep, SIGNAL(finished()));
 
-        // Pump the event loop until the callback lands (or time out the test).
         QElapsedTimer et; et.start();
-        while (calls == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
 
-        QCOMPARE(calls, 1);
-        QVERIFY(ok);
-        // Let any stray queued slot run; must NOT dispatch a second time.
-        QTest::qWait(50);
-        QCOMPARE(calls, 1);
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(rep->result().ok);
+        QTest::qWait(50);              // any stray queued slot must NOT re-dispatch
+        QCOMPARE(spy.count(), 1);
     }
 
-    // Owner destroyed before the (hung) request finishes: the callback must NOT
-    // run and the in-flight reply must be aborted. Drives onOwnerDestroyed():
-    // detach-then-abort, the abort-driven onFinished() sees no entry and skips
-    // the callback (and the single deleteLater there reaps the reply).
+    // Owner destroyed before the (hung) request finishes: the handle (a child of the
+    // owner) is destroyed with it, aborting the in-flight reply silently — finished()
+    // must never fire. Drives NamReply's destructor path (no use-after-free).
     void ownerDeathSkipsCallbackAndAborts() {
         LoopbackServer srv(LoopbackServer::Hang);
         InnertubeClient client;
-        int calls = 0;
-        {
-            QObject *owner = new QObject;
-            client.get(srv.url(), [&](const Reply &) { ++calls; }, owner);
-            QTest::qWait(50);              // let the connection establish + hang
-            delete owner;                  // fires destroyed() -> onOwnerDestroyed()
-        }
-        QTest::qWait(100);                 // let abort()->finished() + deleteLater run
-        QCOMPARE(calls, 0);                // callback was dropped, no use-after-free
+        QObject *owner = new QObject;
+        QPointer<TransportReply> rep = client.get(srv.url(), owner);
+        QSignalSpy spy(rep, SIGNAL(finished()));
+        QTest::qWait(50);              // let the connection establish + hang
+        delete owner;                  // deletes the child handle -> silent abort
+        QTest::qWait(100);             // let abort()->finished() + deleteLater run
+        QVERIFY(rep.isNull());         // handle died with its owner
+        QCOMPARE(spy.count(), 0);      // finished() was never emitted
     }
 
-    // Timeout fires: the watchdog aborts the hung reply, which routes through the
-    // single onFinished() teardown -> exactly one failure dispatch. Uses the
-    // setTimeoutMs() test seam so we wait ~120ms, not 20s.
+    // Timeout fires: the watchdog aborts the hung reply, routed through the single
+    // onReplyFinished() teardown -> exactly one finished() carrying a timedOut Reply.
+    // Uses setTimeoutMs() so we wait ~120ms, not 20s.
     void timeoutDispatchesExactlyOnce() {
         LoopbackServer srv(LoopbackServer::Hang);
         InnertubeClient client;
         client.setTimeoutMs(120);
         QObject owner;
-        int calls = 0; bool ok = true;
-        client.get(srv.url(), [&](const Reply &r) { ++calls; ok = r.ok; }, &owner);
+        TransportReply *rep = client.get(srv.url(), &owner);
+        QSignalSpy spy(rep, SIGNAL(finished()));
 
         QElapsedTimer et; et.start();
-        while (calls == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
 
-        QCOMPARE(calls, 1);                // exactly one dispatch
-        QVERIFY(!ok);                      // aborted reply surfaces as a failure
-        QTest::qWait(100);                 // no late second dispatch
-        QCOMPARE(calls, 1);
+        QCOMPARE(spy.count(), 1);      // exactly one dispatch
+        const Reply r = rep->result();
+        QVERIFY(!r.ok);                // aborted reply surfaces as a failure
+        QVERIFY(r.timedOut);           // distinctly a timeout, not a plain cancel
+        QTest::qWait(100);             // no late second dispatch
+        QCOMPARE(spy.count(), 1);
     }
 };
 QTEST_MAIN(TestClient)

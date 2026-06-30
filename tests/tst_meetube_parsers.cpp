@@ -38,6 +38,22 @@ private slots:
         nlohmann::json node = {{"nextContinuationData", {{"continuation", "LEG456"}}}};
         QCOMPARE(findContinuationToken(node), QString("LEG456"));
     }
+    // Defensive: a pathologically deep payload must return safely, not overflow the
+    // stack. The token is buried past the depth cap, so the walk gives up and returns
+    // empty — the point is that it returns at all.
+    void recursionDepthGuarded() {
+        nlohmann::json deep = nlohmann::json::object();
+        nlohmann::json *cur = &deep;
+        for (int i = 0; i < 500; ++i) {
+            (*cur)["child"] = nlohmann::json::object();
+            cur = &(*cur)["child"];
+        }
+        (*cur)["continuationCommand"] = nlohmann::json{{"token", "DEEP"}};
+        findContinuationToken(deep);                 // must not crash
+        QString next;
+        QList<CT::Video> v = parseVideoList(deep, &next);
+        QVERIFY(v.isEmpty());                        // nothing collected, no overflow
+    }
     void continuationAbsent() {
         nlohmann::json node = {{"foo", {{"bar", 1}}}};
         QCOMPARE(findContinuationToken(node), QString());

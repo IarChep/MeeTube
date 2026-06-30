@@ -25,20 +25,26 @@ namespace yt {
 class StreamsRequest : public ServiceRequest {
     Q_OBJECT
 public:
-    explicit StreamsRequest(ITransport *t, QObject *parent = 0) : ServiceRequest(parent), m_t(t) {}
+    explicit StreamsRequest(ITransport *t, QObject *parent = 0)
+        : ServiceRequest(parent), m_t(t), m_client(ClientId::IOS) {}
 public Q_SLOTS:
     void get(const QString &videoId);
-    // Forget the in-flight reply: marking the request Canceled makes the captured
-    // callback return early before it parses/delivers (and stops the client fallback
-    // chain). The transport also aborts the network reply (we passed `this` as owner).
+    // Forget the in-flight reply: marking the request Canceled makes onFinished()
+    // bail before it parses/delivers (and stops the client fallback chain). The
+    // transport also aborts the network reply (the handle is parented to `this`).
     void cancel();
 Q_SIGNALS:
     void ready(const QList<CT::Stream> &streams);
 protected:
     void deliver(const QList<CT::Stream> &streams);
+private Q_SLOTS:
+    void onFinished();
 private:
-    void tryClient(const QString &videoId, ClientId client, ClientId fallbackOrSame);
+    void tryClient(ClientId client);
     ITransport *m_t;
+    // The /player attempt currently in flight: ANDROID is the last fallback.
+    QString m_videoId;
+    ClientId m_client;
 };
 
 }

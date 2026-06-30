@@ -29,8 +29,9 @@ private slots:
         model.m_fake.queue("browse", loadFixture("browse_feed.json"));
 
         model.list("FEnews_destination");
+        model.m_fake.flush();   // deliver the queued reply (the request connected first)
 
-        // Direct (GUI-thread) call: ready() has already fired synchronously.
+        // Direct (GUI-thread) call: ready() fires synchronously on flush().
         QVERIFY(model.rowCount() >= 2);
         QCOMPARE(model.rowCount(), 2);
         QCOMPARE(model.data(0, QByteArray("title")).toString(), QString("Feed One"));
@@ -47,12 +48,14 @@ private slots:
         TestVideoModel model;
         model.m_fake.queue("browse", loadFixture("browse_feed.json"));
         model.list("FEnews_destination");
+        model.m_fake.flush();
         QCOMPARE(model.rowCount(), 2);
 
         // Second page: re-queue the same fixture; fetchMore() must POST a
         // continuation token and append (not reset) the rows.
         model.m_fake.queue("browse", loadFixture("browse_feed.json"));
         model.fetchMore();
+        model.m_fake.flush();
         QCOMPARE(model.rowCount(), 4);
         QVERIFY(model.m_fake.sent.at(1).contains("continuation"));
         QCOMPARE(QString::fromStdString(model.m_fake.sent.at(1).value("continuation", std::string())),

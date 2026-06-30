@@ -29,40 +29,47 @@ static std::string sortParam(const QString &order) {
 
 void VideoRequest::list(const QString &resourceId, const QString &page) {
     setStatus(Loading);
+    m_mode = ModeList;
     nlohmann::json body;
     if (!page.isEmpty()) body["continuation"] = page.toStdString();
     else                 body["browseId"] = resourceId.toStdString();
-    m_t->post("browse", ClientId::WEB, body, [this](const Reply &r) {
-        if (status() == ServiceRequest::Canceled) return;
-        if (!r.ok) { fail(r.error); return; }
-        QString token; QList<CT::Video> v = parseVideoList(r.json, &token);
-        deliver(v, token);
-    }, this);
+    connect(m_t->post("browse", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void VideoRequest::search(const QString &query, const QString &order) {
     setStatus(Loading);
+    m_mode = ModeList;
     nlohmann::json body; body["query"] = query.toStdString();
     const std::string p = sortParam(order);
     if (!p.empty()) body["params"] = p;
-    m_t->post("search", ClientId::WEB, body, [this](const Reply &r) {
-        if (status() == ServiceRequest::Canceled) return;
-        if (!r.ok) { fail(r.error); return; }
-        QString token; QList<CT::Video> v = parseVideoList(r.json, &token);
-        deliver(v, token);
-    }, this);
+    connect(m_t->post("search", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void VideoRequest::get(const QString &id) {
     setStatus(Loading);
+    m_mode = ModeGet;
     nlohmann::json body{ {"videoId", id.toStdString()}, {"contentCheckOk", true}, {"racyCheckOk", true} };
-    m_t->post("player", ClientId::IOS, body, [this](const Reply &r) {
-        if (status() == ServiceRequest::Canceled) return;
-        if (!r.ok) { fail(r.error); return; }
+    connect(m_t->post("player", ClientId::IOS, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+}
+
+void VideoRequest::onFinished() {
+    TransportReply *rep = qobject_cast<TransportReply *>(sender());
+    if (!rep) return;
+    const Reply r = rep->result();
+    rep->deleteLater();
+    if (aborted(r)) return;
+    if (m_mode == ModeGet) {
         QString reason;
         if (!isPlayable(r.json, &reason)) { fail(reason); return; }
-        deliver(QList<CT::Video>() << parseVideoDetails(r.json), QString());
-    }, this);
+        const CT::Video v = parseVideoDetails(r.json);
+        // Playable status but no videoDetails block → don't pass off a blank Video as
+        // success; surface a failure the UI can show.
+        if (v.id.isEmpty()) { fail(QString::fromLatin1("video unavailable")); return; }
+        deliver(QList<CT::Video>() << v, QString());
+    } else {
+        QString token; QList<CT::Video> v = parseVideoList(r.json, &token);
+        deliver(v, token);
+    }
 }
 
 void VideoRequest::cancel() { setStatus(Canceled); }

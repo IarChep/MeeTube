@@ -19,6 +19,7 @@
 
 #include <QObject>
 #include <QString>
+#include "innertube/itransport.h"
 
 namespace yt {
 
@@ -42,6 +43,13 @@ Q_SIGNALS:
 protected:
     void setStatus(Status s);
     void fail(const QString &error);
+
+    // Shared prologue for every concrete request's onFinished() slot: returns true
+    // (and the caller bails) when the request was canceled — drop silently — or the
+    // transport reply failed/timed out — fail() with its error. Returns false only
+    // for a deliverable success. Replaces the per-callback guard that was duplicated
+    // across every request before the transport became signal-based.
+    bool aborted(const Reply &r);
 
 private:
     Status  m_status;
