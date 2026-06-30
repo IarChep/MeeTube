@@ -21,6 +21,9 @@ add_library(meetube-core STATIC
     requests/ytcommentrequest.cpp
     requests/ytcategoryrequest.cpp
     innertube/innertube.cpp
+    models/servicelistmodel.cpp
+    models/videomodel.cpp
+    models/servicemetatypes.cpp
 )
 # AUTOMOC: innertube/innertubeclient.h declares a Q_OBJECT (signals/slots for
 # the QNetworkAccessManager-backed transport), as do the request classes
@@ -62,4 +65,7 @@ if(NOT BUILD_N9)
     # Request classes + engine live in meetube-core (linked above), so no extra
     # sources here — listing them again would cause duplicate-symbol link errors.
     mt_test(tst_meetube_requests)
+    # Model + ServiceListModel live in meetube-core (linked above), so no extra
+    # sources here — listing them again would cause duplicate-symbol link errors.
+    mt_test(tst_meetube_model)
 endif()

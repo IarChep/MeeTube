@@ -178,6 +178,7 @@ add_executable(meetube
 )
 
 target_link_libraries(meetube PRIVATE
+    meetube-core
     Qt4::QtCore
     Qt4::QtGui
     Qt4::QtDeclarative
