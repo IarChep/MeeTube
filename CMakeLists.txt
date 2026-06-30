@@ -48,7 +48,7 @@ include(ExternalProject)
 # ---------------------------------------------------------------------------
 if(NOT BUILD_N9)
     set(LIBPNG12_INSTALL ${CMAKE_BINARY_DIR}/libpng12-install)
-    set(LIBPNG12_SO ${LIBPNG12_INSTALL}/lib/libpng12.so)
+    set(LIBPNG12_SO ${LIBPNG12_INSTALL}/lib/libpng12.so.0)
 
     ExternalProject_Add(libpng12_build
         SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/libpng12
@@ -177,7 +177,7 @@ target_link_libraries(meetube PRIVATE
 # libQtGui's png_*@PNG12_0 references. Built before meetube via the dependency.
 if(NOT BUILD_N9)
     target_link_libraries(meetube PRIVATE png12)
-    add_dependencies(meetube libpng12_build openssl102)
+    add_dependencies(meetube libpng12_build libjpeg62_build openssl102)
     set_target_properties(meetube PROPERTIES BUILD_RPATH ${LIBPNG12_INSTALL}/lib)
 endif()
 

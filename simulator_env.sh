@@ -18,8 +18,9 @@ export QT_PLUGIN_PATH="$QTSIM_ROOT/plugins"
 #   libpng12       - libQtGui needs PNG12_0-versioned symbols
 #   libjpeg.so.62  - the qjpeg image plugin needs the old IJG v6b ABI (else NO JPEG
 #                    decoding -> all YouTube thumbnails "Unsupported image format")
-#   libwebp        - WebP image support (cross armel only; included for completeness)
-# All are built under the simulator build dir.
-export LD_LIBRARY_PATH="$QTSIM_ROOT/lib:$QTMOBILITY_LIB:$(pwd)/build-sim/openssl-install/lib:$(pwd)/build-sim/libpng12-install/lib:$(pwd)/build-sim/libjpeg62-install/lib:$(pwd)/build-sim/libwebp-install/lib:${LD_LIBRARY_PATH:-}"
+# libwebp: on the simulator the host /usr/lib libwebp is used (default loader path);
+#          the N9 device build bundles libwebp in /opt/meetube/lib instead.
+# All shims above are built under the simulator build dir.
+export LD_LIBRARY_PATH="$QTSIM_ROOT/lib:$QTMOBILITY_LIB:$(pwd)/build-sim/openssl-install/lib:$(pwd)/build-sim/libpng12-install/lib:$(pwd)/build-sim/libjpeg62-install/lib:${LD_LIBRARY_PATH:-}"
 
 echo "Qt Simulator env loaded: QMAKE=$QMAKE"
