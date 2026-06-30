@@ -160,6 +160,41 @@ ExternalProject_Add(openssl102
 )
 
 # ---------------------------------------------------------------------------
+# Latest CA root bundle (Mozilla trust store, published by the curl project).
+# Downloaded fresh each configure, TLS-verified + checksum-verified, and embedded
+# into the OpenSSL install tree at its default CAfile path (${OSSL_INSTALL}/ssl/cert.pem).
+# Qt 4.7.4 doesn't read OpenSSL's default store, so the app ALSO loads this bundle
+# into the default QSslConfiguration at startup (see src/main.cpp + MEETUBE_CA_BUNDLE).
+# ---------------------------------------------------------------------------
+set(CACERT_PEM ${CMAKE_BINARY_DIR}/cacert.pem CACHE INTERNAL "")
+file(DOWNLOAD https://curl.se/ca/cacert.pem.sha256 ${CMAKE_BINARY_DIR}/cacert.pem.sha256
+     TLS_VERIFY ON STATUS _ca_sha_st)
+list(GET _ca_sha_st 0 _ca_sha_rc)
+if(_ca_sha_rc EQUAL 0)
+    file(READ ${CMAKE_BINARY_DIR}/cacert.pem.sha256 _ca_sha_txt)
+    string(REGEX MATCH "[0-9a-fA-F]+" _ca_sha "${_ca_sha_txt}")
+    file(DOWNLOAD https://curl.se/ca/cacert.pem ${CACERT_PEM}
+         TLS_VERIFY ON EXPECTED_HASH SHA256=${_ca_sha} STATUS _ca_st)
+else()
+    file(DOWNLOAD https://curl.se/ca/cacert.pem ${CACERT_PEM} TLS_VERIFY ON STATUS _ca_st)
+endif()
+list(GET _ca_st 0 _ca_rc)
+if(NOT _ca_rc EQUAL 0)
+    if(EXISTS ${CACERT_PEM})
+        message(WARNING "CA bundle download failed (${_ca_st}); reusing cached ${CACERT_PEM}")
+    else()
+        message(FATAL_ERROR "Could not download the CA bundle from curl.se: ${_ca_st}")
+    endif()
+endif()
+# Embed into the OpenSSL install tree (its default CAfile location).
+file(MAKE_DIRECTORY ${OSSL_INSTALL}/ssl)
+configure_file(${CACERT_PEM} ${OSSL_INSTALL}/ssl/cert.pem COPYONLY)
+
+if(BUILD_N9)
+    install(FILES ${CACERT_PEM} DESTINATION /opt/meetube/ssl RENAME cert.pem)
+endif()
+
+# ---------------------------------------------------------------------------
 # libwebp — N9 device only (cross armv7hf, hard-float).
 # ---------------------------------------------------------------------------
 if(BUILD_N9)
