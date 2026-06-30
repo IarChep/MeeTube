@@ -1,0 +1,19 @@
+[submodule "deps/openssl"]
+	path = deps/openssl
+	url = https://github.com/openssl/openssl.git
+	branch = OpenSSL_1_0_2u
+[submodule "deps/libpng12"]
+	path = deps/libpng12
+	url = https://github.com/pnggroup/libpng.git
+	branch = libpng12
+[submodule "deps/libjpeg-turbo"]
+	path = deps/libjpeg-turbo
+	url = https://github.com/libjpeg-turbo/libjpeg-turbo.git
+	branch = 3.0.4
+[submodule "deps/libwebp"]
+	path = deps/libwebp
+	url = https://chromium.googlesource.com/webm/libwebp
+	branch = v1.4.0
+[submodule "deps/qrcodegen"]
+	path = deps/qrcodegen
+	url = https://github.com/nayuki/QR-Code-generator.git
