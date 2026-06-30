@@ -31,6 +31,7 @@
 #include "requests/subtitlesrequest.h"
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
+#include "requests/actionrequest.h"
 
 namespace yt {
 
@@ -58,14 +59,23 @@ public:
     Q_INVOKABLE SubtitlesRequest* createSubtitlesRequest() { return new SubtitlesRequest(&m_client, this); }
     Q_INVOKABLE PlaylistRequest* createPlaylistRequest() { return new PlaylistRequest(&m_client, this); }
     Q_INVOKABLE UserRequest*     createUserRequest()     { return new UserRequest(&m_client, this); }
+    Q_INVOKABLE ActionRequest*   createActionRequest()   { return new ActionRequest(&m_client, this); }
 
     Q_INVOKABLE QVariantList navEntries() const;       // hardcoded (ported from the YouTube plugin)
     Q_INVOKABLE QVariantList searchTypes() const;      // hardcoded (ported from the YouTube plugin)
+    // Authed personalized feeds (FE browseIds): only meaningful when signed in. The
+    // UI feeds these to a VideoModel, whose browse carries the Bearer (WEB client).
+    Q_INVOKABLE QVariantList authedFeeds() const;
 
     AccountStore*   accountStore()   { return &m_store; }
     AccountManager* accountManager() { return &m_manager; }
     // QML context-property convenience (exposed as `account`).
     Q_INVOKABLE QObject* account()   { return &m_manager; }
+
+private Q_SLOTS:
+    // Copy the account manager's current bearer into the session so authed browse/
+    // next calls carry it (player stays anonymous via the ContextBuilder guard).
+    void applyBearer();
 
 private:
     explicit Innertube(QObject *parent = 0);

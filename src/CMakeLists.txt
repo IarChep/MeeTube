@@ -20,6 +20,7 @@ add_library(meetube-core STATIC
     requests/subtitlesrequest.cpp
     requests/playlistrequest.cpp
     requests/userrequest.cpp
+    requests/actionrequest.cpp
     innertube/accountstore.cpp
     innertube/accountmanager.cpp
     innertube/innertube.cpp

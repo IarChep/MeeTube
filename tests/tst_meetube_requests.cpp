@@ -7,6 +7,7 @@
 #include "requests/categoryrequest.h"
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
+#include "requests/actionrequest.h"
 
 using namespace yt;
 
@@ -271,6 +272,33 @@ private slots:
         QVERIFY(t.sent.at(0).contains("videoId"));
         QList<CT::Video> got = qvariant_cast<QList<CT::Video> >(spy.at(0).at(0));
         QVERIFY(got.size() >= 1);
+    }
+
+    // P4.2: subscribe posts subscription/subscribe with channelIds → done(true).
+    void subscribeAction() {
+        FakeTransport t;
+        t.queue("subscription/subscribe", nlohmann::json::object());
+        ActionRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(done(bool)));
+        req.subscribe("UCabc");
+        t.flush();
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(spy.at(0).at(0).toBool());
+        QVERIFY(t.sent.at(0).contains("channelIds"));
+    }
+
+    // P4.2: like posts like/like with target.videoId → done(true).
+    void likeAction() {
+        FakeTransport t;
+        t.queue("like/like", nlohmann::json::object());
+        ActionRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(done(bool)));
+        req.like("vid1");
+        t.flush();
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(spy.at(0).at(0).toBool());
+        QVERIFY(t.sent.at(0).contains("target"));
+        QCOMPARE(QString::fromStdString(t.sent.at(0)["target"].value("videoId", std::string())), QString("vid1"));
     }
 };
 QTEST_MAIN(TestRequests)

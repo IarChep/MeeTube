@@ -58,10 +58,12 @@ private slots:
         TestAccountManager mgr(&t, &store);
         QSignalSpy codeSpy(&mgr, SIGNAL(userCodeReady(QString,QString)));
         QSignalSpy authSpy(&mgr, SIGNAL(authenticated()));
+        QSignalSpy bearerSpy(&mgr, SIGNAL(bearerChanged()));
 
         mgr.signIn();
         t.flush();      // device/code -> (schedulePoll==poll) -> token
 
+        QCOMPARE(bearerSpy.count(), 1);   // engine copies this into the session
         QCOMPARE(codeSpy.count(), 1);
         QCOMPARE(codeSpy.at(0).at(0).toString(), QString("https://youtube.com/activate"));
         QCOMPARE(codeSpy.at(0).at(1).toString(), QString("ABCD-EFGH"));
