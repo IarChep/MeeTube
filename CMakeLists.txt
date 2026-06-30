@@ -39,141 +39,28 @@ enable_testing()
 include(ExternalProject)
 
 # ---------------------------------------------------------------------------
-# libpng12 — host Simulator build only.
+# Bundled third-party dependencies — extracted into deps/CMakeLists.txt.
 #
-# The host Qt4 Simulator libraries (libQtGui.so) are linked against libpng12
-# and reference versioned symbols (png_*@PNG12_0). Those versioned symbols come
-# only from libpng's autotools build, and modern hosts ship only libpng16.
-#
-# The N9 device links libpng12 from the device sysroot, so this is skipped there.
+# Declares the ExternalProjects (libpng12_build, libjpeg62_build, openssl102,
+# libwebp_build), the qrcodegen static lib, and the IMPORTED GLOBAL png12
+# target. Added EARLY (before src/ and the meetube exe) so the targets + the
+# cross-consumed CACHE INTERNAL vars (LIBPNG12_*, LIBJPEG62_*, LIBWEBP_*,
+# OSSL_*) it sets are available to everything below and to webp-imageformat/.
 # ---------------------------------------------------------------------------
-if(NOT BUILD_N9)
-    set(LIBPNG12_INSTALL ${CMAKE_BINARY_DIR}/libpng12-install)
-    set(LIBPNG12_SO ${LIBPNG12_INSTALL}/lib/libpng12.so.0)
-
-    ExternalProject_Add(libpng12_build
-        SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/libpng12
-        DOWNLOAD_COMMAND  ""
-        CONFIGURE_COMMAND ${CMAKE_SOURCE_DIR}/deps/libpng12/configure
-                          --prefix=${LIBPNG12_INSTALL}
-                          --enable-shared --disable-static
-                          --disable-dependency-tracking
-        BUILD_COMMAND     make
-        INSTALL_COMMAND   make install
-        BUILD_BYPRODUCTS  ${LIBPNG12_SO}
-    )
-
-    file(MAKE_DIRECTORY ${LIBPNG12_INSTALL}/include)
-    add_library(png12 SHARED IMPORTED GLOBAL)
-    set_target_properties(png12 PROPERTIES
-        IMPORTED_LOCATION             ${LIBPNG12_SO}
-        INTERFACE_INCLUDE_DIRECTORIES ${LIBPNG12_INSTALL}/include)
-endif()
+add_subdirectory(deps)
 
 # ---------------------------------------------------------------------------
-# libjpeg.so.62 — host Simulator build only.
-#
-# The host Qt4 Simulator's JPEG image plugin is linked against the old IJG
-# libjpeg v6b ABI (libjpeg.so.62). Modern hosts ship only libjpeg.so.8.
-# ---------------------------------------------------------------------------
-if(NOT BUILD_N9)
-    set(LIBJPEG62_INSTALL ${CMAKE_BINARY_DIR}/libjpeg62-install)
-    set(LIBJPEG62_SO ${LIBJPEG62_INSTALL}/lib/libjpeg.so.62)
-    ExternalProject_Add(libjpeg62_build
-        SOURCE_DIR       ${CMAKE_SOURCE_DIR}/deps/libjpeg-turbo
-        DOWNLOAD_COMMAND ""
-        CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX=${LIBJPEG62_INSTALL}
-                    -DCMAKE_INSTALL_LIBDIR=lib
-                    -DCMAKE_BUILD_TYPE=Release
-                    -DENABLE_STATIC=OFF -DENABLE_SHARED=ON
-                    -DWITH_TURBOJPEG=OFF -DWITH_SIMD=OFF
-        BUILD_BYPRODUCTS ${LIBJPEG62_SO}
-    )
-endif()
-
-# ---------------------------------------------------------------------------
-# OpenSSL 1.0.2 — both targets. Modern TLS without rebuilding QtNetwork.
-#
-# Qt 4.7.4 dlopen's OpenSSL at runtime and is ABI-compatible with the 1.0.x
-# branch only. We build 1.0.2u and bundle it; Qt picks it up via LD_LIBRARY_PATH.
-# ---------------------------------------------------------------------------
-set(OSSL_INSTALL ${CMAKE_BINARY_DIR}/openssl-install)
-set(OSSL_SSL    ${OSSL_INSTALL}/lib/libssl.so.1.0.0)
-set(OSSL_CRYPTO ${OSSL_INSTALL}/lib/libcrypto.so.1.0.0)
-if(BUILD_N9)
-    set(OSSL_TARGET linux-armv4)
-    string(REGEX REPLACE "g\\+\\+$" "" OSSL_CROSS "${CMAKE_CXX_COMPILER}")
-    set(OSSL_CFG --cross-compile-prefix=${OSSL_CROSS} --sysroot=${CMAKE_SYSROOT})
-else()
-    set(OSSL_TARGET linux-x86_64)
-    set(OSSL_CFG "")
-endif()
-# OpenSSL builds in-source (BUILD_IN_SOURCE) inside the shared deps/openssl
-# submodule, which is reused across the simulator (x86_64) and device
-# (armv7hf — hard-float) build trees. A stale object left by one target (e.g. a host x86-64 e_old.o)
-# would otherwise get pulled into the other target's libcrypto.a, breaking the
-# link with "member ... in archive is not an object". Wipe the submodule's
-# build artifacts (git clean only removes untracked files; tracked source is
-# untouched) before each (re)configure so a host<->device switch is clean.
-find_package(Git REQUIRED)
-ExternalProject_Add(openssl102
-    SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/openssl
-    DOWNLOAD_COMMAND  ""
-    BUILD_IN_SOURCE   1
-    CONFIGURE_COMMAND ${GIT_EXECUTABLE} -C <SOURCE_DIR> clean -xfdq
-              COMMAND <SOURCE_DIR>/Configure ${OSSL_TARGET} shared no-asm
-                      --prefix=${OSSL_INSTALL} ${OSSL_CFG}
-    BUILD_COMMAND     make depend
-            COMMAND   make build_libs
-    INSTALL_COMMAND   ${CMAKE_COMMAND} -E make_directory ${OSSL_INSTALL}/lib
-            COMMAND   ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libssl.so.1.0.0 ${OSSL_INSTALL}/lib/
-            COMMAND   ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libcrypto.so.1.0.0 ${OSSL_INSTALL}/lib/
-            COMMAND   ${CMAKE_COMMAND} -DLIBDIR=${OSSL_INSTALL}/lib -P ${CMAKE_SOURCE_DIR}/tools/make_soname_links.cmake
-    BUILD_BYPRODUCTS  ${OSSL_SSL} ${OSSL_CRYPTO}
-)
-
-# ---------------------------------------------------------------------------
-# libwebp — N9 device only (cross armv7hf, hard-float).
-# ---------------------------------------------------------------------------
-if(BUILD_N9)
-    set(LIBWEBP_INSTALL ${CMAKE_BINARY_DIR}/libwebp-install)
-    set(LIBWEBP_SO ${LIBWEBP_INSTALL}/lib/libwebp.so)
-    string(REGEX REPLACE "g\\+\\+$" "gcc" LIBWEBP_CC "${CMAKE_CXX_COMPILER}")
-    ExternalProject_Add(libwebp_build
-        SOURCE_DIR       ${CMAKE_SOURCE_DIR}/deps/libwebp
-        DOWNLOAD_COMMAND ""
-        CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX=${LIBWEBP_INSTALL}
-                    -DCMAKE_INSTALL_LIBDIR=lib
-                    -DCMAKE_BUILD_TYPE=Release
-                    -DCMAKE_SYSTEM_NAME=Linux
-                    -DCMAKE_SYSTEM_PROCESSOR=arm
-                    -DCMAKE_C_COMPILER=${LIBWEBP_CC}
-                    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-                    -DCMAKE_SYSROOT=${CMAKE_SYSROOT}
-                    -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
-                    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
-                    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
-                    -DBUILD_SHARED_LIBS=ON
-                    -DWEBP_BUILD_ANIM_UTILS=OFF -DWEBP_BUILD_CWEBP=OFF
-                    -DWEBP_BUILD_DWEBP=OFF -DWEBP_BUILD_GIF2WEBP=OFF
-                    -DWEBP_BUILD_IMG2WEBP=OFF -DWEBP_BUILD_VWEBP=OFF
-                    -DWEBP_BUILD_WEBPINFO=OFF -DWEBP_BUILD_WEBPMUX=OFF
-                    -DWEBP_BUILD_EXTRAS=OFF
-        BUILD_BYPRODUCTS ${LIBWEBP_SO}
-    )
-endif()
-
-# ---------------------------------------------------------------------------
-# qrcodegen — C++ wrapper (static lib, both targets).
-# ---------------------------------------------------------------------------
-add_library(qrcodegen STATIC ${CMAKE_SOURCE_DIR}/deps/qrcodegen/cpp/qrcodegen.cpp)
-set_target_properties(qrcodegen PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_include_directories(qrcodegen PUBLIC ${CMAKE_SOURCE_DIR}/deps/qrcodegen/cpp)
-
-# ---------------------------------------------------------------------------
-# Core library + test harness (added in Task 3).
+# Core library.
 # ---------------------------------------------------------------------------
 add_subdirectory(src)
+
+# ---------------------------------------------------------------------------
+# Test harness — its own subproject; host/simulator only (no QtTest on device).
+# Added after src/ because the tests link meetube-core (defined in src/).
+# ---------------------------------------------------------------------------
+if(NOT BUILD_N9)
+    add_subdirectory(tests)
+endif()
 
 # ---------------------------------------------------------------------------
 # WebP image-format plugin (libqwebp.so).
@@ -208,11 +95,20 @@ if(BUILD_N9)
     # to /lib/ld-linux-armhf.so.3 — pin it back or the binary fails to exec on device
     # (ENOENT). Static C++ runtime: the device's GCC-4.x libstdc++ lacks the newer
     # GLIBCXX/CXXABI symbols this cross build emits.
-    # (Booster/-pie/-lmdeclarativecache + the /opt/meetube/lib install RPATH are deferred to
-    # the Phase-4 packaging work.)
+    #
+    # /opt/meetube/lib RPATH: the deps/ block bundles our freshly-built, ABI-compatible
+    # libpng12.so.0 / libjpeg.so.62 (and OpenSSL/libwebp) there. --disable-new-dtags emits
+    # a DT_RPATH (not DT_RUNPATH); DT_RPATH is inherited by transitively-loaded libs, so
+    # Qt's image plugins resolving libpng12.so.0 / libjpeg.so.62 also search
+    # /opt/meetube/lib first → our copies win over the device sysroot's stock ones.
+    # (Booster/-pie/-lmdeclarativecache are deferred to the Phase-4 packaging work.)
     target_link_options(meetube PRIVATE
         -static-libstdc++ -static-libgcc
-        -Wl,--dynamic-linker,/lib/ld-linux.so.3)
+        -Wl,--dynamic-linker,/lib/ld-linux.so.3
+        -Wl,-rpath,/opt/meetube/lib -Wl,--disable-new-dtags)
+    # The device app does not link png12, but it must wait for the bundled libs to be
+    # built + installed (they package into /opt/meetube/lib via the deps/ install rules).
+    add_dependencies(meetube libpng12_build libjpeg62_build)
 endif()
 
 # Install prefix: /opt/meetube
