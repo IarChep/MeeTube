@@ -78,7 +78,8 @@ Item {
                 width: UI.SIZE_ICON_LARGE
                 height: UI.SIZE_ICON_LARGE
                 anchors.verticalCenter: parent.verticalCenter
-                // TODO Phase 2/3: no author-avatar URL role yet — placeholder squircle.
+                // Real channel avatar from the VideoModel avatarUrl role; empty -> placeholder.
+                source: avatarUrl ? avatarUrl : ""
             }
 
             Column {
@@ -114,7 +115,7 @@ Item {
                     username: username,
                     viewCount: viewCount,
                     thumbnailUrl: thumbnailUrl,
-                    description: description,
+                    avatarUrl: avatarUrl,
                     id: id
                 }
             });

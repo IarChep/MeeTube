@@ -32,6 +32,7 @@
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
 #include "requests/actionrequest.h"
+#include "requests/watchrequest.h"
 
 namespace yt {
 
@@ -60,6 +61,7 @@ public:
     Q_INVOKABLE PlaylistRequest* createPlaylistRequest() { return new PlaylistRequest(&m_client, this); }
     Q_INVOKABLE UserRequest*     createUserRequest()     { return new UserRequest(&m_client, this); }
     Q_INVOKABLE ActionRequest*   createActionRequest()   { return new ActionRequest(&m_client, this); }
+    Q_INVOKABLE WatchRequest*    createWatchRequest()    { return new WatchRequest(&m_client, this); }
 
     Q_INVOKABLE QVariantList navEntries() const;       // hardcoded (ported from the YouTube plugin)
     Q_INVOKABLE QVariantList searchTypes() const;      // hardcoded (ported from the YouTube plugin)

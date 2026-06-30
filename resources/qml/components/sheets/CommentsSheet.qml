@@ -3,10 +3,13 @@ import com.nokia.meego 1.0
 import "../"
 import "../../js/UIConstants.js" as UI
 
-// Comments sheet. TODO Phase 2/3: the backend has no comment endpoint yet, so the
-// list is a static MOCK ListModel. Each row: a small squircle avatar + author + text.
+// Comments sheet over a real CommentModel (roles: username/body/thumbnailUrl). The
+// owner passes its model in via `commentModel`. Each row: a small squircle avatar +
+// author + text.
 Sheet {
     id: sheet
+
+    property variant commentModel
 
     acceptButtonText: ""
     rejectButtonText: "Close"
@@ -32,14 +35,6 @@ Sheet {
             }
         }
 
-        // TODO Phase 2/3: replace with a real CommentModel.
-        ListModel {
-            id: commentsModel
-            ListElement { author: "Alex";  text: "Great video, thanks!" }
-            ListElement { author: "Maria"; text: "Very helpful, subscribed." }
-            ListElement { author: "John";  text: "When's the next part coming?" }
-        }
-
         ListView {
             id: list
             anchors {
@@ -47,7 +42,7 @@ Sheet {
                 right: parent.right; bottom: parent.bottom
             }
             clip: true
-            model: commentsModel
+            model: sheet.commentModel
             delegate: Item {
                 width: list.width
                 height: commentColumn.height + UI.PADDING_XLARGE * 2
@@ -60,6 +55,7 @@ Sheet {
                         top: parent.top; topMargin: UI.PADDING_XLARGE
                         left: parent.left; leftMargin: UI.DEFAULT_MARGIN
                     }
+                    source: thumbnailUrl ? thumbnailUrl : ""
                 }
 
                 Column {
@@ -72,14 +68,14 @@ Sheet {
                     spacing: UI.PADDING_SMALL
 
                     Text {
-                        text: author
+                        text: username ? username : ""
                         color: UI.COLOR_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
                         font.bold: true
                     }
                     Text {
                         width: parent.width
-                        text: model.text
+                        text: body ? body : ""
                         color: UI.COLOR_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
                         wrapMode: Text.WordWrap

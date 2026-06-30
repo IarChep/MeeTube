@@ -7,6 +7,7 @@
 #include "models/subtitlemodel.h"
 #include "models/playlistmodel.h"
 #include "models/usermodel.h"
+#include "models/watchmodel.h"
 #include "requests/servicerequest.h"
 #include "requests/videorequest.h"
 #include "requests/streamsrequest.h"
@@ -15,6 +16,7 @@
 #include "requests/subtitlesrequest.h"
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
+#include "requests/watchrequest.h"
 
 using namespace yt;
 
@@ -70,6 +72,13 @@ protected:
     UserRequest* newRequest() { return new UserRequest(&m_fake, this); }
 };
 
+class TestWatchModel : public WatchModel {
+public:
+    FakeTransport m_fake;
+protected:
+    WatchRequest* newRequest() { return new WatchRequest(&m_fake, this); }
+};
+
 class TestModel : public QObject { Q_OBJECT
 private slots:
     void initTestCase() {
@@ -80,6 +89,7 @@ private slots:
         qRegisterMetaType<QList<CT::Subtitle> >("QList<CT::Subtitle>");
         qRegisterMetaType<QList<CT::Playlist> >("QList<CT::Playlist>");
         qRegisterMetaType<QList<CT::User> >("QList<CT::User>");
+        qRegisterMetaType<CT::Video>("CT::Video");
     }
 
     void listPopulatesModel() {
@@ -184,6 +194,20 @@ private slots:
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(0, QByteArray("username")).toString(), QString("Chan"));
         QCOMPARE(model.data(0, QByteArray("subscriberCount")).toString(), QString("10K subscribers"));
+        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+    }
+
+    void watchModelDetailsAndRelated() {
+        TestWatchModel model;
+        model.m_fake.queue("next", loadFixture("watch_next.json"));
+        QSignalSpy detailsSpy(&model, SIGNAL(detailsChanged()));
+        model.get("vid42");
+        model.m_fake.flush();
+        QCOMPARE(model.description(), QString("Hello description"));
+        QCOMPARE(model.channelName(), QString("Creator"));
+        QCOMPARE(model.rowCount(), 1);                     // one related video
+        QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("rel1"));
+        QVERIFY(detailsSpy.count() >= 1);
         QCOMPARE(model.status(), (int)ServiceRequest::Ready);
     }
 };

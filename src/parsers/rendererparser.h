@@ -15,5 +15,8 @@ QList<CT::Playlist> parsePlaylistList(const nlohmann::json &response, QString *n
 CT::User parseChannel(const nlohmann::json &response);
 CT::User parseUserRenderer(const nlohmann::json &r);
 QList<CT::User> parseUserList(const nlohmann::json &response, QString *nextToken);
+// Watch page (/next): the primary video's details (title/description/views/likes +
+// channel name/avatar/id) and the related-videos list, in one response.
+void parseWatchPage(const nlohmann::json &response, CT::Video *primary, QList<CT::Video> *related);
 }
 #endif

@@ -23,13 +23,15 @@ Page {
 
     property bool descExpanded: false
 
-    // Suggested videos. TODO Phase 2/3: real related-videos endpoint — here we reuse a
-    // second VideoModel pointed at the next nav category ("Learning") as a stand-in.
-    VideoModel { id: suggestedModel }
+    // One /next call gives the description, like/view text AND the related-videos list
+    // (watch.* + watch rows). Comments come from a separate CommentModel.
+    WatchModel { id: watch }
+    CommentModel { id: comments }
     Component.onCompleted: {
-        var nav = innertube.navEntries();
-        if (nav.length > 1)
-            suggestedModel.list(nav[1].id);
+        if (videoData && videoData.id) {
+            watch.get(videoData.id);
+            comments.list(videoData.id);
+        }
     }
 
     Flickable {
@@ -100,11 +102,12 @@ Page {
                     }
                     Text {
                         width: parent.width
-                        // likes count is MOCK. TODO Phase 2/3: real like/view metadata.
+                        // Real like/view text from the watch (/next) response; both are
+                        // optional (likes are sometimes hidden), so each segment is conditional.
                         text: "@" + (videoData && videoData.username ? videoData.username : "")
-                              + "  •  12K likes  •  "
-                              + (videoData && videoData.viewCount ? videoData.viewCount : "0")
-                              + " views"
+                              + (watch.likeText ? "  •  " + watch.likeText + " likes" : "")
+                              + "  •  " + (watch.viewText ? watch.viewText
+                                          : (videoData && videoData.viewCount ? videoData.viewCount + " views" : ""))
                         color: UI.COLOR_SECONDARY_FOREGROUND
                         font.pixelSize: UI.FONT_XSMALL
                         elide: Text.ElideRight
@@ -113,7 +116,7 @@ Page {
                         id: descText
                         width: parent.width
                         visible: page.descExpanded
-                        text: videoData && videoData.description ? videoData.description : ""
+                        text: watch.description
                         color: UI.COLOR_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
                         wrapMode: Text.WordWrap
@@ -172,6 +175,10 @@ Page {
                         left: parent.left; leftMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
                     }
+                    // Channel avatar from the watch response, falling back to the one
+                    // carried over from the list item.
+                    source: watch.avatarUrl ? watch.avatarUrl
+                            : (videoData && videoData.avatarUrl ? videoData.avatarUrl : "")
                 }
                 Text {
                     anchors {
@@ -234,10 +241,12 @@ Page {
                         font.pixelSize: UI.FONT_DEFAULT
                         font.bold: true
                     }
-                    // First comment is MOCK. TODO Phase 2/3: real CommentModel.
+                    // First real comment (or a status line) from the CommentModel.
                     Text {
                         width: parent.width
-                        text: "Alex: Great video, thanks!"
+                        text: comments.count > 0
+                              ? (comments.data(0, "username") + ": " + comments.data(0, "body"))
+                              : "No comments"
                         color: UI.COLOR_SECONDARY_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
                         elide: Text.ElideRight
@@ -265,13 +274,13 @@ Page {
                 }
             }
             Repeater {
-                model: suggestedModel
+                model: watch
                 delegate: VideoDelegate { listView: false; width: column.width }
             }
         }
     }
 
-    CommentsSheet { id: commentsSheet }
+    CommentsSheet { id: commentsSheet; commentModel: comments }
 
     ToolBarLayout {
         id: videoTools

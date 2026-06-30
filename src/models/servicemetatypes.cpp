@@ -25,10 +25,12 @@
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
 #include "requests/actionrequest.h"
+#include "requests/watchrequest.h"
 #include <QMetaType>
 
 void registerMeeTubeMetaTypes() {
     // Result value lists carried by the typed ready() signals.
+    qRegisterMetaType<CT::Video>("CT::Video");   // WatchRequest::ready scalar primary
     qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
     qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");
     qRegisterMetaType<QList<CT::Comment> >("QList<CT::Comment>");
@@ -47,4 +49,5 @@ void registerMeeTubeMetaTypes() {
     qRegisterMetaType<yt::PlaylistRequest*>("yt::PlaylistRequest*");
     qRegisterMetaType<yt::UserRequest*>("yt::UserRequest*");
     qRegisterMetaType<yt::ActionRequest*>("yt::ActionRequest*");
+    qRegisterMetaType<yt::WatchRequest*>("yt::WatchRequest*");
 }

@@ -227,4 +227,71 @@ QList<CT::User> parseUserList(const nlohmann::json &response, QString *nextToken
     if (nextToken) *nextToken = findContinuationToken(response);
     return out;
 }
+
+// First object (DFS) that contains `key`; returns its value, or null.
+static const nlohmann::json* findRenderer(const nlohmann::json &node, const char *key, int depth = 0) {
+    if (depth > kMaxDepth) return 0;
+    if (node.is_object()) {
+        nlohmann::json::const_iterator f = node.find(key);
+        if (f != node.end()) return &f.value();
+        for (nlohmann::json::const_iterator it = node.begin(); it != node.end(); ++it) {
+            const nlohmann::json *r = findRenderer(it.value(), key, depth + 1);
+            if (r) return r;
+        }
+    } else if (node.is_array()) {
+        for (nlohmann::json::const_iterator it = node.begin(); it != node.end(); ++it) {
+            const nlohmann::json *r = findRenderer(*it, key, depth + 1);
+            if (r) return r;
+        }
+    }
+    return 0;
+}
+
+// Best-effort like count (FRAGILE — YouTube reshapes this often): the legacy
+// toggleButtonRenderer.defaultText, else the modern likeButtonViewModel button title.
+static QString findLikeText(const nlohmann::json &primaryInfo) {
+    const nlohmann::json *tbr = findRenderer(primaryInfo, "toggleButtonRenderer");
+    if (tbr && tbr->contains("defaultText")) {
+        const QString t = parseText(tbr->at("defaultText"));
+        if (!t.isEmpty()) return t;
+    }
+    const nlohmann::json *lbvm = findRenderer(primaryInfo, "likeButtonViewModel");
+    if (lbvm) {
+        const nlohmann::json *bvm = findRenderer(*lbvm, "buttonViewModel");
+        if (bvm) {
+            const QString t = jstr(*bvm, "title");
+            // Skip the bare "Like"/"Dislike" labels — only a count-ish value is useful.
+            if (!t.isEmpty() && t != QLatin1String("Like") && t != QLatin1String("Dislike")) return t;
+        }
+    }
+    return QString();
+}
+
+void parseWatchPage(const nlohmann::json &response, CT::Video *primary, QList<CT::Video> *related) {
+    if (related) *related = parseVideoList(response, 0);   // secondaryResults compactVideoRenderers
+    if (!primary) return;
+    CT::Video v;
+    if (const nlohmann::json *pri = findRenderer(response, "videoPrimaryInfoRenderer")) {
+        v.title = parseText(pri->contains("title") ? pri->at("title") : nlohmann::json::object());
+        if (const nlohmann::json *vcr = findRenderer(*pri, "videoViewCountRenderer"))
+            if (vcr->contains("viewCount")) v.viewText = parseText(vcr->at("viewCount"));
+        v.likeText = findLikeText(*pri);
+    }
+    if (const nlohmann::json *sec = findRenderer(response, "videoSecondaryInfoRenderer")) {
+        if (const nlohmann::json *owner = findRenderer(*sec, "videoOwnerRenderer")) {
+            v.username = parseText(owner->contains("title") ? owner->at("title") : nlohmann::json::object());
+            if (owner->contains("thumbnail") && owner->at("thumbnail").contains("thumbnails"))
+                v.avatarUrl = lastOf(owner->at("thumbnail").at("thumbnails"));
+            if (owner->contains("navigationEndpoint") && owner->at("navigationEndpoint").contains("browseEndpoint"))
+                v.userId = jstr(owner->at("navigationEndpoint").at("browseEndpoint"), "browseId");
+        }
+        // Description: modern attributedDescription.content (plain string) or legacy runs.
+        if (sec->contains("attributedDescription") && sec->at("attributedDescription").is_object())
+            v.description = jstr(sec->at("attributedDescription"), "content");
+        if (v.description.isEmpty() && sec->contains("description"))
+            v.description = parseText(sec->at("description"));
+    }
+    v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
+    *primary = v;
+}
 }

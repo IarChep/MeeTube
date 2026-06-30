@@ -18,6 +18,7 @@
 #include "models/playlistmodel.h"
 #include "models/usermodel.h"
 #include "models/accountmodel.h"
+#include "models/watchmodel.h"
 #include "models/servicemetatypes.h"
 #include "innertube/innertube.h"
 #include "harmattan/maskeditem.h"
@@ -63,6 +64,7 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     qmlRegisterType<PlaylistModel>("MeeTube", 1, 0, "PlaylistModel");
     qmlRegisterType<UserModel>("MeeTube", 1, 0, "UserModel");
     qmlRegisterType<AccountModel>("MeeTube", 1, 0, "AccountModel");
+    qmlRegisterType<WatchModel>("MeeTube", 1, 0, "WatchModel");
     qmlRegisterType<MaskedItem>("MeeTube", 1, 0, "MaskedItem");
 
     QmlApplicationViewer viewer;
