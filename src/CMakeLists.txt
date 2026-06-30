@@ -6,6 +6,8 @@
 # ---------------------------------------------------------------------------
 add_library(meetube-core STATIC
     parsers/continuation.cpp
+    parsers/rendererparser.cpp
+    parsers/playerparser.cpp
 )
 set_target_properties(meetube-core PROPERTIES
     POSITION_INDEPENDENT_CODE ON)
