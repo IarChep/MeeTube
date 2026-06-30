@@ -22,10 +22,10 @@
 #include <QVariantMap>
 #include "innertube/innertubeclient.h"
 #include "innertube/session.h"
-#include "requests/ytvideorequest.h"
-#include "requests/ytstreamsrequest.h"
-#include "requests/ytcommentrequest.h"
-#include "requests/ytcategoryrequest.h"
+#include "requests/videorequest.h"
+#include "requests/streamsrequest.h"
+#include "requests/commentrequest.h"
+#include "requests/categoryrequest.h"
 
 namespace yt {
 
@@ -43,12 +43,13 @@ public:
     // gl = region, hl = language (Innertube context locale).
     Q_INVOKABLE void applySettings(const QString &region, const QString &language);
 
-    // Factories return the typed base pointer to a heap Yt*Request parented to the
-    // engine. Created on the GUI thread with the shared transport — no worker hop.
-    Q_INVOKABLE VideoRequest*    createVideoRequest()    { return new YtVideoRequest(&m_client, this); }
-    Q_INVOKABLE StreamsRequest*  createStreamsRequest()  { return new YtStreamsRequest(&m_client, this); }
-    Q_INVOKABLE CommentRequest*  createCommentRequest()  { return new YtCommentRequest(&m_client, this); }
-    Q_INVOKABLE CategoryRequest* createCategoryRequest() { return new YtCategoryRequest(&m_client, this); }
+    // Factories return a heap request parented to the engine. Created on the GUI
+    // thread with the shared transport — no worker hop. (CategoryRequest is
+    // synchronous and needs no transport.)
+    Q_INVOKABLE VideoRequest*    createVideoRequest()    { return new VideoRequest(&m_client, this); }
+    Q_INVOKABLE StreamsRequest*  createStreamsRequest()  { return new StreamsRequest(&m_client, this); }
+    Q_INVOKABLE CommentRequest*  createCommentRequest()  { return new CommentRequest(&m_client, this); }
+    Q_INVOKABLE CategoryRequest* createCategoryRequest() { return new CategoryRequest(this); }
 
     Q_INVOKABLE QVariantList navEntries() const;       // hardcoded (ported from the YouTube plugin)
     Q_INVOKABLE QVariantList searchTypes() const;      // hardcoded (ported from the YouTube plugin)

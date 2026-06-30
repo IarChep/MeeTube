@@ -1,10 +1,10 @@
 #include <QtTest/QtTest>
 #include <QSignalSpy>
 #include "testutil.h"
-#include "requests/ytstreamsrequest.h"
-#include "requests/ytvideorequest.h"
-#include "requests/ytcommentrequest.h"
-#include "requests/ytcategoryrequest.h"
+#include "requests/streamsrequest.h"
+#include "requests/videorequest.h"
+#include "requests/commentrequest.h"
+#include "requests/categoryrequest.h"
 
 using namespace yt;
 
@@ -20,7 +20,7 @@ private slots:
     void streamsFromIos() {
         FakeTransport t;
         t.queue("player", loadFixture("player_ios.json"));
-        YtStreamsRequest req(&t);
+        StreamsRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Stream>)));
         req.get("aaa11111111");
         QCOMPARE(spy.count(), 1);
@@ -39,7 +39,7 @@ private slots:
         });
         // ANDROID reply: good fixture with real streams
         t.queue("player", loadFixture("player_ios.json"));
-        YtStreamsRequest req(&t);
+        StreamsRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Stream>)));
         req.get("vid");
         QCOMPARE(spy.count(), 1);
@@ -52,7 +52,7 @@ private slots:
 
     void videoListBrowse() {
         FakeTransport t; t.queue("browse", loadFixture("browse_feed.json"));
-        YtVideoRequest req(&t);
+        VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         req.list("FEwhat_to_watch", QString());
         QCOMPARE(spy.count(), 1);
@@ -65,7 +65,7 @@ private slots:
     }
     void videoSearch() {
         FakeTransport t; t.queue("search", loadFixture("search_videos.json"));
-        YtVideoRequest req(&t);
+        VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         req.search("cats", "date");
         QCOMPARE(spy.count(), 1);
@@ -74,7 +74,7 @@ private slots:
     }
     void videoGet() {
         FakeTransport t; t.queue("player", loadFixture("player_ios.json"));
-        YtVideoRequest req(&t);
+        VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         req.get("aaa11111111");
         QCOMPARE(spy.count(), 1);
@@ -86,7 +86,7 @@ private slots:
 
     void videoListContinuation() {
         FakeTransport t; t.queue("browse", loadFixture("browse_feed.json"));
-        YtVideoRequest req(&t);
+        VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         req.list("FEwhat_to_watch", "SOMETOKEN");
         QCOMPARE(spy.count(), 1);
@@ -98,7 +98,7 @@ private slots:
         FakeTransport t;
         nlohmann::json nonPlayable{{"playabilityStatus", {{"status","LOGIN_REQUIRED"},{"reason","Sign in"}}}};
         t.queue("player", nonPlayable);
-        YtVideoRequest req(&t);
+        VideoRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
         req.get("aaa11111111");
@@ -114,7 +114,7 @@ private slots:
         };
         t.queue("player", nonPlayable);
         t.queue("player", nonPlayable);
-        YtStreamsRequest req(&t);
+        StreamsRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Stream>)));
         QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
         req.get("vid");
@@ -129,7 +129,7 @@ private slots:
         FakeTransport t;
         t.queue("next", loadFixture("next_for_comments.json"));   // discovers token
         t.queue("next", loadFixture("comments_page.json"));       // returns comments
-        YtCommentRequest req(&t);
+        CommentRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
         req.list("aaa11111111", QString());
         QCOMPARE(spy.count(), 1);
@@ -143,7 +143,7 @@ private slots:
     void commentsDisabled() {
         FakeTransport t;
         t.queue("next", nlohmann::json::object());   // {} : no engagementPanels => comments disabled
-        YtCommentRequest req(&t);
+        CommentRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
         QSignalSpy failSpy(&req, SIGNAL(failed(QString)));
         req.list("aaa11111111", QString());
@@ -157,7 +157,7 @@ private slots:
     void commentsDirectContinuation() {
         FakeTransport t;
         t.queue("next", loadFixture("comments_page.json"));
-        YtCommentRequest req(&t);
+        CommentRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
         req.list(QString(), QString("EXISTING_TOKEN"));
         QCOMPARE(t.sent.size(), 1);          // only ONE POST, no discovery step
@@ -166,8 +166,7 @@ private slots:
     }
 
     void categories() {
-        FakeTransport t;
-        YtCategoryRequest req(&t);
+        CategoryRequest req;
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Category>)));
         req.list(QString());
         QCOMPARE(spy.count(), 1);

@@ -2,7 +2,7 @@
 #include "testutil.h"
 #include "models/videomodel.h"
 #include "requests/servicerequest.h"
-#include "requests/ytvideorequest.h"
+#include "requests/videorequest.h"
 
 using namespace yt;
 
@@ -14,7 +14,7 @@ public:
     explicit TestVideoModel(QObject *parent = 0) : VideoModel(parent) {}
     FakeTransport m_fake;
 protected:
-    VideoRequest* newRequest() { return new YtVideoRequest(&m_fake, this); }
+    VideoRequest* newRequest() { return new VideoRequest(&m_fake, this); }
 };
 
 class TestModel : public QObject { Q_OBJECT
@@ -25,7 +25,7 @@ private slots:
 
     void listPopulatesModel() {
         TestVideoModel model;
-        // YtVideoRequest::list posts to the "browse" endpoint.
+        // VideoRequest::list posts to the "browse" endpoint.
         model.m_fake.queue("browse", loadFixture("browse_feed.json"));
 
         model.list("FEnews_destination");

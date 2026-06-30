@@ -18,25 +18,28 @@
 #define VIDEOREQUEST_H
 #include "servicerequest.h"
 #include "servicedatatypes.h"
+#include "innertube/itransport.h"
 
 namespace yt {
 
 class VideoRequest : public ServiceRequest {
     Q_OBJECT
 public:
-    explicit VideoRequest(QObject *parent = 0) : ServiceRequest(parent) {}
+    explicit VideoRequest(ITransport *t, QObject *parent = 0) : ServiceRequest(parent), m_t(t) {}
 public Q_SLOTS:
-    virtual void list(const QString &resourceId, const QString &page);
-    virtual void search(const QString &query, const QString &order);
-    virtual void get(const QString &id);
-    virtual void favourite(const QString &id, bool favourite);
-    virtual void rate(const QString &id, int rating);
-    virtual void addToPlaylist(const QString &id, const QString &playlistId);
-    virtual void removeFromPlaylist(const QString &id, const QString &playlistId);
+    void list(const QString &resourceId, const QString &page);
+    void search(const QString &query, const QString &order);
+    void get(const QString &id);
+    // Forget the in-flight reply: marking the request Canceled makes the captured
+    // callback return early before it parses/delivers. The transport also aborts
+    // the network reply because we passed `this` as its owner.
+    void cancel();
 Q_SIGNALS:
     void ready(const QList<CT::Video> &videos, const QString &nextPageToken);
 protected:
     void deliver(const QList<CT::Video> &videos, const QString &nextPageToken = QString());
+private:
+    ITransport *m_t;
 };
 
 }

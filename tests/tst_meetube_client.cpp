@@ -5,7 +5,7 @@
 #include <QPointer>
 #include "testutil.h"
 #include "innertube/innertubeclient.h"
-#include "requests/ytvideorequest.h"
+#include "requests/videorequest.h"
 
 using namespace yt;
 
@@ -61,7 +61,7 @@ private slots:
         t.setAsync(true);
         t.queue("browse", loadFixture("browse_feed.json"));
 
-        YtVideoRequest req(&t);
+        VideoRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
 
@@ -84,7 +84,7 @@ private slots:
         FakeTransport t;
         t.setAsync(true);
         t.queue("browse", loadFixture("browse_feed.json"));
-        YtVideoRequest req(&t);
+        VideoRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         req.list("FEwhat_to_watch", QString());
         QCOMPARE(readySpy.count(), 0);     // nothing until flush
