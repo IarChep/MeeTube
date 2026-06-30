@@ -52,6 +52,13 @@ void VideoRequest::get(const QString &id) {
     connect(m_t->post("player", ClientId::IOS, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
+void VideoRequest::related(const QString &videoId) {
+    setStatus(Loading);
+    m_mode = ModeList;            // parseVideoList harvests the compactVideoRenderers
+    nlohmann::json body{ {"videoId", videoId.toStdString()} };
+    connect(m_t->post("next", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+}
+
 void VideoRequest::onFinished() {
     TransportReply *rep = qobject_cast<TransportReply *>(sender());
     if (!rep) return;
