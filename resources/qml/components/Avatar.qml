@@ -5,12 +5,14 @@ import "../js/UIConstants.js" as UI
 // Nokia "squircle" avatar. MaskedItem (ported C++ QGraphicsEffect) composites its
 // children over the alpha mask with CompositionMode_SourceIn, so the avatar image is
 // clipped to the rounded-square silhouette of avatar-mask.png — exactly cuteTube2's
-// idiom. Assigning an inline Image{} to the `mask` Component property auto-wraps it
-// into a Component (that's how cuteTube2's Avatar does it).
+// idiom. Bind `source` to a channel avatar URL; an empty URL falls back to the bundled
+// placeholder. Pure binding (no imperative reassignment) keeps it correct under
+// ListView delegate recycling.
 MaskedItem {
     id: root
 
-    property alias source: avatar.source
+    property url source                                             // channel avatar URL ("" -> placeholder)
+    property url placeholder: Qt.resolvedUrl("../images/avatar-placeholder.png")
     property alias fillMode: avatar.fillMode
     property alias status: avatar.status
 
@@ -33,15 +35,10 @@ MaskedItem {
         sourceSize.width: width
         sourceSize.height: height
         smooth: true
+        asynchronous: true
         fillMode: Image.PreserveAspectCrop
         clip: true
-        // TODO Phase 2/3: real backend has no author-avatar URL role yet — fall back
-        // to the platform avatar placeholder (and on any decode error).
-        source: "../images/avatar-placeholder.png"
-        onStatusChanged: {
-            if (status == Image.Error)
-                source = "../images/avatar-placeholder.png";
-        }
+        source: (root.source && root.source != "") ? root.source : root.placeholder
     }
 
     MouseArea {

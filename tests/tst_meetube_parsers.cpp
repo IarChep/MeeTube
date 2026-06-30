@@ -94,6 +94,22 @@ private slots:
         QCOMPARE(u.subscriberCount, QString("1.2M subscribers"));
         QCOMPARE(u.thumbnailUrl, QString("https://a/l.jpg"));
     }
+    // QML integration: /next watch page → primary details (title/desc/views/likes +
+    // channel) and the related list.
+    void watchPageParses() {
+        const nlohmann::json next = loadFixture("watch_next.json");
+        CT::Video primary; QList<CT::Video> related;
+        parseWatchPage(next, &primary, &related);
+        QCOMPARE(primary.title, QString("The Title"));
+        QCOMPARE(primary.description, QString("Hello description"));
+        QCOMPARE(primary.username, QString("Creator"));
+        QCOMPARE(primary.avatarUrl, QString("https://a/av.jpg"));
+        QCOMPARE(primary.userId, QString("UCowner"));
+        QCOMPARE(primary.likeText, QString("9.9K"));
+        QCOMPARE(primary.viewText, QString("1,234 views"));
+        QVERIFY(related.size() >= 1);
+        QCOMPARE(related.first().id, QString("rel1"));
+    }
     void recursionDepthGuarded() {
         nlohmann::json deep = nlohmann::json::object();
         nlohmann::json *cur = &deep;

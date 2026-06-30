@@ -25,7 +25,8 @@ namespace CT {
 
 struct Video {
     QString id, title, description, thumbnailUrl, largeThumbnailUrl, date, duration, url,
-            streamUrl, userId, username, avatarUrl, commentsId, relatedVideosId, subtitlesId;
+            streamUrl, userId, username, avatarUrl, likeText, viewText,
+            commentsId, relatedVideosId, subtitlesId;
     qint64 viewCount = 0;
     bool downloadable = false;
 };
