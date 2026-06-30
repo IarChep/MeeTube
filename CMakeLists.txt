@@ -72,11 +72,25 @@ add_subdirectory(webp-imageformat)
 add_executable(meetube
     src/main.cpp
     src/qmlapplicationviewer/qmlapplicationviewer.cpp
+    # Squircle avatar: a QDeclarativeItem (MaskedItem) + QGraphicsEffect (MaskEffect)
+    # that composites children over an alpha mask (CompositionMode_SourceIn), ported
+    # from cuteTube2. Both declare Q_OBJECT -> moc'd via the target's AUTOMOC.
+    src/harmattan/maskeffect.cpp
+    src/harmattan/maskeditem.cpp
+    # QML resources (main.qml + pages/components + avatar-mask.png) baked into the
+    # binary; main.cpp loads qrc:/qml/main.qml. Compiled via the target's AUTORCC.
+    resources/resources.qrc
 )
 
 # qmlapplicationviewer.h declares Q_OBJECT (the QDeclarativeView subclass), so the
-# app target must be moc'd. (meetube-core is moc'd in src/CMakeLists.txt.)
-set_target_properties(meetube PROPERTIES AUTOMOC ON)
+# app target must be moc'd. (meetube-core is moc'd in src/CMakeLists.txt.) AUTORCC
+# compiles resources/resources.qrc into the binary.
+set_target_properties(meetube PROPERTIES AUTOMOC ON AUTORCC ON)
+
+# maskeditem/maskeffect include their sibling headers as "harmattan/...". The
+# squircle pulls in <QDeclarativeItem>/<QGraphicsEffect> (QtGui + QtDeclarative,
+# already linked on this target below).
+target_include_directories(meetube PRIVATE src)
 
 target_link_libraries(meetube PRIVATE
     meetube-core
