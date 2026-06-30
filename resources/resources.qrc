@@ -24,5 +24,6 @@
 
         <!-- assets -->
         <file>qml/images/avatar-mask.png</file>
+        <file>qml/images/avatar-placeholder.png</file>
     </qresource>
 </RCC>

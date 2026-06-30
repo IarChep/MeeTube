@@ -37,10 +37,10 @@ MaskedItem {
         clip: true
         // TODO Phase 2/3: real backend has no author-avatar URL role yet — fall back
         // to the platform avatar placeholder (and on any decode error).
-        source: "image://theme/icon-l-content-avatar-placeholder"
+        source: "../images/avatar-placeholder.png"
         onStatusChanged: {
             if (status == Image.Error)
-                source = "image://theme/icon-l-content-avatar-placeholder";
+                source = "../images/avatar-placeholder.png";
         }
     }
 
