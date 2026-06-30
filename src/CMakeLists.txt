@@ -11,9 +11,20 @@ add_library(meetube-core STATIC
     innertube/clientconfig.cpp
     innertube/contextbuilder.cpp
     innertube/innertubeclient.cpp
+    requests/servicerequest.cpp
+    requests/videorequest.cpp
+    requests/streamsrequest.cpp
+    requests/commentrequest.cpp
+    requests/categoryrequest.cpp
+    requests/ytvideorequest.cpp
+    requests/ytstreamsrequest.cpp
+    requests/ytcommentrequest.cpp
+    requests/ytcategoryrequest.cpp
+    innertube/innertube.cpp
 )
 # AUTOMOC: innertube/innertubeclient.h declares a Q_OBJECT (signals/slots for
-# the QNetworkAccessManager-backed transport), so the lib must be moc'd.
+# the QNetworkAccessManager-backed transport), as do the request classes
+# (requests/*.h) and the Innertube engine, so the lib must be moc'd.
 set_target_properties(meetube-core PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     AUTOMOC ON)
@@ -48,4 +59,7 @@ if(NOT BUILD_N9)
 
     mt_test(tst_meetube_parsers)
     mt_test(tst_meetube_context)
+    # Request classes + engine live in meetube-core (linked above), so no extra
+    # sources here — listing them again would cause duplicate-symbol link errors.
+    mt_test(tst_meetube_requests)
 endif()

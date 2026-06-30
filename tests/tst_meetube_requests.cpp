@@ -1,0 +1,180 @@
+#include <QtTest/QtTest>
+#include <QSignalSpy>
+#include "testutil.h"
+#include "requests/ytstreamsrequest.h"
+#include "requests/ytvideorequest.h"
+#include "requests/ytcommentrequest.h"
+#include "requests/ytcategoryrequest.h"
+
+using namespace yt;
+
+class TestRequests : public QObject { Q_OBJECT
+private slots:
+    void initTestCase() {
+        qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");
+        qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
+        qRegisterMetaType<QList<CT::Comment> >("QList<CT::Comment>");
+        qRegisterMetaType<QList<CT::Category> >("QList<CT::Category>");
+    }
+
+    void streamsFromIos() {
+        FakeTransport t;
+        t.queue("player", loadFixture("player_ios.json"));
+        YtStreamsRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Stream>)));
+        req.get("aaa11111111");
+        QCOMPARE(spy.count(), 1);
+        QList<CT::Stream> got = qvariant_cast<QList<CT::Stream> >(spy.at(0).at(0));
+        QVERIFY(got.size() >= 3);
+        QCOMPARE(got[0].id, QString("hls"));
+        QCOMPARE((int)req.status(), (int)ServiceRequest::Ready);
+    }
+
+    void streamsFromAndroidFallback() {
+        FakeTransport t;
+        // IOS reply: playable but no streams → triggers fallback to ANDROID
+        t.queue("player", nlohmann::json{
+            {"playabilityStatus", {{"status", "OK"}}},
+            {"streamingData", {{"formats", nlohmann::json::array()}}}
+        });
+        // ANDROID reply: good fixture with real streams
+        t.queue("player", loadFixture("player_ios.json"));
+        YtStreamsRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Stream>)));
+        req.get("vid");
+        QCOMPARE(spy.count(), 1);
+        QList<CT::Stream> got = qvariant_cast<QList<CT::Stream> >(spy.at(0).at(0));
+        QVERIFY(got.size() >= 3);
+        QCOMPARE(got[0].id, QString("hls"));
+        QCOMPARE((int)req.status(), (int)ServiceRequest::Ready);
+        QCOMPARE(t.sent.size(), 2);
+    }
+
+    void videoListBrowse() {
+        FakeTransport t; t.queue("browse", loadFixture("browse_feed.json"));
+        YtVideoRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
+        req.list("FEwhat_to_watch", QString());
+        QCOMPARE(spy.count(), 1);
+        QList<CT::Video> got = qvariant_cast<QList<CT::Video> >(spy.at(0).at(0));
+        QCOMPARE(got.size(), 2);
+        QCOMPARE(got[0].id, QString("ccc33333333"));
+        QCOMPARE(spy.at(0).at(1).toString(), QString("FEEDNEXT"));
+        // body carried the browseId
+        QCOMPARE(QString::fromStdString(t.sent.at(0).value("browseId", std::string())), QString("FEwhat_to_watch"));
+    }
+    void videoSearch() {
+        FakeTransport t; t.queue("search", loadFixture("search_videos.json"));
+        YtVideoRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
+        req.search("cats", "date");
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(QString::fromStdString(t.sent.at(0).value("query", std::string())), QString("cats"));
+        QVERIFY(t.sent.at(0).contains("params"));   // date sort param attached
+    }
+    void videoGet() {
+        FakeTransport t; t.queue("player", loadFixture("player_ios.json"));
+        YtVideoRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
+        req.get("aaa11111111");
+        QCOMPARE(spy.count(), 1);
+        QList<CT::Video> got = qvariant_cast<QList<CT::Video> >(spy.at(0).at(0));
+        QCOMPARE(got.size(), 1);
+        QCOMPARE(got[0].title, QString("First Video"));
+        QCOMPARE(QString::fromStdString(t.sent.at(0).value("videoId", std::string())), QString("aaa11111111"));
+    }
+
+    void videoListContinuation() {
+        FakeTransport t; t.queue("browse", loadFixture("browse_feed.json"));
+        YtVideoRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
+        req.list("FEwhat_to_watch", "SOMETOKEN");
+        QCOMPARE(spy.count(), 1);
+        QVERIFY(t.sent.at(0).contains("continuation"));
+        QVERIFY(!t.sent.at(0).contains("browseId"));
+    }
+
+    void videoGetNonPlayable() {
+        FakeTransport t;
+        nlohmann::json nonPlayable{{"playabilityStatus", {{"status","LOGIN_REQUIRED"},{"reason","Sign in"}}}};
+        t.queue("player", nonPlayable);
+        YtVideoRequest req(&t);
+        QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
+        QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
+        req.get("aaa11111111");
+        QCOMPARE(readySpy.count(), 0);
+        QCOMPARE(failedSpy.count(), 1);
+        QCOMPARE((int)req.status(), (int)ServiceRequest::Failed);
+    }
+
+    void bothClientsFail() {
+        FakeTransport t;
+        nlohmann::json nonPlayable{
+            {"playabilityStatus", {{"status", "LOGIN_REQUIRED"}, {"reason", "Sign in"}}}
+        };
+        t.queue("player", nonPlayable);
+        t.queue("player", nonPlayable);
+        YtStreamsRequest req(&t);
+        QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Stream>)));
+        QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
+        req.get("vid");
+        QCOMPARE(readySpy.count(), 0);
+        QCOMPARE(failedSpy.count(), 1);
+        QCOMPARE((int)req.status(), (int)ServiceRequest::Failed);
+        QString reason = failedSpy.at(0).at(0).toString();
+        QVERIFY(reason.contains("LOGIN_REQUIRED") || reason.contains("Sign in"));
+    }
+
+    void commentsTwoStep() {
+        FakeTransport t;
+        t.queue("next", loadFixture("next_for_comments.json"));   // discovers token
+        t.queue("next", loadFixture("comments_page.json"));       // returns comments
+        YtCommentRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
+        req.list("aaa11111111", QString());
+        QCOMPARE(spy.count(), 1);
+        QList<CT::Comment> got = qvariant_cast<QList<CT::Comment> >(spy.at(0).at(0));
+        QCOMPARE(got.size(), 2);
+        QCOMPARE(spy.at(0).at(1).toString(), QString("MORE_COMMENTS"));
+        QCOMPARE(QString::fromStdString(t.sent.at(0).value("videoId", std::string())), QString("aaa11111111"));
+        QCOMPARE(QString::fromStdString(t.sent.at(1).value("continuation", std::string())), QString("COMMENTS_TOKEN"));
+    }
+
+    void commentsDisabled() {
+        FakeTransport t;
+        t.queue("next", nlohmann::json::object());   // {} : no engagementPanels => comments disabled
+        YtCommentRequest req(&t);
+        QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
+        QSignalSpy failSpy(&req, SIGNAL(failed(QString)));
+        req.list("aaa11111111", QString());
+        QCOMPARE(t.sent.size(), 1);          // only ONE POST — no second fetch
+        QCOMPARE(readySpy.count(), 1);
+        QCOMPARE(failSpy.count(), 0);
+        QList<CT::Comment> got = qvariant_cast<QList<CT::Comment> >(readySpy.at(0).at(0));
+        QCOMPARE(got.size(), 0);
+    }
+
+    void commentsDirectContinuation() {
+        FakeTransport t;
+        t.queue("next", loadFixture("comments_page.json"));
+        YtCommentRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
+        req.list(QString(), QString("EXISTING_TOKEN"));
+        QCOMPARE(t.sent.size(), 1);          // only ONE POST, no discovery step
+        QCOMPARE(QString::fromStdString(t.sent.at(0).value("continuation", std::string())), QString("EXISTING_TOKEN"));
+        QCOMPARE(spy.count(), 1);
+    }
+
+    void categories() {
+        FakeTransport t;
+        YtCategoryRequest req(&t);
+        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Category>)));
+        req.list(QString());
+        QCOMPARE(spy.count(), 1);
+        QList<CT::Category> got = qvariant_cast<QList<CT::Category> >(spy.at(0).at(0));
+        QVERIFY(got.size() >= 2);
+        QCOMPARE(got[0].title, QString("Music"));
+    }
+};
+QTEST_MAIN(TestRequests)
+#include "tst_meetube_requests.moc"
