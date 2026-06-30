@@ -8,6 +8,8 @@ add_library(meetube-core STATIC
     parsers/continuation.cpp
     parsers/rendererparser.cpp
     parsers/playerparser.cpp
+    innertube/clientconfig.cpp
+    innertube/contextbuilder.cpp
 )
 set_target_properties(meetube-core PROPERTIES
     POSITION_INDEPENDENT_CODE ON)
@@ -41,4 +43,5 @@ if(NOT BUILD_N9)
     endfunction()
 
     mt_test(tst_meetube_parsers)
+    mt_test(tst_meetube_context)
 endif()
