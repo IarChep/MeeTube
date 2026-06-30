@@ -10,9 +10,13 @@ add_library(meetube-core STATIC
     parsers/playerparser.cpp
     innertube/clientconfig.cpp
     innertube/contextbuilder.cpp
+    innertube/innertubeclient.cpp
 )
+# AUTOMOC: innertube/innertubeclient.h declares a Q_OBJECT (signals/slots for
+# the QNetworkAccessManager-backed transport), so the lib must be moc'd.
 set_target_properties(meetube-core PROPERTIES
-    POSITION_INDEPENDENT_CODE ON)
+    POSITION_INDEPENDENT_CODE ON
+    AUTOMOC ON)
 
 # Two PUBLIC include roots:
 #   ${CMAKE_CURRENT_SOURCE_DIR}        → resolves "parsers/continuation.h" etc.

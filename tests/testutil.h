@@ -19,14 +19,14 @@ class FakeTransport : public yt::ITransport {
 public:
     void queue(const QString &endpoint, const nlohmann::json &reply) { m_q[endpoint].enqueue(reply); }
     QList<nlohmann::json> sent;   // bodies actually posted, for assertions
-    void post(const QString &endpoint, yt::ClientId, const nlohmann::json &body, yt::ReplyFn cb) {
+    void post(const QString &endpoint, yt::ClientId, const nlohmann::json &body, yt::ReplyFn cb, QObject * = 0) {
         sent << body;
         yt::Reply r;
         if (!m_q[endpoint].isEmpty()) { r.ok = true; r.json = m_q[endpoint].dequeue(); }
         else { r.ok = false; r.error = "no fixture queued for " + endpoint; }
         cb(r);
     }
-    void get(const QString &, yt::ReplyFn cb) { yt::Reply r; r.ok = false; r.error = "no get fixture"; cb(r); }
+    void get(const QString &, yt::ReplyFn cb, QObject * = 0) { yt::Reply r; r.ok = false; r.error = "no get fixture"; cb(r); }
 private:
     QMap<QString, QQueue<nlohmann::json> > m_q;
 };
