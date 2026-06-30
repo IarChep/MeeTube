@@ -44,32 +44,5 @@ target_link_libraries(meetube-core PUBLIC
     Qt4::QtNetwork
     nlohmann_json::nlohmann_json)
 
-# ---------------------------------------------------------------------------
-# Test harness — host/simulator only (no QtTest on the N9 device).
-# ---------------------------------------------------------------------------
-if(NOT BUILD_N9)
-    function(mt_test name)
-        add_executable(${name} ${CMAKE_SOURCE_DIR}/tests/${name}.cpp ${ARGN})
-        set_target_properties(${name} PROPERTIES AUTOMOC ON)
-        target_link_libraries(${name} PRIVATE meetube-core Qt4::QtTest)
-        target_compile_definitions(${name} PRIVATE
-            MT_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests"
-            MT_SRC_DIR="${CMAKE_SOURCE_DIR}/src")
-        target_include_directories(${name} PRIVATE
-            ${CMAKE_SOURCE_DIR}/tests)
-        add_test(NAME ${name} COMMAND ${name})
-    endfunction()
-
-    mt_test(tst_meetube_parsers)
-    mt_test(tst_meetube_context)
-    # Request classes + engine live in meetube-core (linked above), so no extra
-    # sources here — listing them again would cause duplicate-symbol link errors.
-    mt_test(tst_meetube_requests)
-    # Model + ServiceListModel live in meetube-core (linked above), so no extra
-    # sources here — listing them again would cause duplicate-symbol link errors.
-    mt_test(tst_meetube_model)
-    # InnertubeClient lifetime machinery (track/onFinished/onTimeout/
-    # onOwnerDestroyed) + the request Canceled guard. Drives the real m_nam over a
-    # local QTcpServer loopback (QtNetwork) and the async FakeTransport.
-    mt_test(tst_meetube_client)
-endif()
+# The test harness now lives in its own subproject — see tests/CMakeLists.txt,
+# wired from the root (NOT BUILD_N9, after this src/ subdir).
