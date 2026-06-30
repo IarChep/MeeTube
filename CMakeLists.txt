@@ -107,11 +107,20 @@ else()
     set(OSSL_TARGET linux-x86_64)
     set(OSSL_CFG "")
 endif()
+# OpenSSL builds in-source (BUILD_IN_SOURCE) inside the shared deps/openssl
+# submodule, which is reused across the simulator (x86_64) and device (armel)
+# build trees. A stale object left by one target (e.g. a host x86-64 e_old.o)
+# would otherwise get pulled into the other target's libcrypto.a, breaking the
+# link with "member ... in archive is not an object". Wipe the submodule's
+# build artifacts (git clean only removes untracked files; tracked source is
+# untouched) before each (re)configure so a host<->device switch is clean.
+find_package(Git REQUIRED)
 ExternalProject_Add(openssl102
     SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/openssl
     DOWNLOAD_COMMAND  ""
     BUILD_IN_SOURCE   1
-    CONFIGURE_COMMAND <SOURCE_DIR>/Configure ${OSSL_TARGET} shared no-asm
+    CONFIGURE_COMMAND ${GIT_EXECUTABLE} -C <SOURCE_DIR> clean -xfdq
+              COMMAND <SOURCE_DIR>/Configure ${OSSL_TARGET} shared no-asm
                       --prefix=${OSSL_INSTALL} ${OSSL_CFG}
     BUILD_COMMAND     make depend
             COMMAND   make build_libs
