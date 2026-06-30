@@ -161,6 +161,11 @@ set_target_properties(qrcodegen PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(qrcodegen PUBLIC ${CMAKE_SOURCE_DIR}/deps/qrcodegen/cpp)
 
 # ---------------------------------------------------------------------------
+# Core library + test harness (added in Task 3).
+# ---------------------------------------------------------------------------
+add_subdirectory(src)
+
+# ---------------------------------------------------------------------------
 # Application: meetube executable
 # ---------------------------------------------------------------------------
 add_executable(meetube
