@@ -27,10 +27,11 @@ add_compile_definitions($<$<BOOL:${BUILD_N9}>:BUILD_N9>)
 # Dependencies
 # ---------------------------------------------------------------------------
 find_package(Qt4 4.7.4 COMPONENTS
-    QtCore QtGui QtDeclarative QtNetwork QtOpenGL QtScript QtSql QtXml QtDBus QtTest REQUIRED)
+    QtCore QtGui QtDeclarative QtNetwork QtTest REQUIRED)
 find_package(X11 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
+# consumed from Task 3 onward (parsers / engine); provided by conan (conanfile.txt)
 find_package(nlohmann_json REQUIRED)
 enable_testing()
 
