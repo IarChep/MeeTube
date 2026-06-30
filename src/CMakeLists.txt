@@ -1,5 +1,6 @@
 # ---------------------------------------------------------------------------
-# meetube-core — pure (no-network) value types, JSON helpers, parsers.
+# meetube-core — pure value types + JSON/parser helpers; Qt4::QtNetwork linked
+# for future transport classes.
 # Built as a STATIC PIC lib so it can be linked into both the app and any
 # future MODULE plugins.
 # ---------------------------------------------------------------------------
@@ -7,7 +8,6 @@ add_library(meetube-core STATIC
     parsers/continuation.cpp
 )
 set_target_properties(meetube-core PROPERTIES
-    AUTOMOC ON
     POSITION_INDEPENDENT_CODE ON)
 
 # Two PUBLIC include roots:
@@ -31,7 +31,8 @@ if(NOT BUILD_N9)
         set_target_properties(${name} PROPERTIES AUTOMOC ON)
         target_link_libraries(${name} PRIVATE meetube-core Qt4::QtTest)
         target_compile_definitions(${name} PRIVATE
-            MT_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests")
+            MT_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests"
+            MT_SRC_DIR="${CMAKE_SOURCE_DIR}/src")
         target_include_directories(${name} PRIVATE
             ${CMAKE_SOURCE_DIR}/tests)
         add_test(NAME ${name} COMMAND ${name})
