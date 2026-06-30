@@ -83,6 +83,7 @@ target_link_libraries(meetube PRIVATE
     Qt4::QtCore
     Qt4::QtGui
     Qt4::QtDeclarative
+    Qt4::QtNetwork
 )
 
 # Host Simulator: link the libpng12 shim AFTER the Qt libs so it resolves
@@ -141,3 +142,14 @@ else()
 endif()
 target_compile_definitions(meetube PRIVATE WEBP_PLUGIN_DIR="${WEBP_PLUGIN_DIR}")
 add_dependencies(meetube qwebp)
+
+# ---------------------------------------------------------------------------
+# CA certificate bundle path — compiled in so main.cpp can load it into
+# QSslConfiguration::defaultConfiguration() at startup.
+# ---------------------------------------------------------------------------
+if(BUILD_N9)
+    set(MEETUBE_CA_BUNDLE "/opt/meetube/ssl/cert.pem")
+else()
+    set(MEETUBE_CA_BUNDLE "${OSSL_INSTALL}/ssl/cert.pem")
+endif()
+target_compile_definitions(meetube PRIVATE MEETUBE_CA_BUNDLE="${MEETUBE_CA_BUNDLE}")

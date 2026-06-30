@@ -1,6 +1,8 @@
 #include <QApplication>
 #include <QScopedPointer>
 #include <QTextCodec>
+#include <QSslConfiguration>
+#include <QSslCertificate>
 
 #include "qmlapplicationviewer/qmlapplicationviewer.h"
 #include <QtDeclarative/qdeclarative.h>
@@ -22,6 +24,18 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     QTextCodec::setCodecForLocale(utfCodec);
     QTextCodec::setCodecForCStrings(utfCodec);
     QTextCodec::setCodecForTr(utfCodec);
+
+#ifdef MEETUBE_CA_BUNDLE
+    {
+        const QList<QSslCertificate> ca =
+            QSslCertificate::fromPath(QLatin1String(MEETUBE_CA_BUNDLE), QSsl::Pem);
+        if (!ca.isEmpty()) {
+            QSslConfiguration cfg = QSslConfiguration::defaultConfiguration();
+            cfg.setCaCertificates(ca);
+            QSslConfiguration::setDefaultConfiguration(cfg);
+        }
+    }
+#endif
 
 #ifdef WEBP_PLUGIN_DIR
     app->addLibraryPath(QLatin1String(WEBP_PLUGIN_DIR));
