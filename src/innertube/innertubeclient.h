@@ -26,6 +26,12 @@ public:
     TransportReply *post(const QString &endpoint, ClientId client, const nlohmann::json &body, QObject *owner = 0);
     TransportReply *get(const QString &url, QObject *owner = 0);
 
+private Q_SLOTS:
+    // Capture the server-issued responseContext.visitorData from the first reply that
+    // carries one and reuse it on subsequent requests — stabilizes the anonymous
+    // session and reduces bot-wall flags (research §6.2). Connected to every reply.
+    void captureVisitorData();
+
 private:
     QNetworkAccessManager m_nam;
     Session m_session;

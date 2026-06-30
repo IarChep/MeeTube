@@ -20,7 +20,8 @@ class LoopbackServer : public QObject {
     Q_OBJECT
 public:
     enum Mode { Respond, Hang };
-    explicit LoopbackServer(Mode m, QObject *parent = 0) : QObject(parent), m_mode(m) {
+    explicit LoopbackServer(Mode m, const QByteArray &body = "{\"ok\":true}", QObject *parent = 0)
+        : QObject(parent), m_mode(m), m_body(body) {
         connect(&m_srv, SIGNAL(newConnection()), this, SLOT(onConn()));
         m_srv.listen(QHostAddress::LocalHost, 0);
     }
@@ -30,7 +31,7 @@ private slots:
         QTcpSocket *s = m_srv.nextPendingConnection();
         m_held << s;                       // keep a ref so it isn't reaped
         if (m_mode == Respond) {
-            const QByteArray body = "{\"ok\":true}";
+            const QByteArray body = m_body;
             QByteArray resp = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
                               "Content-Length: " + QByteArray::number(body.size()) +
                               "\r\nConnection: close\r\n\r\n" + body;
@@ -43,6 +44,7 @@ private slots:
 private:
     QTcpServer m_srv;
     Mode m_mode;
+    QByteArray m_body;
     QList<QTcpSocket *> m_held;
 };
 
@@ -147,6 +149,20 @@ private slots:
         QVERIFY(r.timedOut);           // distinctly a timeout, not a plain cancel
         QTest::qWait(100);             // no late second dispatch
         QCOMPARE(spy.count(), 1);
+    }
+
+    // P1.4: the client captures responseContext.visitorData from the first reply and
+    // keeps it in the session for subsequent requests.
+    void visitorDataCaptured() {
+        LoopbackServer srv(LoopbackServer::Respond, "{\"responseContext\":{\"visitorData\":\"VD_XYZ\"}}");
+        InnertubeClient client;
+        QObject owner;
+        TransportReply *rep = client.get(srv.url(), &owner);
+        QSignalSpy spy(rep, SIGNAL(finished()));
+        QElapsedTimer et; et.start();
+        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(client.session().visitorData, QString("VD_XYZ"));
     }
 };
 QTEST_MAIN(TestClient)

@@ -21,14 +21,16 @@
 #include "requests/streamsrequest.h"
 #include "requests/commentrequest.h"
 #include "requests/categoryrequest.h"
+#include "requests/subtitlesrequest.h"
 #include <QMetaType>
 
 void registerMeeTubeMetaTypes() {
-    // Result value lists carried by the typed ready() signals (Phase 1 types only).
+    // Result value lists carried by the typed ready() signals.
     qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
     qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");
     qRegisterMetaType<QList<CT::Comment> >("QList<CT::Comment>");
     qRegisterMetaType<QList<CT::Category> >("QList<CT::Category>");
+    qRegisterMetaType<QList<CT::Subtitle> >("QList<CT::Subtitle>");
     // Status enum used by QSignalSpy / statusChanged.
     qRegisterMetaType<yt::ServiceRequest::Status>("yt::ServiceRequest::Status");
     // Typed request pointers (QML/registration convenience).
@@ -36,4 +38,5 @@ void registerMeeTubeMetaTypes() {
     qRegisterMetaType<yt::StreamsRequest*>("yt::StreamsRequest*");
     qRegisterMetaType<yt::CommentRequest*>("yt::CommentRequest*");
     qRegisterMetaType<yt::CategoryRequest*>("yt::CategoryRequest*");
+    qRegisterMetaType<yt::SubtitlesRequest*>("yt::SubtitlesRequest*");
 }

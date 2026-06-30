@@ -77,6 +77,9 @@ add_executable(meetube
     # from cuteTube2. Both declare Q_OBJECT -> moc'd via the target's AUTOMOC.
     src/harmattan/maskeffect.cpp
     src/harmattan/maskeditem.cpp
+    # QR image provider (image://qr/...) for the device-code login; renders via the
+    # bundled qrcodegen static lib (linked below).
+    src/harmattan/qrimageprovider.cpp
     # QML resources (main.qml + pages/components + avatar-mask.png) baked into the
     # binary; main.cpp loads qrc:/qml/main.qml. Compiled via the target's AUTORCC.
     resources/resources.qrc
@@ -94,6 +97,7 @@ target_include_directories(meetube PRIVATE src)
 
 target_link_libraries(meetube PRIVATE
     meetube-core
+    qrcodegen
     Qt4::QtCore
     Qt4::QtGui
     Qt4::QtDeclarative

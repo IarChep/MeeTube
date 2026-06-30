@@ -22,7 +22,7 @@ using namespace yt;
 static QList<QByteArray> videoRoles() {
     QList<QByteArray> r;
     r << "id" << "title" << "description" << "thumbnailUrl" << "largeThumbnailUrl"
-      << "date" << "duration" << "url" << "streamUrl" << "userId" << "username"
+      << "date" << "duration" << "url" << "streamUrl" << "userId" << "username" << "avatarUrl"
       << "viewCount" << "downloadable" << "commentsId" << "relatedVideosId" << "subtitlesId";
     return r;
 }
@@ -40,6 +40,7 @@ QVariantMap VideoModel::toMap(const CT::Video &v) {
     m["thumbnailUrl"] = v.thumbnailUrl; m["largeThumbnailUrl"] = v.largeThumbnailUrl;
     m["date"] = v.date; m["duration"] = v.duration; m["url"] = v.url;
     m["streamUrl"] = v.streamUrl; m["userId"] = v.userId; m["username"] = v.username;
+    m["avatarUrl"] = v.avatarUrl;
     m["viewCount"] = v.viewCount; m["downloadable"] = v.downloadable;
     m["commentsId"] = v.commentsId; m["relatedVideosId"] = v.relatedVideosId;
     m["subtitlesId"] = v.subtitlesId;

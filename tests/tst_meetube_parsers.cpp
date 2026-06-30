@@ -41,6 +41,20 @@ private slots:
     // Defensive: a pathologically deep payload must return safely, not overflow the
     // stack. The token is buried past the depth cap, so the walk gives up and returns
     // empty — the point is that it returns at all.
+    // P1.5: parseVideoRenderer pulls the channel avatar out of
+    // channelThumbnailSupportedRenderers (largest thumbnail wins).
+    void videoRendererAvatar() {
+        nlohmann::json r = {
+            {"videoId", "vid1"},
+            {"title", {{"simpleText", "T"}}},
+            {"channelThumbnailSupportedRenderers", {
+                {"channelThumbnailWithLinkRenderer", {
+                    {"thumbnail", {{"thumbnails", nlohmann::json::array({
+                        nlohmann::json{{"url", "https://small/a.jpg"}},
+                        nlohmann::json{{"url", "https://big/a.jpg"}} })}}}}}}}};
+        CT::Video v = parseVideoRenderer(r);
+        QCOMPARE(v.avatarUrl, QString("https://big/a.jpg"));
+    }
     void recursionDepthGuarded() {
         nlohmann::json deep = nlohmann::json::object();
         nlohmann::json *cur = &deep;
