@@ -55,7 +55,15 @@ Page {
 
     ListView {
         id: list
-        anchors.fill: parent
+        // Sit below the global HeaderBar (it overlays the top of the page area) and
+        // above the toolbar. headerBar.height animates 72 <-> 0, so the list tracks it.
+        anchors {
+            top: parent.top
+            topMargin: headerBar.height
+            left: parent.left
+            right: parent.right
+            bottom: parent.bottom
+        }
         clip: true
         cacheBuffer: 1000
         model: videoModel
