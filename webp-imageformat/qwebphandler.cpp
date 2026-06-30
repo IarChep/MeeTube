@@ -35,6 +35,13 @@ bool QWebpHandler::read(QImage *image) {
         || width <= 0 || height <= 0)
         return false;
 
+    // Cap dimensions as defense-in-depth on the 1GB device: a 8192x8192 ARGB32
+    // QImage is already 256MB. Qt's own allocation guard holds today, so no heap
+    // overflow exists — this is a deliberate divergence from the byte-identical
+    // cuteTube2 WebP port.
+    if (width > 8192 || height > 8192)
+        return false;
+
     QImage result(width, height, QImage::Format_ARGB32);
     if (result.isNull()) return false;
 

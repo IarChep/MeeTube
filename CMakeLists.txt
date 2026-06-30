@@ -14,9 +14,10 @@ option(BUILD_N9 "Cross-build for the Nokia N9 (device) rather than the host Simu
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# The N9 device build links the app as a PIE (-pie, required by the
-# qdeclarative booster), so every object linked into it must be
-# position-independent. Make all targets PIC/PIE.
+# Build every object position-independent. The N9 device app is currently a
+# plain EXEC (not yet -pie); PIC is kept on so that switching the app to a
+# booster/-pie link in the Phase-4 packaging work needs no per-target churn,
+# and so the MODULE plugins (e.g. libqwebp.so) are always PIC.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Propagate BUILD_N9 as a compile definition so device-only code can be
@@ -108,8 +109,8 @@ else()
     set(OSSL_CFG "")
 endif()
 # OpenSSL builds in-source (BUILD_IN_SOURCE) inside the shared deps/openssl
-# submodule, which is reused across the simulator (x86_64) and device (armel)
-# build trees. A stale object left by one target (e.g. a host x86-64 e_old.o)
+# submodule, which is reused across the simulator (x86_64) and device
+# (armv7hf — hard-float) build trees. A stale object left by one target (e.g. a host x86-64 e_old.o)
 # would otherwise get pulled into the other target's libcrypto.a, breaking the
 # link with "member ... in archive is not an object". Wipe the submodule's
 # build artifacts (git clean only removes untracked files; tracked source is
@@ -132,7 +133,7 @@ ExternalProject_Add(openssl102
 )
 
 # ---------------------------------------------------------------------------
-# libwebp — N9 device only (cross armel).
+# libwebp — N9 device only (cross armv7hf, hard-float).
 # ---------------------------------------------------------------------------
 if(BUILD_N9)
     set(LIBWEBP_INSTALL ${CMAKE_BINARY_DIR}/libwebp-install)
@@ -199,6 +200,19 @@ if(NOT BUILD_N9)
     target_link_libraries(meetube PRIVATE png12)
     add_dependencies(meetube libpng12_build libjpeg62_build openssl102)
     set_target_properties(meetube PROPERTIES BUILD_RPATH ${LIBPNG12_INSTALL}/lib)
+endif()
+
+if(BUILD_N9)
+    # The N9 Harmattan rootfs ships /lib/ld-linux.so.3 (it has NO armhf-suffixed loader),
+    # but the GCC-14 cross toolchain — targeting armv7hf (hard-float) — defaults PT_INTERP
+    # to /lib/ld-linux-armhf.so.3 — pin it back or the binary fails to exec on device
+    # (ENOENT). Static C++ runtime: the device's GCC-4.x libstdc++ lacks the newer
+    # GLIBCXX/CXXABI symbols this cross build emits.
+    # (Booster/-pie/-lmdeclarativecache + the /opt/meetube/lib install RPATH are deferred to
+    # the Phase-4 packaging work.)
+    target_link_options(meetube PRIVATE
+        -static-libstdc++ -static-libgcc
+        -Wl,--dynamic-linker,/lib/ld-linux.so.3)
 endif()
 
 # Install prefix: /opt/meetube

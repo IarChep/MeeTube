@@ -181,7 +181,7 @@ Persistence: `QSettings` (`<config>/meetube/accounts.conf`).
 - **WebP plugin deployment:** built to `<build>/qtplugins/imageformats/libqwebp.so`; `main.cpp`
   `addLibraryPath(WEBP_PLUGIN_DIR)` (sim: build dir; device: `/opt/meetube/qtplugins`). Device:
   `-static-libstdc++` + bundled `libwebp.so*` in `/opt/meetube/lib` (app `DT_RPATH`).
-- **Packaging:** `debian/` builds the armel `.deb` via `mad`/`dpkg-buildpackage`, installing the app
+- **Packaging:** `debian/` builds the armv7hf (hard-float) `.deb` via `mad`/`dpkg-buildpackage`, installing the app
   + bundled libs + the webp plugin + `.desktop`/icons under `/opt/meetube`.
 
 ## 9. Carry-over mapping (cuteTube2 → MeeTube)

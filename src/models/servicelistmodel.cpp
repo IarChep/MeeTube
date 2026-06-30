@@ -79,4 +79,9 @@ void ServiceListModel::setStatus(int s) {
     if (s != m_status) { m_status = s; emit statusChanged(); }
 }
 
-void ServiceListModel::setError(const QString &e) { m_error = e; }
+void ServiceListModel::setError(const QString &e) {
+    // errorString's Q_PROPERTY NOTIFY is statusChanged() — emit it so QML bindings
+    // on errorString re-evaluate even if a paired setStatus() didn't change status.
+    m_error = e;
+    emit statusChanged();
+}
