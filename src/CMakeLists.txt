@@ -68,4 +68,8 @@ if(NOT BUILD_N9)
     # Model + ServiceListModel live in meetube-core (linked above), so no extra
     # sources here — listing them again would cause duplicate-symbol link errors.
     mt_test(tst_meetube_model)
+    # InnertubeClient lifetime machinery (track/onFinished/onTimeout/
+    # onOwnerDestroyed) + the request Canceled guard. Drives the real m_nam over a
+    # local QTcpServer loopback (QtNetwork) and the async FakeTransport.
+    mt_test(tst_meetube_client)
 endif()

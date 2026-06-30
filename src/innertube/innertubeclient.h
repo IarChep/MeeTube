@@ -19,6 +19,11 @@ public:
 
     Session &session() { return m_session; }
 
+    // Watchdog interval for in-flight requests (ms). Defaults to 20s; lowered by
+    // tests to drive the timeout path without a 20s wait. Affects only requests
+    // started after the call.
+    void setTimeoutMs(int ms) { m_timeoutMs = ms; }
+
     void post(const QString &endpoint, ClientId client, const nlohmann::json &body, ReplyFn cb, QObject *owner = 0);
     void get(const QString &url, ReplyFn cb, QObject *owner = 0);
 
@@ -48,6 +53,7 @@ private:
 
     QNetworkAccessManager m_nam;
     Session m_session;
+    int m_timeoutMs;
     QHash<QObject * /*reply*/, Pending> m_pending;
     QHash<QObject * /*timer*/, QObject * /*reply*/> m_timerToReply;
 };

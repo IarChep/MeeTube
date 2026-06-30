@@ -11,7 +11,7 @@ namespace yt {
 // makes finished() fire, which routes through the normal failure path.
 static const int kRequestTimeoutMs = 20000;
 
-InnertubeClient::InnertubeClient(QObject *parent) : QObject(parent) {}
+InnertubeClient::InnertubeClient(QObject *parent) : QObject(parent), m_timeoutMs(kRequestTimeoutMs) {}
 
 InnertubeClient::~InnertubeClient()
 {
@@ -60,7 +60,7 @@ void InnertubeClient::track(QNetworkReply *reply, ReplyFn cb, QObject *owner)
 {
     QTimer *timer = new QTimer(this);
     timer->setSingleShot(true);
-    timer->setInterval(kRequestTimeoutMs);
+    timer->setInterval(m_timeoutMs);
 
     m_pending.insert(reply, Pending(cb, owner, timer));
     m_timerToReply.insert(timer, reply);
@@ -158,9 +158,11 @@ void InnertubeClient::onOwnerDestroyed(QObject *owner)
             continue;
         // Detach FIRST so the abort-driven finished() sees no entry and skips the
         // callback (whose owner is now gone). Stops+deletes the watchdog too.
+        // abort() makes finished() fire synchronously (same-thread direct connect),
+        // and onFinished() deleteLater()s the now-untracked reply — so we must NOT
+        // call deleteLater() again here.
         detach(r);
         r->abort();
-        r->deleteLater();
     }
 }
 

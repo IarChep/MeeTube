@@ -276,8 +276,8 @@ git commit -m "feat(core): port renderer + player parsers with fixtures"
 
 **Files:** none (validation).
 
-- [ ] **Step 1: Cross-build.** `./configure n9 && make -C build-n9 -j"$(nproc)" meetube qwebp` → builds for armel (deps openssl/libwebp cross-build from `deps/`; libpng12/libjpeg from the device sysroot).
-- [ ] **Step 2: Verify the webp plugin** is armel + statically links libstdc++ (no `GLIBCXX`) — `readelf -d build-n9/qtplugins/imageformats/libqwebp.so` shows `libwebp.so.7` + no `libstdc++`.
+- [ ] **Step 1: Cross-build.** `./configure n9 && make -C build-n9 -j"$(nproc)" meetube qwebp` → builds for armv7hf (hard-float; deps openssl/libwebp cross-build from `deps/`; libpng12/libjpeg from the device sysroot). Hard-float is why the GCC-14 toolchain defaults PT_INTERP to `/lib/ld-linux-armhf.so.3` and the app must pin it back to `/lib/ld-linux.so.3` (the only loader on the N9 rootfs).
+- [ ] **Step 2: Verify the webp plugin** is armv7hf + statically links libstdc++ (no `GLIBCXX`) — `readelf -d build-n9/qtplugins/imageformats/libqwebp.so` shows `libwebp.so.7` + no `libstdc++`.
 - [ ] **Step 3: Record** the result in the ledger. (Actual on-device run is a later/UI gate.)
 
 ---

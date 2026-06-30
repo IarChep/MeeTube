@@ -10,7 +10,7 @@ set_target_properties(qwebp PROPERTIES
 target_link_libraries(qwebp PRIVATE Qt4::QtGui Qt4::QtCore)
 
 if(BUILD_N9)
-    # Cross-built libwebp (armel) — see the libwebp ExternalProject in the root CMakeLists.
+    # Cross-built libwebp (armv7hf, hard-float) — see the libwebp ExternalProject in the root CMakeLists.
     add_dependencies(qwebp libwebp_build)
     target_include_directories(qwebp PRIVATE ${LIBWEBP_INSTALL}/include)
     target_link_libraries(qwebp PRIVATE ${LIBWEBP_SO})
