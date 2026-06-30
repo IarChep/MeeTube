@@ -34,7 +34,8 @@ private:
 class FakeTransport : public yt::ITransport {
 public:
     void queue(const QString &endpoint, const nlohmann::json &reply) { m_q[endpoint].enqueue(reply); }
-    QList<nlohmann::json> sent;   // bodies actually posted, for assertions
+    QList<nlohmann::json> sent;                       // JSON bodies posted, for assertions
+    QList<QPair<QString, QMap<QString, QString> > > sentForm;  // (url, fields) of postForm calls
 
     yt::TransportReply *post(const QString &endpoint, yt::ClientId, const nlohmann::json &body, QObject *owner = 0) {
         sent << body;
@@ -47,6 +48,15 @@ public:
     }
     yt::TransportReply *get(const QString &, QObject *owner = 0) {
         yt::Reply r; r.ok = false; r.error = "no get fixture";
+        FakeReply *rep = new FakeReply(r, owner);
+        m_pending << rep;
+        return rep;
+    }
+    yt::TransportReply *postForm(const QString &url, const QMap<QString, QString> &fields, QObject *owner = 0) {
+        sentForm << qMakePair(url, fields);
+        yt::Reply r;
+        if (!m_q[url].isEmpty()) { r.ok = true; r.json = m_q[url].dequeue(); }
+        else { r.ok = false; r.error = "no fixture queued for " + url; }
         FakeReply *rep = new FakeReply(r, owner);
         m_pending << rep;
         return rep;
