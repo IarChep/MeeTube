@@ -1,14 +1,22 @@
 #include <QtTest/QtTest>
 #include "testutil.h"
 #include "models/videomodel.h"
+#include "models/streammodel.h"
+#include "models/commentmodel.h"
+#include "models/categorymodel.h"
+#include "models/subtitlemodel.h"
 #include "requests/servicerequest.h"
 #include "requests/videorequest.h"
+#include "requests/streamsrequest.h"
+#include "requests/commentrequest.h"
+#include "requests/categoryrequest.h"
+#include "requests/subtitlesrequest.h"
 
 using namespace yt;
 
-// VideoModel subclass that injects a FakeTransport-backed request through the
-// newRequest() test seam — exercises the real model code path (list -> request
-// -> direct call -> ready -> appendItems) with zero network access.
+// Model subclasses that inject a FakeTransport-backed request through the
+// newRequest() test seam — exercises the real model code path (call -> request ->
+// direct dispatch -> ready -> append/reset) with zero network access.
 class TestVideoModel : public VideoModel {
 public:
     explicit TestVideoModel(QObject *parent = 0) : VideoModel(parent) {}
@@ -17,10 +25,41 @@ protected:
     VideoRequest* newRequest() { return new VideoRequest(&m_fake, this); }
 };
 
+class TestStreamModel : public StreamModel {
+public:
+    FakeTransport m_fake;
+protected:
+    StreamsRequest* newRequest() { return new StreamsRequest(&m_fake, this); }
+};
+
+class TestCommentModel : public CommentModel {
+public:
+    FakeTransport m_fake;
+protected:
+    CommentRequest* newRequest() { return new CommentRequest(&m_fake, this); }
+};
+
+class TestCategoryModel : public CategoryModel {
+protected:
+    // CategoryRequest is synchronous (no transport); just avoid the singleton.
+    CategoryRequest* newRequest() { return new CategoryRequest(this); }
+};
+
+class TestSubtitleModel : public SubtitleModel {
+public:
+    FakeTransport m_fake;
+protected:
+    SubtitlesRequest* newRequest() { return new SubtitlesRequest(&m_fake, this); }
+};
+
 class TestModel : public QObject { Q_OBJECT
 private slots:
     void initTestCase() {
         qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
+        qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");
+        qRegisterMetaType<QList<CT::Comment> >("QList<CT::Comment>");
+        qRegisterMetaType<QList<CT::Category> >("QList<CT::Category>");
+        qRegisterMetaType<QList<CT::Subtitle> >("QList<CT::Subtitle>");
     }
 
     void listPopulatesModel() {
@@ -60,6 +99,48 @@ private slots:
         QVERIFY(model.m_fake.sent.at(1).contains("continuation"));
         QCOMPARE(QString::fromStdString(model.m_fake.sent.at(1).value("continuation", std::string())),
                  QString("FEEDNEXT"));
+    }
+
+    void streamModelPopulates() {
+        TestStreamModel model;
+        model.m_fake.queue("player", loadFixture("player_ios.json"));
+        model.get("aaa11111111");
+        model.m_fake.flush();
+        QVERIFY(model.rowCount() >= 3);
+        QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("hls"));
+        QVERIFY(!model.data(0, QByteArray("url")).toString().isEmpty());
+        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+    }
+
+    void commentModelPopulates() {
+        TestCommentModel model;
+        model.m_fake.queue("next", loadFixture("next_for_comments.json"));  // discover token
+        model.m_fake.queue("next", loadFixture("comments_page.json"));      // the comments
+        model.list("aaa11111111");
+        model.m_fake.flush();
+        QCOMPARE(model.rowCount(), 2);
+        QVERIFY(!model.data(0, QByteArray("body")).toString().isEmpty());
+        QVERIFY(model.canFetchMore());     // comments_page has a continuation token
+        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+    }
+
+    void categoryModelPopulates() {
+        TestCategoryModel model;
+        model.list();                       // synchronous — no flush needed
+        QVERIFY(model.rowCount() >= 2);
+        QCOMPARE(model.data(0, QByteArray("title")).toString(), QString("Music"));
+        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+    }
+
+    void subtitleModelPopulates() {
+        TestSubtitleModel model;
+        model.m_fake.queue("player", loadFixture("player_ios.json"));   // has captionTracks
+        model.get("aaa11111111");
+        model.m_fake.flush();
+        QVERIFY(model.rowCount() >= 1);
+        QVERIFY(!model.data(0, QByteArray("url")).toString().isEmpty());
+        QVERIFY(!model.data(0, QByteArray("language")).toString().isEmpty());
+        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
     }
 };
 

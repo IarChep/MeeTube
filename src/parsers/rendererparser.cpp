@@ -35,6 +35,13 @@ CT::Video parseVideoRenderer(const nlohmann::json &r) {
     if (v.thumbnailUrl.isEmpty() && !v.id.isEmpty())
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
     v.largeThumbnailUrl = v.thumbnailUrl;
+    // Channel avatar: videoRenderer.channelThumbnailSupportedRenderers
+    //   .channelThumbnailWithLinkRenderer.thumbnail.thumbnails[].url
+    if (r.contains("channelThumbnailSupportedRenderers")) {
+        const nlohmann::json &cts = r.at("channelThumbnailSupportedRenderers");
+        if (cts.contains("channelThumbnailWithLinkRenderer"))
+            v.avatarUrl = lastThumb(cts.at("channelThumbnailWithLinkRenderer"));
+    }
     if (r.contains("viewCountText")) {
         const QString vc = parseText(r.at("viewCountText"));
         v.viewCount = QString(vc).remove(QRegExp("[^0-9]")).toLongLong();

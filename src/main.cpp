@@ -11,9 +11,14 @@
 #include <QDeclarativeView>
 
 #include "models/videomodel.h"
+#include "models/streammodel.h"
+#include "models/commentmodel.h"
+#include "models/categorymodel.h"
+#include "models/subtitlemodel.h"
 #include "models/servicemetatypes.h"
 #include "innertube/innertube.h"
 #include "harmattan/maskeditem.h"
+#include "harmattan/qrimageprovider.h"
 
 Q_DECL_EXPORT int main(int argc, char *argv[])
 {
@@ -48,9 +53,14 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
 
     registerMeeTubeMetaTypes();
     qmlRegisterType<VideoModel>("MeeTube", 1, 0, "VideoModel");
+    qmlRegisterType<StreamModel>("MeeTube", 1, 0, "StreamModel");
+    qmlRegisterType<CommentModel>("MeeTube", 1, 0, "CommentModel");
+    qmlRegisterType<CategoryModel>("MeeTube", 1, 0, "CategoryModel");
+    qmlRegisterType<SubtitleModel>("MeeTube", 1, 0, "SubtitleModel");
     qmlRegisterType<MaskedItem>("MeeTube", 1, 0, "MaskedItem");
 
     QmlApplicationViewer viewer;
+    viewer.engine()->addImageProvider("qr", new QrImageProvider);   // image://qr/<text>
     viewer.rootContext()->setContextProperty("innertube", yt::Innertube::instance());
     viewer.setOrientation(QmlApplicationViewer::ScreenOrientationLockPortrait);
     viewer.setSource(QUrl("qrc:/qml/main.qml"));   // UI is out of scope; placeholder for now

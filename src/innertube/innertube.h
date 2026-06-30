@@ -26,6 +26,7 @@
 #include "requests/streamsrequest.h"
 #include "requests/commentrequest.h"
 #include "requests/categoryrequest.h"
+#include "requests/subtitlesrequest.h"
 
 namespace yt {
 
@@ -50,6 +51,7 @@ public:
     Q_INVOKABLE StreamsRequest*  createStreamsRequest()  { return new StreamsRequest(&m_client, this); }
     Q_INVOKABLE CommentRequest*  createCommentRequest()  { return new CommentRequest(&m_client, this); }
     Q_INVOKABLE CategoryRequest* createCategoryRequest() { return new CategoryRequest(this); }
+    Q_INVOKABLE SubtitlesRequest* createSubtitlesRequest() { return new SubtitlesRequest(&m_client, this); }
 
     Q_INVOKABLE QVariantList navEntries() const;       // hardcoded (ported from the YouTube plugin)
     Q_INVOKABLE QVariantList searchTypes() const;      // hardcoded (ported from the YouTube plugin)

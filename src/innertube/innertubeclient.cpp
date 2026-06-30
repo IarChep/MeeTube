@@ -125,13 +125,32 @@ TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, 
         req.setRawHeader(hs[i].first, hs[i].second);
 
     QNetworkReply *reply = m_nam.post(req, QByteArray(s.data(), (int)s.size()));
-    return new NamReply(reply, m_timeoutMs, owner ? owner : this);
+    TransportReply *rep = new NamReply(reply, m_timeoutMs, owner ? owner : this);
+    connect(rep, SIGNAL(finished()), this, SLOT(captureVisitorData()));
+    return rep;
 }
 
 TransportReply *InnertubeClient::get(const QString &url, QObject *owner)
 {
     QNetworkReply *reply = m_nam.get(QNetworkRequest(QUrl(url)));
-    return new NamReply(reply, m_timeoutMs, owner ? owner : this);
+    TransportReply *rep = new NamReply(reply, m_timeoutMs, owner ? owner : this);
+    connect(rep, SIGNAL(finished()), this, SLOT(captureVisitorData()));
+    return rep;
+}
+
+void InnertubeClient::captureVisitorData()
+{
+    if (!m_session.visitorData.isEmpty())
+        return;
+    TransportReply *rep = qobject_cast<TransportReply *>(sender());
+    if (!rep)
+        return;
+    const Reply r = rep->result();
+    if (!r.ok || !r.json.is_object() || !r.json.contains("responseContext"))
+        return;
+    const nlohmann::json &rc = r.json["responseContext"];
+    if (rc.is_object() && rc.contains("visitorData") && rc["visitorData"].is_string())
+        m_session.visitorData = QString::fromStdString(rc["visitorData"].get<std::string>());
 }
 
 } // namespace yt
