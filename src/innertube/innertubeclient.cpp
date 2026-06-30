@@ -3,34 +3,27 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QTimer>
+#include <QPointer>
 #include <QUrl>
 
 namespace yt {
 
 // Watchdog: abort a request that has not finished within this many ms. Aborting
-// makes finished() fire, which routes through the normal failure path.
+// makes QNetworkReply::finished() fire, which routes through the normal teardown.
 static const int kRequestTimeoutMs = 20000;
 
-InnertubeClient::InnertubeClient(QObject *parent) : QObject(parent), m_timeoutMs(kRequestTimeoutMs) {}
-
-InnertubeClient::~InnertubeClient()
-{
-    // Stop every outstanding watchdog so a queued timeout can't fire into a
-    // half-destroyed object. The QNetworkReply children of m_nam are cleaned up
-    // by its own destruction; we only own the timers here.
-    for (QHash<QObject *, Pending>::const_iterator it = m_pending.constBegin();
-         it != m_pending.constEnd(); ++it) {
-        if (it.value().timer) {
-            it.value().timer->stop();
-            delete it.value().timer;
-        }
-    }
-}
-
-static Reply makeReply(QNetworkReply *r)
+// Build a Reply from a finished QNetworkReply. `timedOut` is set by the watchdog
+// path so a timeout is reported distinctly from a transport error / user cancel.
+static Reply makeReply(QNetworkReply *r, bool timedOut)
 {
     Reply out;
+    out.timedOut = timedOut;
     const QByteArray body = r->readAll();
+    if (timedOut) {
+        out.ok = false;
+        out.error = QString::fromLatin1("request timed out");
+        return out;
+    }
     if (r->error() != QNetworkReply::NoError && body.isEmpty()) {
         out.ok = false;
         out.error = r->errorString();
@@ -39,7 +32,7 @@ static Reply makeReply(QNetworkReply *r)
     out.json = nlohmann::json::parse(body.constData(), body.constData() + body.size(), nullptr, false);
     if (out.json.is_discarded()) {
         out.ok = false;
-        out.error = "invalid JSON response";
+        out.error = QString::fromLatin1("invalid JSON response");
         return out;
     }
     if (out.json.is_object() && out.json.contains("error")) {
@@ -49,45 +42,78 @@ static Reply makeReply(QNetworkReply *r)
         // default only returns the value when it is actually a string, else default.
         out.error = err.is_object()
             ? QString::fromStdString(err.value("message", std::string("InnerTube error")))
-            : QString("InnerTube error");
+            : QString::fromLatin1("InnerTube error");
         return out;
     }
     out.ok = true;
     return out;
 }
 
-void InnertubeClient::track(QNetworkReply *reply, ReplyFn cb, QObject *owner)
-{
-    QTimer *timer = new QTimer(this);
-    timer->setSingleShot(true);
-    timer->setInterval(m_timeoutMs);
-
-    m_pending.insert(reply, Pending(cb, owner, timer));
-    m_timerToReply.insert(timer, reply);
-
-    if (owner)
-        connect(owner, SIGNAL(destroyed(QObject *)), this, SLOT(onOwnerDestroyed(QObject *)), Qt::UniqueConnection);
-
-    connect(reply, SIGNAL(finished()), this, SLOT(onFinished()));
-    connect(timer, SIGNAL(timeout()), this, SLOT(onTimeout()));
-    timer->start();
-}
-
-InnertubeClient::Pending InnertubeClient::detach(QNetworkReply *reply)
-{
-    // Removing the entry from m_pending is the single point that makes a reply
-    // "handled" — every other path re-checks m_pending and bails if it is gone,
-    // so timeout vs. normal-finish vs. owner-death can never double-dispatch.
-    Pending p = m_pending.take(reply);
-    if (p.timer) {
-        p.timer->stop();
-        m_timerToReply.remove(p.timer);
-        p.timer->deleteLater();
+// One in-flight request. Owns its QNetworkReply (via deleteLater discipline) and a
+// single-shot watchdog QTimer (a child). Emits finished() exactly once on the first
+// of {normal finish, timeout-abort}. If destroyed before that — its owner (the
+// request) was deleted — it aborts the reply silently and emits nothing, so no
+// callback can run against a dead owner (the use-after-free guarantee, now expressed
+// through Qt parent ownership instead of an owner-watch hash).
+class NamReply : public TransportReply {
+    Q_OBJECT
+public:
+    NamReply(QNetworkReply *reply, int timeoutMs, QObject *owner)
+        : TransportReply(owner), m_reply(reply), m_done(false), m_timedOut(false)
+    {
+        connect(m_reply, SIGNAL(finished()), this, SLOT(onReplyFinished()));
+        if (timeoutMs > 0) {
+            QTimer *t = new QTimer(this);
+            t->setSingleShot(true);
+            connect(t, SIGNAL(timeout()), this, SLOT(onTimeout()));
+            t->start(timeoutMs);
+        }
     }
-    return p;
-}
 
-void InnertubeClient::post(const QString &endpoint, ClientId client, const nlohmann::json &body, ReplyFn cb, QObject *owner)
+    ~NamReply()
+    {
+        // Destroyed mid-flight (owner died before the reply arrived): disconnect so
+        // the abort-driven finished() can't re-enter us, abort, and reap the reply.
+        if (!m_done && m_reply) {
+            m_reply->disconnect(this);
+            m_reply->abort();
+            m_reply->deleteLater();
+        }
+    }
+
+    Reply result() const { return m_result; }
+
+private Q_SLOTS:
+    void onReplyFinished()
+    {
+        if (m_done)
+            return;
+        m_done = true;
+        m_result = makeReply(m_reply, m_timedOut);
+        m_reply->deleteLater();
+        emit finished();
+    }
+
+    void onTimeout()
+    {
+        if (m_done || !m_reply)
+            return;
+        m_timedOut = true;
+        // abort() makes finished() fire, which runs the single onReplyFinished()
+        // teardown — building a timedOut Reply. No dispatch happens here.
+        m_reply->abort();
+    }
+
+private:
+    QPointer<QNetworkReply> m_reply;
+    Reply m_result;
+    bool m_done;
+    bool m_timedOut;
+};
+
+InnertubeClient::InnertubeClient(QObject *parent) : QObject(parent), m_timeoutMs(kRequestTimeoutMs) {}
+
+TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, const nlohmann::json &body, QObject *owner)
 {
     nlohmann::json payload = body;
     payload["context"] = ContextBuilder::context(client, m_session);
@@ -99,71 +125,15 @@ void InnertubeClient::post(const QString &endpoint, ClientId client, const nlohm
         req.setRawHeader(hs[i].first, hs[i].second);
 
     QNetworkReply *reply = m_nam.post(req, QByteArray(s.data(), (int)s.size()));
-    track(reply, cb, owner);
+    return new NamReply(reply, m_timeoutMs, owner ? owner : this);
 }
 
-void InnertubeClient::get(const QString &url, ReplyFn cb, QObject *owner)
+TransportReply *InnertubeClient::get(const QString &url, QObject *owner)
 {
     QNetworkReply *reply = m_nam.get(QNetworkRequest(QUrl(url)));
-    track(reply, cb, owner);
-}
-
-void InnertubeClient::onFinished()
-{
-    QNetworkReply *r = qobject_cast<QNetworkReply *>(sender());
-    if (!r)
-        return;
-    // If the reply is no longer tracked, it was already detached by
-    // onOwnerDestroyed() (owner died) — drop it without calling the callback.
-    if (!m_pending.contains(r)) {
-        r->deleteLater();
-        return;
-    }
-    Pending p = detach(r);
-    Reply rep = makeReply(r);
-    r->deleteLater();
-    if (p.cb)
-        p.cb(rep);
-}
-
-void InnertubeClient::onTimeout()
-{
-    QTimer *timer = qobject_cast<QTimer *>(sender());
-    if (!timer)
-        return;
-    QObject *obj = m_timerToReply.value(timer, 0);
-    QNetworkReply *r = qobject_cast<QNetworkReply *>(obj);
-    if (!r)
-        return;
-    // Don't dispatch here: aborting makes finished() fire, which runs the single
-    // normal teardown/dispatch path in onFinished(). The error string set by the
-    // abort surfaces there via makeReply().
-    r->abort();
-}
-
-void InnertubeClient::onOwnerDestroyed(QObject *owner)
-{
-    // Collect every reply whose owner just died, then detach + abort each. We
-    // gather first so we don't mutate m_pending while iterating it.
-    QList<QNetworkReply *> doomed;
-    for (QHash<QObject *, Pending>::const_iterator it = m_pending.constBegin();
-         it != m_pending.constEnd(); ++it) {
-        if (it.value().owner == owner)
-            doomed.append(qobject_cast<QNetworkReply *>(it.key()));
-    }
-
-    for (int i = 0; i < doomed.size(); ++i) {
-        QNetworkReply *r = doomed[i];
-        if (!r)
-            continue;
-        // Detach FIRST so the abort-driven finished() sees no entry and skips the
-        // callback (whose owner is now gone). Stops+deletes the watchdog too.
-        // abort() makes finished() fire synchronously (same-thread direct connect),
-        // and onFinished() deleteLater()s the now-untracked reply — so we must NOT
-        // call deleteLater() again here.
-        detach(r);
-        r->abort();
-    }
+    return new NamReply(reply, m_timeoutMs, owner ? owner : this);
 }
 
 } // namespace yt
+
+#include "innertubeclient.moc"

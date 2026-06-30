@@ -28,8 +28,8 @@ Innertube::Innertube(QObject *parent) : QObject(parent), m_client(this) {
 Innertube* Innertube::instance() { return self ? self : self = new Innertube; }
 
 void Innertube::applySettings(const QString &region, const QString &language) {
-    if (!region.isEmpty())   m_client.session().gl = region.toStdString();
-    if (!language.isEmpty()) m_client.session().hl = language.toStdString();
+    if (!region.isEmpty())   m_client.session().gl = region;
+    if (!language.isEmpty()) m_client.session().hl = language;
 }
 
 QVariantList Innertube::navEntries() const {

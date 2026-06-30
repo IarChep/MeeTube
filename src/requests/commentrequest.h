@@ -25,20 +25,28 @@ namespace yt {
 class CommentRequest : public ServiceRequest {
     Q_OBJECT
 public:
-    explicit CommentRequest(ITransport *t, QObject *parent = 0) : ServiceRequest(parent), m_t(t) {}
+    explicit CommentRequest(ITransport *t, QObject *parent = 0)
+        : ServiceRequest(parent), m_t(t), m_mode(ModePage) {}
 public Q_SLOTS:
     void list(const QString &videoId, const QString &page);
-    // Forget the in-flight reply: marking the request Canceled makes the captured
-    // callback return early before it parses/delivers (and stops the two-step chain).
-    // The transport also aborts the network reply (we passed `this` as owner).
+    // Forget the in-flight reply: marking the request Canceled makes onFinished()
+    // bail before it parses/delivers (and stops the two-step chain). The transport
+    // also aborts the network reply (the handle is parented to `this`).
     void cancel();
 Q_SIGNALS:
     void ready(const QList<CT::Comment> &comments, const QString &nextPageToken);
 protected:
     void deliver(const QList<CT::Comment> &comments, const QString &nextPageToken = QString());
+private Q_SLOTS:
+    void onFinished();
 private:
     void fetchPage(const QString &token);
+    // ModeDiscover: the first /next (by videoId) whose response carries the
+    // comments-section continuation token. ModePage: a /next by continuation that
+    // returns the actual comments.
+    enum Mode { ModeDiscover, ModePage };
     ITransport *m_t;
+    Mode m_mode;
 };
 
 }

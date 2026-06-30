@@ -23,6 +23,7 @@ private slots:
         StreamsRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Stream>)));
         req.get("aaa11111111");
+        t.flush();
         QCOMPARE(spy.count(), 1);
         QList<CT::Stream> got = qvariant_cast<QList<CT::Stream> >(spy.at(0).at(0));
         QVERIFY(got.size() >= 3);
@@ -42,6 +43,7 @@ private slots:
         StreamsRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Stream>)));
         req.get("vid");
+        t.flush();
         QCOMPARE(spy.count(), 1);
         QList<CT::Stream> got = qvariant_cast<QList<CT::Stream> >(spy.at(0).at(0));
         QVERIFY(got.size() >= 3);
@@ -55,6 +57,7 @@ private slots:
         VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         req.list("FEwhat_to_watch", QString());
+        t.flush();
         QCOMPARE(spy.count(), 1);
         QList<CT::Video> got = qvariant_cast<QList<CT::Video> >(spy.at(0).at(0));
         QCOMPARE(got.size(), 2);
@@ -68,6 +71,7 @@ private slots:
         VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         req.search("cats", "date");
+        t.flush();
         QCOMPARE(spy.count(), 1);
         QCOMPARE(QString::fromStdString(t.sent.at(0).value("query", std::string())), QString("cats"));
         QVERIFY(t.sent.at(0).contains("params"));   // date sort param attached
@@ -77,6 +81,7 @@ private slots:
         VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         req.get("aaa11111111");
+        t.flush();
         QCOMPARE(spy.count(), 1);
         QList<CT::Video> got = qvariant_cast<QList<CT::Video> >(spy.at(0).at(0));
         QCOMPARE(got.size(), 1);
@@ -89,6 +94,7 @@ private slots:
         VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         req.list("FEwhat_to_watch", "SOMETOKEN");
+        t.flush();
         QCOMPARE(spy.count(), 1);
         QVERIFY(t.sent.at(0).contains("continuation"));
         QVERIFY(!t.sent.at(0).contains("browseId"));
@@ -102,6 +108,7 @@ private slots:
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
         QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
         req.get("aaa11111111");
+        t.flush();
         QCOMPARE(readySpy.count(), 0);
         QCOMPARE(failedSpy.count(), 1);
         QCOMPARE((int)req.status(), (int)ServiceRequest::Failed);
@@ -118,6 +125,7 @@ private slots:
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Stream>)));
         QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
         req.get("vid");
+        t.flush();
         QCOMPARE(readySpy.count(), 0);
         QCOMPARE(failedSpy.count(), 1);
         QCOMPARE((int)req.status(), (int)ServiceRequest::Failed);
@@ -132,6 +140,7 @@ private slots:
         CommentRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
         req.list("aaa11111111", QString());
+        t.flush();
         QCOMPARE(spy.count(), 1);
         QList<CT::Comment> got = qvariant_cast<QList<CT::Comment> >(spy.at(0).at(0));
         QCOMPARE(got.size(), 2);
@@ -147,6 +156,7 @@ private slots:
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
         QSignalSpy failSpy(&req, SIGNAL(failed(QString)));
         req.list("aaa11111111", QString());
+        t.flush();
         QCOMPARE(t.sent.size(), 1);          // only ONE POST — no second fetch
         QCOMPARE(readySpy.count(), 1);
         QCOMPARE(failSpy.count(), 0);
@@ -160,6 +170,7 @@ private slots:
         CommentRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
         req.list(QString(), QString("EXISTING_TOKEN"));
+        t.flush();
         QCOMPARE(t.sent.size(), 1);          // only ONE POST, no discovery step
         QCOMPARE(QString::fromStdString(t.sent.at(0).value("continuation", std::string())), QString("EXISTING_TOKEN"));
         QCOMPARE(spy.count(), 1);
@@ -173,6 +184,41 @@ private slots:
         QList<CT::Category> got = qvariant_cast<QList<CT::Category> >(spy.at(0).at(0));
         QVERIFY(got.size() >= 2);
         QCOMPARE(got[0].title, QString("Music"));
+    }
+
+    // P0.5: playable status but no videoDetails must fail, not deliver a blank Video.
+    void videoGetEmptyDetails() {
+        FakeTransport t;
+        t.queue("player", nlohmann::json{{"playabilityStatus", {{"status", "OK"}}}});
+        VideoRequest req(&t);
+        QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
+        QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
+        req.get("zzz");
+        t.flush();
+        QCOMPARE(readySpy.count(), 0);
+        QCOMPARE(failedSpy.count(), 1);
+        QCOMPARE((int)req.status(), (int)ServiceRequest::Failed);
+    }
+
+    // P0.5: both clients return playable-but-all-ciphered formats → a distinct error
+    // (so the UI can choose a system-handoff) rather than a generic "no streams".
+    void streamsAllCiphered() {
+        FakeTransport t;
+        nlohmann::json ciphered{
+            {"playabilityStatus", {{"status", "OK"}}},
+            {"streamingData", {{"formats", nlohmann::json::array({
+                nlohmann::json{{"itag", 18}, {"signatureCipher", "s=xx"}} })}}}};
+        t.queue("player", ciphered);
+        t.queue("player", ciphered);
+        StreamsRequest req(&t);
+        QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Stream>)));
+        QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
+        req.get("vid");
+        t.flush();
+        QCOMPARE(readySpy.count(), 0);
+        QCOMPARE(failedSpy.count(), 1);
+        QVERIFY(failedSpy.at(0).at(0).toString().contains("decipher"));
+        QCOMPARE(t.sent.size(), 2);   // tried IOS, then ANDROID
     }
 };
 QTEST_MAIN(TestRequests)

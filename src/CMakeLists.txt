@@ -10,6 +10,7 @@ add_library(meetube-core STATIC
     parsers/playerparser.cpp
     innertube/clientconfig.cpp
     innertube/contextbuilder.cpp
+    innertube/itransport.cpp
     innertube/innertubeclient.cpp
     requests/servicerequest.cpp
     requests/videorequest.cpp

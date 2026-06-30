@@ -27,24 +27,38 @@ static nlohmann::json playerBody(const QString &videoId) {
 
 void StreamsRequest::get(const QString &videoId) {
     setStatus(Loading);
-    tryClient(videoId, ClientId::IOS, ClientId::ANDROID);
+    m_videoId = videoId;
+    tryClient(ClientId::IOS);
 }
 
-// Try `client`; on empty/failure fall back to `fallback` (once), then fail.
-void StreamsRequest::tryClient(const QString &videoId, ClientId client, ClientId fallback) {
-    const bool isLast = (client == fallback);
-    m_t->post("player", client, playerBody(videoId), [this, videoId, client, fallback, isLast](const Reply &r) {
-        if (status() == ServiceRequest::Canceled) return;
-        if (r.ok) {
-            QString reason;
-            if (isPlayable(r.json, &reason)) {
-                QList<CT::Stream> s = parseStreams(r.json);
-                if (!s.isEmpty()) { deliver(s); return; }
-            } else if (isLast) { fail(reason); return; }
-        }
-        if (isLast) { fail(r.ok ? "no playable streams" : r.error); return; }
-        tryClient(videoId, fallback, fallback);   // fallback is its own last attempt
-    }, this);
+// Post /player as `client`; onFinished() decides whether to fall back to ANDROID.
+void StreamsRequest::tryClient(ClientId client) {
+    m_client = client;
+    connect(m_t->post("player", client, playerBody(m_videoId), this),
+            SIGNAL(finished()), this, SLOT(onFinished()));
+}
+
+void StreamsRequest::onFinished() {
+    TransportReply *rep = qobject_cast<TransportReply *>(sender());
+    if (!rep) return;
+    const Reply r = rep->result();
+    rep->deleteLater();
+    if (status() == ServiceRequest::Canceled) return;   // not aborted(): we may fall back on !r.ok
+
+    const bool isLast = (m_client == ClientId::ANDROID);
+    if (r.ok) {
+        QString reason;
+        if (isPlayable(r.json, &reason)) {
+            bool cipheredOnly = false;
+            QList<CT::Stream> s = parseStreams(r.json, &cipheredOnly);
+            if (!s.isEmpty()) { deliver(s); return; }
+            // Distinguish "every format needs signature decipher (unsupported)" from a
+            // plain empty response, so the UI can fall through to a system-handoff.
+            if (isLast && cipheredOnly) { fail("streams require signature decipher (unsupported)"); return; }
+        } else if (isLast) { fail(reason); return; }
+    }
+    if (isLast) { fail(r.ok ? "no playable streams" : r.error); return; }
+    tryClient(ClientId::ANDROID);   // ANDROID is its own last attempt
 }
 
 void StreamsRequest::cancel() { setStatus(Canceled); }

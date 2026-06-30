@@ -25,21 +25,28 @@ namespace yt {
 class VideoRequest : public ServiceRequest {
     Q_OBJECT
 public:
-    explicit VideoRequest(ITransport *t, QObject *parent = 0) : ServiceRequest(parent), m_t(t) {}
+    explicit VideoRequest(ITransport *t, QObject *parent = 0)
+        : ServiceRequest(parent), m_t(t), m_mode(ModeList) {}
 public Q_SLOTS:
     void list(const QString &resourceId, const QString &page);
     void search(const QString &query, const QString &order);
     void get(const QString &id);
-    // Forget the in-flight reply: marking the request Canceled makes the captured
-    // callback return early before it parses/delivers. The transport also aborts
-    // the network reply because we passed `this` as its owner.
+    // Forget the in-flight reply: marking the request Canceled makes onFinished()
+    // bail (via aborted()) before it parses/delivers. The transport also aborts the
+    // network reply because the reply handle is parented to `this`.
     void cancel();
 Q_SIGNALS:
     void ready(const QList<CT::Video> &videos, const QString &nextPageToken);
 protected:
     void deliver(const QList<CT::Video> &videos, const QString &nextPageToken = QString());
+private Q_SLOTS:
+    void onFinished();
 private:
+    // list()/search() share one parse path (a video list); get() reads a single
+    // player response — m_mode tells onFinished() which.
+    enum Mode { ModeList, ModeGet };
     ITransport *m_t;
+    Mode m_mode;
 };
 
 }
