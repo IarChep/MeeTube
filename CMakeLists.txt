@@ -166,6 +166,11 @@ target_include_directories(qrcodegen PUBLIC ${CMAKE_SOURCE_DIR}/deps/qrcodegen/c
 add_subdirectory(src)
 
 # ---------------------------------------------------------------------------
+# WebP image-format plugin (libqwebp.so).
+# ---------------------------------------------------------------------------
+add_subdirectory(webp-imageformat)
+
+# ---------------------------------------------------------------------------
 # Application: meetube executable
 # ---------------------------------------------------------------------------
 add_executable(meetube
@@ -190,3 +195,14 @@ endif()
 install(TARGETS meetube
     RUNTIME DESTINATION /opt/meetube/bin
 )
+
+# ---------------------------------------------------------------------------
+# WebP plugin dir — let main.cpp register it as a Qt library path.
+# ---------------------------------------------------------------------------
+if(BUILD_N9)
+    set(WEBP_PLUGIN_DIR "/opt/meetube/qtplugins")
+else()
+    set(WEBP_PLUGIN_DIR "${CMAKE_BINARY_DIR}/qtplugins")
+endif()
+target_compile_definitions(meetube PRIVATE WEBP_PLUGIN_DIR="${WEBP_PLUGIN_DIR}")
+add_dependencies(meetube qwebp)
