@@ -47,6 +47,9 @@ Q_SIGNALS:
     void userCodeReady(const QString &verificationUrl, const QString &userCode);
     void authenticated();
     void authFailed(const QString &error);
+    // The cached access token changed (minted or refreshed) — the engine copies it
+    // into the session so authed browse/next calls carry it.
+    void bearerChanged();
 
 protected:
     // Test seam: schedule the next poll. Default arms a single-shot QTimer at the

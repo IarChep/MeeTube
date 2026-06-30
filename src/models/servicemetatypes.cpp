@@ -24,6 +24,7 @@
 #include "requests/subtitlesrequest.h"
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
+#include "requests/actionrequest.h"
 #include <QMetaType>
 
 void registerMeeTubeMetaTypes() {
@@ -45,4 +46,5 @@ void registerMeeTubeMetaTypes() {
     qRegisterMetaType<yt::SubtitlesRequest*>("yt::SubtitlesRequest*");
     qRegisterMetaType<yt::PlaylistRequest*>("yt::PlaylistRequest*");
     qRegisterMetaType<yt::UserRequest*>("yt::UserRequest*");
+    qRegisterMetaType<yt::ActionRequest*>("yt::ActionRequest*");
 }

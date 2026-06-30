@@ -88,6 +88,7 @@ void AccountManager::onToken() {
         CT::Account acc; acc.id = QString::fromLatin1("default"); acc.username = QString::fromLatin1("YouTube");
         if (m_store) m_store->save(acc, refresh);
         m_deviceCode.clear();
+        emit bearerChanged();
         emit authenticated();
         return;
     }
@@ -107,6 +108,7 @@ void AccountManager::signOut() {
         if (!id.isEmpty()) m_store->remove(id);
     }
     m_bearer.clear();
+    emit bearerChanged();   // clear the session bearer too
 }
 
 void AccountManager::restore() { requestRefresh(); }
@@ -130,7 +132,7 @@ void AccountManager::onRefresh() {
     const Reply r = rep->result();
     rep->deleteLater();
     const QString access = jstr(r.json, "access_token");
-    if (!access.isEmpty()) m_bearer = access;
+    if (!access.isEmpty()) { m_bearer = access; emit bearerChanged(); }
 }
 
 }

@@ -23,6 +23,27 @@ Innertube *Innertube::self = 0;
 Innertube::Innertube(QObject *parent)
     : QObject(parent), m_client(this), m_store(QString(), this), m_manager(&m_client, &m_store, this) {
     if (!self) self = this;
+    connect(&m_manager, SIGNAL(bearerChanged()), this, SLOT(applyBearer()));
+}
+
+void Innertube::applyBearer() {
+    m_client.session().bearer = m_manager.currentBearer();
+}
+
+QVariantList Innertube::authedFeeds() const {
+    QVariantList out;
+    struct { const char *label; const char *id; } feeds[] = {
+        { "Subscriptions", "FEsubscriptions" },
+        { "History",       "FEhistory" },
+        { "Library",       "FElibrary" } };
+    for (int i = 0; i < 3; ++i) {
+        QVariantMap m;
+        m["label"] = QString::fromLatin1(feeds[i].label);
+        m["kind"]  = QString::fromLatin1("video");
+        m["id"]    = QString::fromLatin1(feeds[i].id);
+        out << m;
+    }
+    return out;
 }
 
 // Lazy singleton. The app may construct Innertube explicitly early in main().
