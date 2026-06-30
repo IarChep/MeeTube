@@ -72,7 +72,12 @@ add_subdirectory(webp-imageformat)
 # ---------------------------------------------------------------------------
 add_executable(meetube
     src/main.cpp
+    src/qmlapplicationviewer/qmlapplicationviewer.cpp
 )
+
+# qmlapplicationviewer.h declares Q_OBJECT (the QDeclarativeView subclass), so the
+# app target must be moc'd. (meetube-core is moc'd in src/CMakeLists.txt.)
+set_target_properties(meetube PROPERTIES AUTOMOC ON)
 
 target_link_libraries(meetube PRIVATE
     meetube-core
@@ -101,11 +106,22 @@ if(BUILD_N9)
     # a DT_RPATH (not DT_RUNPATH); DT_RPATH is inherited by transitively-loaded libs, so
     # Qt's image plugins resolving libpng12.so.0 / libjpeg.so.62 also search
     # /opt/meetube/lib first → our copies win over the device sysroot's stock ones.
-    # (Booster/-pie/-lmdeclarativecache are deferred to the Phase-4 packaging work.)
+    #
+    # Harmattan startup booster: the app is now linked -pie/-rdynamic against
+    # libmdeclarativecache so applauncherd can pre-fork it (faster cold start).
+    # HARMATTAN_BOOSTER makes createApplication() return MDeclarativeCache::qApplication()
+    # (see src/qmlapplicationviewer/qmlapplicationviewer.cpp); the booster flags/cflags come
+    # from the device sysroot's qdeclarative-boostable.pc. -pie turns the binary into a
+    # PIE (ELF Type=DYN), which is required by applauncherd.
+    pkg_check_modules(boostable ${CMAKE_SYSROOT}/usr/lib/pkgconfig/qdeclarative-boostable.pc REQUIRED)
+    target_compile_definitions(meetube PRIVATE HARMATTAN_BOOSTER)
+    target_compile_options(meetube PRIVATE ${boostable_CFLAGS})
+    target_include_directories(meetube PRIVATE ${CMAKE_SYSROOT}${boostable_INCLUDE_DIRS})
     target_link_options(meetube PRIVATE
         -static-libstdc++ -static-libgcc
         -Wl,--dynamic-linker,/lib/ld-linux.so.3
-        -Wl,-rpath,/opt/meetube/lib -Wl,--disable-new-dtags)
+        -Wl,-rpath,/opt/meetube/lib -Wl,--disable-new-dtags
+        -pie -rdynamic -lmdeclarativecache)
     # The device app does not link png12, but it must wait for the bundled libs to be
     # built + installed (they package into /opt/meetube/lib via the deps/ install rules).
     add_dependencies(meetube libpng12_build libjpeg62_build)
