@@ -69,7 +69,7 @@ PageStackWindow {
     // top-level model + the header label.
     SelectionDialog {
         id: categoryDialog
-        titleText: "Категория"
+        titleText: "Category"
 
         model: ListModel { id: categoryListModel }
 

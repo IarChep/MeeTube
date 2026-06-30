@@ -28,13 +28,17 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
 
 #ifdef MEETUBE_CA_BUNDLE
     {
+        QSslConfiguration cfg = QSslConfiguration::defaultConfiguration();
+        // Qt 4.7.4's default SSL protocol won't negotiate TLS 1.2 with modern
+        // YouTube/googleapis servers, so the handshake fails ("SSL handshake failed").
+        // AnyProtocol makes Qt use OpenSSL's SSLv23 method, which negotiates the
+        // highest mutual version — TLS 1.2 with our bundled OpenSSL 1.0.2.
+        cfg.setProtocol(QSsl::AnyProtocol);
         const QList<QSslCertificate> ca =
             QSslCertificate::fromPath(QLatin1String(MEETUBE_CA_BUNDLE), QSsl::Pem);
-        if (!ca.isEmpty()) {
-            QSslConfiguration cfg = QSslConfiguration::defaultConfiguration();
+        if (!ca.isEmpty())
             cfg.setCaCertificates(ca);
-            QSslConfiguration::setDefaultConfiguration(cfg);
-        }
+        QSslConfiguration::setDefaultConfiguration(cfg);
     }
 #endif
 

@@ -9,7 +9,7 @@ Sheet {
     id: sheet
 
     acceptButtonText: ""
-    rejectButtonText: "Закрыть"
+    rejectButtonText: "Close"
 
     content: Item {
         anchors.fill: parent
@@ -25,7 +25,7 @@ Sheet {
                     left: parent.left; leftMargin: UI.DEFAULT_MARGIN
                     verticalCenter: parent.verticalCenter
                 }
-                text: "Комментарии"
+                text: "Comments"
                 color: UI.COLOR_FOREGROUND
                 font.pixelSize: UI.FONT_LARGE
                 font.family: UI.FONT_FAMILY
@@ -35,9 +35,9 @@ Sheet {
         // TODO Phase 2/3: replace with a real CommentModel.
         ListModel {
             id: commentsModel
-            ListElement { author: "Алексей"; text: "Отличное видео, спасибо!" }
-            ListElement { author: "Мария";   text: "Очень помогло, подписался." }
-            ListElement { author: "Иван";     text: "А когда следующая часть?" }
+            ListElement { author: "Alex";  text: "Great video, thanks!" }
+            ListElement { author: "Maria"; text: "Very helpful, subscribed." }
+            ListElement { author: "John";  text: "When's the next part coming?" }
         }
 
         ListView {
