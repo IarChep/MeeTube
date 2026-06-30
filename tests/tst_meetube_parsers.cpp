@@ -55,6 +55,45 @@ private slots:
         CT::Video v = parseVideoRenderer(r);
         QCOMPARE(v.avatarUrl, QString("https://big/a.jpg"));
     }
+    // P2.1: playlistRenderer → CT::Playlist.
+    void playlistRendererParses() {
+        nlohmann::json r = {
+            {"playlistId", "PL123"},
+            {"title", {{"simpleText", "My List"}}},
+            {"videoCount", "42"},
+            {"shortBylineText", {{"runs", nlohmann::json::array({ nlohmann::json{{"text", "Chan"}} })}}},
+            {"thumbnail", {{"thumbnails", nlohmann::json::array({ nlohmann::json{{"url", "https://t/p.jpg"}} })}}}};
+        CT::Playlist p = parsePlaylistRenderer(r);
+        QCOMPARE(p.id, QString("PL123"));
+        QCOMPARE(p.title, QString("My List"));
+        QCOMPARE(p.videoCount, 42);
+        QCOMPARE(p.username, QString("Chan"));
+    }
+    // P2.1: a VLxxxx browse returns playlistVideoRenderer items, now collected.
+    void playlistVideosCollected() {
+        nlohmann::json resp = { {"contents", nlohmann::json::array({
+            nlohmann::json{{"playlistVideoRenderer", {{"videoId", "v1"}, {"title", {{"simpleText", "One"}}}}}},
+            nlohmann::json{{"playlistVideoRenderer", {{"videoId", "v2"}, {"title", {{"simpleText", "Two"}}}}}} })}};
+        QString next;
+        QList<CT::Video> v = parseVideoList(resp, &next);
+        QCOMPARE(v.size(), 2);
+        QCOMPARE(v[0].id, QString("v1"));
+    }
+    // P2.2: channel header (c4TabbedHeaderRenderer) → CT::User (avatar = largest).
+    void channelHeaderParses() {
+        nlohmann::json resp = { {"header", {{"c4TabbedHeaderRenderer", {
+            {"title", "Cool Channel"},
+            {"channelId", "UCxyz"},
+            {"subscriberCountText", {{"simpleText", "1.2M subscribers"}}},
+            {"avatar", {{"thumbnails", nlohmann::json::array({
+                nlohmann::json{{"url", "https://a/s.jpg"}}, nlohmann::json{{"url", "https://a/l.jpg"}} })}}}
+        }}}}};
+        CT::User u = parseChannel(resp);
+        QCOMPARE(u.id, QString("UCxyz"));
+        QCOMPARE(u.username, QString("Cool Channel"));
+        QCOMPARE(u.subscriberCount, QString("1.2M subscribers"));
+        QCOMPARE(u.thumbnailUrl, QString("https://a/l.jpg"));
+    }
     void recursionDepthGuarded() {
         nlohmann::json deep = nlohmann::json::object();
         nlohmann::json *cur = &deep;

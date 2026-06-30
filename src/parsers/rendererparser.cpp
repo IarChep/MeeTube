@@ -56,12 +56,14 @@ CT::Video parseVideoRenderer(const nlohmann::json &r) {
 // pathological/looping payload on a low-memory device.
 static const int kMaxDepth = 100;
 
-// Recursively collect any videoRenderer/compactVideoRenderer/gridVideoRenderer objects in order.
+// Recursively collect any video-bearing renderer objects in order. playlistVideoRenderer
+// lets a VLxxxx browse (a playlist's contents) populate a VideoModel directly.
 static void collect(const nlohmann::json &node, QList<CT::Video> &out, int depth = 0) {
     if (depth > kMaxDepth) return;
-    static const char *kinds[] = { "videoRenderer", "compactVideoRenderer", "gridVideoRenderer" };
+    static const char *kinds[] = { "videoRenderer", "compactVideoRenderer", "gridVideoRenderer",
+                                   "playlistVideoRenderer" };
     if (node.is_object()) {
-        for (int i = 0; i < 3; ++i)
+        for (int i = 0; i < 4; ++i)
             if (node.contains(kinds[i])) { out << parseVideoRenderer(node.at(kinds[i])); return; }
         // richItemRenderer wraps content.videoRenderer — recurse into all values
         // NOTE: video-list ORDER is preserved because the actual lists are JSON arrays (array
@@ -116,6 +118,113 @@ QList<CT::Comment> parseComments(const nlohmann::json &response, QString *nextTo
         if (t.isEmpty()) t = findContinuationToken(response);
         *nextToken = t;
     }
+    return out;
+}
+
+// A bare thumbnails array → largest (last) url.
+static QString lastOf(const nlohmann::json &thumbs) {
+    if (thumbs.is_array() && !thumbs.empty()) return jstr(thumbs.back(), "url");
+    return QString();
+}
+
+CT::Playlist parsePlaylistRenderer(const nlohmann::json &r) {
+    CT::Playlist p;
+    p.id = jstr(r, "playlistId");
+    p.title = parseText(r.contains("title") ? r.at("title") : nlohmann::json::object());
+    if (p.title.isEmpty()) p.title = jstr(r, "title");          // some shapes use a plain string
+    if (r.contains("thumbnail") && r.at("thumbnail").contains("thumbnails"))
+        p.thumbnailUrl = lastOf(r.at("thumbnail").at("thumbnails"));
+    else if (r.contains("thumbnails") && r.at("thumbnails").is_array() && !r.at("thumbnails").empty()
+             && r.at("thumbnails").front().contains("thumbnails"))
+        p.thumbnailUrl = lastOf(r.at("thumbnails").front().at("thumbnails"));
+    p.username = parseText(r.contains("shortBylineText") ? r.at("shortBylineText") :
+                 (r.contains("longBylineText") ? r.at("longBylineText") : nlohmann::json::object()));
+    QString vc = jstr(r, "videoCount");
+    if (vc.isEmpty() && r.contains("videoCountText"))      vc = parseText(r.at("videoCountText"));
+    if (vc.isEmpty() && r.contains("videoCountShortText")) vc = parseText(r.at("videoCountShortText"));
+    p.videoCount = (int) QString(vc).remove(QRegExp("[^0-9]")).toLongLong();
+    p.videosId = p.id;
+    return p;
+}
+
+static void collectPlaylists(const nlohmann::json &node, QList<CT::Playlist> &out, int depth = 0) {
+    if (depth > kMaxDepth) return;
+    static const char *kinds[] = { "playlistRenderer", "gridPlaylistRenderer", "compactPlaylistRenderer" };
+    if (node.is_object()) {
+        for (int i = 0; i < 3; ++i)
+            if (node.contains(kinds[i])) { out << parsePlaylistRenderer(node.at(kinds[i])); return; }
+        for (auto it = node.begin(); it != node.end(); ++it) collectPlaylists(it.value(), out, depth + 1);
+    } else if (node.is_array()) {
+        for (const auto &e : node) collectPlaylists(e, out, depth + 1);
+    }
+}
+
+QList<CT::Playlist> parsePlaylistList(const nlohmann::json &response, QString *nextToken) {
+    QList<CT::Playlist> out;
+    collectPlaylists(response, out);
+    if (nextToken) *nextToken = findContinuationToken(response);
+    return out;
+}
+
+CT::User parseChannel(const nlohmann::json &response) {
+    CT::User u;
+    const nlohmann::json *h = 0;
+    if (response.contains("header")) {
+        const nlohmann::json &hdr = response.at("header");
+        if (hdr.contains("c4TabbedHeaderRenderer"))   h = &hdr.at("c4TabbedHeaderRenderer");
+        else if (hdr.contains("pageHeaderRenderer"))  h = &hdr.at("pageHeaderRenderer");
+    }
+    if (h) {
+        const nlohmann::json &hh = *h;
+        u.username = jstr(hh, "title");                          // c4 uses a plain string title
+        if (u.username.isEmpty() && hh.contains("title")) u.username = parseText(hh.at("title"));
+        u.id = jstr(hh, "channelId");
+        if (hh.contains("avatar") && hh.at("avatar").contains("thumbnails"))
+            u.thumbnailUrl = lastOf(hh.at("avatar").at("thumbnails"));
+        if (hh.contains("subscriberCountText"))
+            u.subscriberCount = parseText(hh.at("subscriberCountText"));
+    }
+    // Fill gaps from channelMetadataRenderer (id/description/avatar).
+    if (response.contains("metadata") && response.at("metadata").contains("channelMetadataRenderer")) {
+        const nlohmann::json &m = response.at("metadata").at("channelMetadataRenderer");
+        if (u.id.isEmpty())          u.id = jstr(m, "externalId");
+        if (u.username.isEmpty())    u.username = jstr(m, "title");
+        u.description = jstr(m, "description");
+        if (u.thumbnailUrl.isEmpty() && m.contains("avatar") && m.at("avatar").contains("thumbnails"))
+            u.thumbnailUrl = lastOf(m.at("avatar").at("thumbnails"));
+    }
+    u.videosId = u.id; u.playlistsId = u.id;
+    return u;
+}
+
+CT::User parseUserRenderer(const nlohmann::json &r) {
+    CT::User u;
+    u.id = jstr(r, "channelId");
+    u.username = parseText(r.contains("title") ? r.at("title") : nlohmann::json::object());
+    if (r.contains("thumbnail") && r.at("thumbnail").contains("thumbnails"))
+        u.thumbnailUrl = lastOf(r.at("thumbnail").at("thumbnails"));
+    if (r.contains("subscriberCountText")) u.subscriberCount = parseText(r.at("subscriberCountText"));
+    if (r.contains("descriptionSnippet"))  u.description = parseText(r.at("descriptionSnippet"));
+    u.videosId = u.id; u.playlistsId = u.id;
+    return u;
+}
+
+static void collectUsers(const nlohmann::json &node, QList<CT::User> &out, int depth = 0) {
+    if (depth > kMaxDepth) return;
+    static const char *kinds[] = { "channelRenderer", "gridChannelRenderer" };
+    if (node.is_object()) {
+        for (int i = 0; i < 2; ++i)
+            if (node.contains(kinds[i])) { out << parseUserRenderer(node.at(kinds[i])); return; }
+        for (auto it = node.begin(); it != node.end(); ++it) collectUsers(it.value(), out, depth + 1);
+    } else if (node.is_array()) {
+        for (const auto &e : node) collectUsers(e, out, depth + 1);
+    }
+}
+
+QList<CT::User> parseUserList(const nlohmann::json &response, QString *nextToken) {
+    QList<CT::User> out;
+    collectUsers(response, out);
+    if (nextToken) *nextToken = findContinuationToken(response);
     return out;
 }
 }

@@ -31,6 +31,9 @@ public Q_SLOTS:
     void list(const QString &resourceId, const QString &page);
     void search(const QString &query, const QString &order);
     void get(const QString &id);
+    // Suggested/related videos for a watch page: /next by videoId returns
+    // compactVideoRenderers in secondaryResults, which parseVideoList collects.
+    void related(const QString &videoId);
     // Forget the in-flight reply: marking the request Canceled makes onFinished()
     // bail (via aborted()) before it parses/delivers. The transport also aborts the
     // network reply because the reply handle is parented to `this`.

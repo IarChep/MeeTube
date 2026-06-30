@@ -5,12 +5,16 @@
 #include "models/commentmodel.h"
 #include "models/categorymodel.h"
 #include "models/subtitlemodel.h"
+#include "models/playlistmodel.h"
+#include "models/usermodel.h"
 #include "requests/servicerequest.h"
 #include "requests/videorequest.h"
 #include "requests/streamsrequest.h"
 #include "requests/commentrequest.h"
 #include "requests/categoryrequest.h"
 #include "requests/subtitlesrequest.h"
+#include "requests/playlistrequest.h"
+#include "requests/userrequest.h"
 
 using namespace yt;
 
@@ -52,6 +56,20 @@ protected:
     SubtitlesRequest* newRequest() { return new SubtitlesRequest(&m_fake, this); }
 };
 
+class TestPlaylistModel : public PlaylistModel {
+public:
+    FakeTransport m_fake;
+protected:
+    PlaylistRequest* newRequest() { return new PlaylistRequest(&m_fake, this); }
+};
+
+class TestUserModel : public UserModel {
+public:
+    FakeTransport m_fake;
+protected:
+    UserRequest* newRequest() { return new UserRequest(&m_fake, this); }
+};
+
 class TestModel : public QObject { Q_OBJECT
 private slots:
     void initTestCase() {
@@ -60,6 +78,8 @@ private slots:
         qRegisterMetaType<QList<CT::Comment> >("QList<CT::Comment>");
         qRegisterMetaType<QList<CT::Category> >("QList<CT::Category>");
         qRegisterMetaType<QList<CT::Subtitle> >("QList<CT::Subtitle>");
+        qRegisterMetaType<QList<CT::Playlist> >("QList<CT::Playlist>");
+        qRegisterMetaType<QList<CT::User> >("QList<CT::User>");
     }
 
     void listPopulatesModel() {
@@ -140,6 +160,30 @@ private slots:
         QVERIFY(model.rowCount() >= 1);
         QVERIFY(!model.data(0, QByteArray("url")).toString().isEmpty());
         QVERIFY(!model.data(0, QByteArray("language")).toString().isEmpty());
+        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+    }
+
+    void playlistModelPopulates() {
+        TestPlaylistModel model;
+        model.m_fake.queue("browse", nlohmann::json{ {"contents", nlohmann::json::array({
+            nlohmann::json{{"playlistRenderer", {{"playlistId", "PL9"}, {"title", {{"simpleText", "Mix"}}}}}} })}});
+        model.list("UCchan");
+        model.m_fake.flush();
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("PL9"));
+        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+    }
+
+    void userModelChannel() {
+        TestUserModel model;
+        model.m_fake.queue("browse", nlohmann::json{ {"header", {{"c4TabbedHeaderRenderer", {
+            {"title", "Chan"}, {"channelId", "UCabc"},
+            {"subscriberCountText", {{"simpleText", "10K subscribers"}}} }}}} });
+        model.get("UCabc");
+        model.m_fake.flush();
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(0, QByteArray("username")).toString(), QString("Chan"));
+        QCOMPARE(model.data(0, QByteArray("subscriberCount")).toString(), QString("10K subscribers"));
         QCOMPARE(model.status(), (int)ServiceRequest::Ready);
     }
 };

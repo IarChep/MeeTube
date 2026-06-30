@@ -22,6 +22,8 @@
 #include "requests/commentrequest.h"
 #include "requests/categoryrequest.h"
 #include "requests/subtitlesrequest.h"
+#include "requests/playlistrequest.h"
+#include "requests/userrequest.h"
 #include <QMetaType>
 
 void registerMeeTubeMetaTypes() {
@@ -31,6 +33,8 @@ void registerMeeTubeMetaTypes() {
     qRegisterMetaType<QList<CT::Comment> >("QList<CT::Comment>");
     qRegisterMetaType<QList<CT::Category> >("QList<CT::Category>");
     qRegisterMetaType<QList<CT::Subtitle> >("QList<CT::Subtitle>");
+    qRegisterMetaType<QList<CT::Playlist> >("QList<CT::Playlist>");
+    qRegisterMetaType<QList<CT::User> >("QList<CT::User>");
     // Status enum used by QSignalSpy / statusChanged.
     qRegisterMetaType<yt::ServiceRequest::Status>("yt::ServiceRequest::Status");
     // Typed request pointers (QML/registration convenience).
@@ -39,4 +43,6 @@ void registerMeeTubeMetaTypes() {
     qRegisterMetaType<yt::CommentRequest*>("yt::CommentRequest*");
     qRegisterMetaType<yt::CategoryRequest*>("yt::CategoryRequest*");
     qRegisterMetaType<yt::SubtitlesRequest*>("yt::SubtitlesRequest*");
+    qRegisterMetaType<yt::PlaylistRequest*>("yt::PlaylistRequest*");
+    qRegisterMetaType<yt::UserRequest*>("yt::UserRequest*");
 }
