@@ -14,10 +14,9 @@ option(BUILD_N9 "Cross-build for the Nokia N9 (device) rather than the host Simu
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Build every object position-independent. The N9 device app is currently a
-# plain EXEC (not yet -pie); PIC is kept on so that switching the app to a
-# booster/-pie link in the Phase-4 packaging work needs no per-target churn,
-# and so the MODULE plugins (e.g. libqwebp.so) are always PIC.
+# Build every object position-independent. The N9 device app is linked -pie
+# (a PIE/DYN) against the MDeclarativeCache startup booster, which requires PIC
+# objects; PIC is also needed so the MODULE plugins (e.g. libqwebp.so) load.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Propagate BUILD_N9 as a compile definition so device-only code can be
