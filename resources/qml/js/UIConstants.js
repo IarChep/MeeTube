@@ -122,4 +122,21 @@ var HEADER_DEFAULT_BOTTOM_SPACING_LANDSCAPE = 14;
 var LIST_ITEM_HEIGHT_SMALL = 64;
 var LIST_ITEM_HEIGHT_DEFAULT = 80;
 
+// ---------------------------------------------------------------------------
+// MeeTube additions (NOT part of the platform UIConstants mirror above).
+// Brand + semantic colors and animation durations, centralized here so the
+// QML never hardcodes them (the validator flags hardcoded colors).
+// ---------------------------------------------------------------------------
+var COLOR_BRAND_RED       = "#F11B1B"; // YouTube-style brand red (mid gradient stop)
+var COLOR_BRAND_RED_LIGHT = "#FF5A36"; // brand gradient top
+var COLOR_BRAND_RED_DARK  = "#B40D0D"; // brand gradient bottom
+var COLOR_SCRIM           = "#cc000000"; // dark overlay over thumbnails (duration badge, play scrim)
+var COLOR_SCRIM_LIGHT     = "#66000000"; // lighter overlay (hover/press over imagery)
+var COLOR_DIVIDER         = "#c6c7c8"; // 1px list hairline
+
+// Animation durations (ms) — not defined by the platform UIConstants; centralized.
+var ANIM_FAST    = 150;
+var ANIM_DEFAULT = 250;
+var ANIM_SLOW    = 400;
+
 

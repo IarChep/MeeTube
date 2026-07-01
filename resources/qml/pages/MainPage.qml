@@ -1,7 +1,9 @@
 import QtQuick 1.1
 import com.nokia.meego 1.0
 import "../components/delegates"
+import "../components/ui"
 import "../js/UIConstants.js" as UI
+import "../js/Status.js" as Status
 
 // Home page: a vertical list of videos from the top-level VideoModel (real backend).
 // Exposes its header content + background as Components so the global HeaderBar in
@@ -69,6 +71,12 @@ Page {
         model: appWindow.feed
         delegate: VideoDelegate {}
 
+        // Animated "loading more" footer for infinite scroll; collapses to 0 at the end.
+        footer: ListFooter {
+            hasMore: appWindow.feed ? appWindow.feed.canFetchMore : false
+            active: appWindow.feed ? (appWindow.feed.status === Status.Loading) : false
+        }
+
         // Infinite scroll: pull the next page when the list bottoms out.
         onAtYEndChanged: {
             if (atYEnd && appWindow.feed && appWindow.feed.canFetchMore)
@@ -78,19 +86,22 @@ Page {
         ScrollDecorator { flickableItem: list }
     }
 
-    // Empty / loading state (status: Null=0, Loading=1, Ready=3, Failed=4).
-    Text {
-        anchors.centerIn: parent
-        width: parent.width - UI.DEFAULT_MARGIN * 2
-        horizontalAlignment: Text.AlignHCenter
-        wrapMode: Text.WordWrap
-        color: UI.COLOR_SECONDARY_FOREGROUND
-        font.pixelSize: UI.FONT_SMALL
-        visible: !appWindow.feed || appWindow.feed.count === 0
-        text: !appWindow.feed ? "Loading…"
-            : appWindow.feed.status === 1 ? "Loading…"
-            : appWindow.feed.status === 4 ? ("Failed to load.\n" + appWindow.feed.errorString)
-            : "No videos."
+    // First-load spinner (only when there's nothing to show yet).
+    BusyOverlay {
+        running: !appWindow.feed
+                 || (appWindow.feed.status === Status.Loading && appWindow.feed.count === 0)
+        text: "Loading videos…"
+    }
+
+    // Empty (loaded but no rows) / error state, with Retry on failure.
+    EmptyState {
+        property bool failed: appWindow.feed && appWindow.feed.status === Status.Failed
+        visible: appWindow.feed && appWindow.feed.count === 0
+                 && (appWindow.feed.status === Status.Ready || failed)
+        title: failed ? "Couldn't load videos" : "Nothing here yet"
+        hint: failed ? appWindow.feed.errorString : "Try another category."
+        showRetry: failed
+        onRetry: appWindow.reloadFeed()
     }
 
     ToolBarLayout {
