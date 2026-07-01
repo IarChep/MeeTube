@@ -16,12 +16,13 @@ Item {
 
     property bool listView: true
 
-    // Native pressed highlight bled to the row edges — the whole row feels tappable.
-    Image {
+    // Pressed highlight — a subtle white wash (reads on the dark theme where the stretched
+    // pressed-panel tile did not) so a tap is obvious.
+    Rectangle {
         anchors.fill: parent
-        visible: rootMouse.pressed
-        source: "image://theme/meegotouch-panel-background-pressed"
-        smooth: true
+        color: UI.COLOR_INVERTED_FOREGROUND
+        opacity: rootMouse.pressed ? 0.15 : 0.0
+        Behavior on opacity { NumberAnimation { duration: UI.ANIM_FAST } }
     }
 
     // ---- Small 16:9 thumbnail (LEFT) with a bottom-right duration badge ---------
