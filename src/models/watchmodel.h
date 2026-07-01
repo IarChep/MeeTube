@@ -19,7 +19,7 @@
 
 #include <QPointer>
 #include "servicelistmodel.h"
-#include "requests/watchrequest.h"
+#include "requests/videorequest.h"
 
 // The video page's data: scalar properties for the current video (title/description/
 // like+view text/channel) and a list of related videos (rows carry the VideoModel
@@ -58,13 +58,13 @@ private Q_SLOTS:
     void onFailed(const QString &error);
 
 protected:
-    virtual yt::WatchRequest* newRequest();
+    virtual yt::VideoRequest* newRequest();
 
 private:
-    yt::WatchRequest* request();
+    yt::VideoRequest* request();
     static QVariantMap toMap(const CT::Video &v);
 
-    QPointer<yt::WatchRequest> m_request;
+    QPointer<yt::VideoRequest> m_request;
     CT::Video m_primary;
 };
 

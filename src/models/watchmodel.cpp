@@ -44,15 +44,15 @@ QVariantMap WatchModel::toMap(const CT::Video &v) {
     return m;
 }
 
-WatchRequest* WatchModel::newRequest() {
-    return Innertube::instance() ? Innertube::instance()->createWatchRequest() : 0;
+VideoRequest* WatchModel::newRequest() {
+    return Innertube::instance() ? Innertube::instance()->createVideoRequest() : 0;
 }
 
-WatchRequest* WatchModel::request() {
+VideoRequest* WatchModel::request() {
     if (!m_request) {
         m_request = newRequest();
         if (m_request) {
-            connect(m_request, SIGNAL(ready(CT::Video,QList<CT::Video>)),
+            connect(m_request, SIGNAL(watchReady(CT::Video,QList<CT::Video>)),
                     this, SLOT(onReady(CT::Video,QList<CT::Video>)));
             connect(m_request, SIGNAL(failed(QString)), this, SLOT(onFailed(QString)));
         }
@@ -66,7 +66,7 @@ void WatchModel::get(const QString &videoId) {
     m_primary = CT::Video();
     emit detailsChanged();
     setStatus(ServiceRequest::Loading);
-    m_request->get(videoId);
+    m_request->loadWatch(videoId);
 }
 
 void WatchModel::cancel() {
