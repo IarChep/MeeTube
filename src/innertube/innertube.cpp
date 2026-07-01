@@ -27,17 +27,17 @@ Innertube::Innertube(QObject *parent)
     connect(&m_manager, SIGNAL(bearerChanged()), this, SLOT(applyBearer()));
 }
 
-VideoApi* Innertube::video() {
+VideoApi* Innertube::videoApi() {
     if (!m_video) m_video = new VideoApi(&m_client, this);
     return m_video;
 }
 
-ChannelApi* Innertube::channel() {
+ChannelApi* Innertube::channelApi() {
     if (!m_channel) m_channel = new ChannelApi(&m_client, this);
     return m_channel;
 }
 
-PlaylistApi* Innertube::playlist() {
+PlaylistApi* Innertube::playlistApi() {
     if (!m_playlist) m_playlist = new PlaylistApi(&m_client, this);
     return m_playlist;
 }

@@ -16,10 +16,10 @@ PageStackWindow {
     // Currently-selected nav category label (shown in the header).
     property string currentCategoryLabel: ""
 
-    // The top-level video list model — bound by MainPage's ListView (REAL backend).
-    VideoModel {
-        id: videoModel
-    }
+    // The top-level video feed, obtained from the API tree (innertube.video().feed()).
+    // A C++-owned VideoModel — MainPage's ListView binds to it. Undefined until the
+    // first category loads in Component.onCompleted.
+    property variant feed
 
     // --- Shared header background: the YouTube-style red brand gradient. ONE shared
     // Component instance so navigating between same-background pages doesn't re-fade.
@@ -77,7 +77,7 @@ PageStackWindow {
             var nav = innertube.navEntries();
             if (selectedIndex >= 0 && selectedIndex < nav.length) {
                 appWindow.currentCategoryLabel = nav[selectedIndex].label;
-                videoModel.list(nav[selectedIndex].id);
+                appWindow.feed = innertube.video().feed(nav[selectedIndex].id);
             }
         }
     }
@@ -91,7 +91,7 @@ PageStackWindow {
         if (nav.length > 0) {
             categoryDialog.selectedIndex = 0;
             appWindow.currentCategoryLabel = nav[0].label;
-            videoModel.list(nav[0].id);
+            appWindow.feed = innertube.video().feed(nav[0].id);
         }
         __updateHeader();
     }

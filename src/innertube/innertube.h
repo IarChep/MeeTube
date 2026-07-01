@@ -75,11 +75,17 @@ public:
     // QML context-property convenience (exposed as `account`).
     Q_INVOKABLE QObject* account()   { return &m_manager; }
 
-    // The API tree: innertube.video()/channel()/playlist(). Lazily created, cached,
-    // parented to the engine. This is where "obtaining Request classes" now lives.
-    Q_INVOKABLE VideoApi*    video();
-    Q_INVOKABLE ChannelApi*  channel();
-    Q_INVOKABLE PlaylistApi* playlist();
+    // The API tree. Internal typed accessors (C++: models/detail objects obtain their
+    // requests here) + QML-facing wrappers that return QObject* — a Q_INVOKABLE that
+    // returned an unregistered concrete pointer would read back as `undefined` in QML,
+    // so the tree nodes are handed to QML as QObject* (their Q_INVOKABLE methods still
+    // resolve via the meta-object).
+    VideoApi*    videoApi();
+    ChannelApi*  channelApi();
+    PlaylistApi* playlistApi();
+    Q_INVOKABLE QObject* video()    { return videoApi(); }
+    Q_INVOKABLE QObject* channel()  { return channelApi(); }
+    Q_INVOKABLE QObject* playlist() { return playlistApi(); }
 
 private Q_SLOTS:
     // Copy the account manager's current bearer into the session so authed browse/

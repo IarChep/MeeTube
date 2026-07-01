@@ -27,7 +27,7 @@ QObject* VideoDetails::related() const { return m_related; }
 
 VideoRequest* VideoDetails::newRequest() {
     Innertube *e = Innertube::instance();
-    return e ? e->video()->newVideoRequest() : 0;
+    return e ? e->videoApi()->newVideoRequest() : 0;
 }
 
 VideoRequest* VideoDetails::request() {

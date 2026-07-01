@@ -46,7 +46,7 @@ QVariantMap WatchModel::toMap(const CT::Video &v) {
 
 VideoRequest* WatchModel::newRequest() {
     Innertube *e = Innertube::instance();
-    return e ? e->video()->newVideoRequest() : 0;
+    return e ? e->videoApi()->newVideoRequest() : 0;
 }
 
 VideoRequest* WatchModel::request() {

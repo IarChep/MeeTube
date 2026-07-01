@@ -49,7 +49,7 @@ QVariantMap VideoModel::toMap(const CT::Video &v) {
 
 VideoRequest* VideoModel::newRequest() {
     Innertube *e = Innertube::instance();
-    return e ? e->video()->newVideoRequest() : 0;
+    return e ? e->videoApi()->newVideoRequest() : 0;
 }
 
 VideoRequest* VideoModel::request() {

@@ -23,7 +23,7 @@ StreamSet::StreamSet(QObject *parent) : QObject(parent), m_status(ServiceRequest
 
 StreamsRequest* StreamSet::newRequest() {
     Innertube *e = Innertube::instance();
-    return e ? e->video()->newStreamsRequest() : 0;
+    return e ? e->videoApi()->newStreamsRequest() : 0;
 }
 
 StreamsRequest* StreamSet::request() {

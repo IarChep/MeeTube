@@ -70,7 +70,6 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     QmlApplicationViewer viewer;
     viewer.engine()->addImageProvider("qr", new QrImageProvider);   // image://qr/<text>
     viewer.rootContext()->setContextProperty("innertube", yt::Innertube::instance());
-    viewer.rootContext()->setContextProperty("account", yt::Innertube::instance()->account());
     viewer.setOrientation(QmlApplicationViewer::ScreenOrientationLockPortrait);
     viewer.setSource(QUrl("qrc:/qml/main.qml"));   // UI is out of scope; placeholder for now
     viewer.showExpanded();

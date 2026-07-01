@@ -24,7 +24,7 @@ SubtitleSet::SubtitleSet(QObject *parent) : QObject(parent), m_status(ServiceReq
 
 SubtitlesRequest* SubtitleSet::newRequest() {
     Innertube *e = Innertube::instance();
-    return e ? e->video()->newSubtitlesRequest() : 0;
+    return e ? e->videoApi()->newSubtitlesRequest() : 0;
 }
 
 SubtitlesRequest* SubtitleSet::request() {

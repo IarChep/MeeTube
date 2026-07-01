@@ -66,13 +66,13 @@ Page {
         }
         clip: true
         cacheBuffer: 1000
-        model: videoModel
+        model: appWindow.feed
         delegate: VideoDelegate {}
 
         // Infinite scroll: pull the next page when the list bottoms out.
         onAtYEndChanged: {
-            if (atYEnd && videoModel.canFetchMore)
-                videoModel.fetchMore();
+            if (atYEnd && appWindow.feed && appWindow.feed.canFetchMore)
+                appWindow.feed.fetchMore();
         }
 
         ScrollDecorator { flickableItem: list }
@@ -86,9 +86,10 @@ Page {
         wrapMode: Text.WordWrap
         color: UI.COLOR_SECONDARY_FOREGROUND
         font.pixelSize: UI.FONT_SMALL
-        visible: videoModel.count === 0
-        text: videoModel.status === 1 ? "Loading…"
-            : videoModel.status === 4 ? ("Failed to load.\n" + videoModel.errorString)
+        visible: !appWindow.feed || appWindow.feed.count === 0
+        text: !appWindow.feed ? "Loading…"
+            : appWindow.feed.status === 1 ? "Loading…"
+            : appWindow.feed.status === 4 ? ("Failed to load.\n" + appWindow.feed.errorString)
             : "No videos."
     }
 
