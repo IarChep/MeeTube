@@ -42,8 +42,10 @@ Page {
         }
     }
     function onDetailsLoaded() {
-        if (details && details.channelId && !page.channel)
-            page.channel = innertube.channel().byId(details.channelId);
+        // Qualify with `page.` — when invoked via signal.connect() the unqualified
+        // property scope isn't the page's, so bare `details` is not resolvable.
+        if (page.details && page.details.channelId && !page.channel)
+            page.channel = innertube.channel().byId(page.details.channelId);
     }
 
     Flickable {
