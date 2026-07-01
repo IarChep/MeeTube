@@ -13,6 +13,7 @@
 #include "models/servicemetatypes.h"
 #include "innertube/innertube.h"
 #include "harmattan/maskeditem.h"
+#include "harmattan/perlinbackground.h"
 #include "harmattan/qrimageprovider.h"
 
 Q_DECL_EXPORT int main(int argc, char *argv[])
@@ -51,6 +52,7 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     // not instantiated in QML, so they need no qmlRegisterType. Only MaskedItem is
     // declared directly in QML (Avatar's root).
     qmlRegisterType<MaskedItem>("MeeTube", 1, 0, "MaskedItem");
+    qmlRegisterType<PerlinBackground>("MeeTube", 1, 0, "PerlinBackground");
 
     QmlApplicationViewer viewer;
     viewer.engine()->addImageProvider("qr", new QrImageProvider);   // image://qr/<text>

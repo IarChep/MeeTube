@@ -77,6 +77,9 @@ add_executable(meetube
     # from cuteTube2. Both declare Q_OBJECT -> moc'd via the target's AUTOMOC.
     src/harmattan/maskeffect.cpp
     src/harmattan/maskeditem.cpp
+    # Animated Perlin-noise brand banner (QDeclarativeItem) used as the HeaderBar
+    # background — ported from throne-harmattan, recolored to MeeTube's red palette.
+    src/harmattan/perlinbackground.cpp
     # QR image provider (image://qr/...) for the device-code login; renders via the
     # bundled qrcodegen static lib (linked below).
     src/harmattan/qrimageprovider.cpp
