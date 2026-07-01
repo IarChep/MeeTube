@@ -260,6 +260,7 @@ CT::User parseChannel(const nlohmann::json &response) {
     }
     if (h) {
         const nlohmann::json &hh = *h;
+        // --- Legacy c4TabbedHeaderRenderer (flat shape) ---
         u.username = jstr(hh, "title");                          // c4 uses a plain string title
         if (u.username.isEmpty() && hh.contains("title")) u.username = parseText(hh.at("title"));
         u.id = jstr(hh, "channelId");
@@ -267,6 +268,45 @@ CT::User parseChannel(const nlohmann::json &response) {
             u.thumbnailUrl = lastOf(hh.at("avatar").at("thumbnails"));
         if (hh.contains("subscriberCountText"))
             u.subscriberCount = parseText(hh.at("subscriberCountText"));
+
+        // --- Current pageHeaderRenderer.content.pageHeaderViewModel (nested view-models):
+        // 2024+ WEB channel headers moved name/avatar/subscriberCount here, which is why
+        // only the subscriber line was empty (name/avatar fell back to channelMetadata). ---
+        if (hh.contains("content") && hh.at("content").contains("pageHeaderViewModel")) {
+            const nlohmann::json &vm = hh.at("content").at("pageHeaderViewModel");
+            if (u.username.isEmpty() && vm.contains("title")
+                && vm.at("title").contains("dynamicTextViewModel")) {
+                const nlohmann::json &dt = vm.at("title").at("dynamicTextViewModel");
+                if (dt.contains("text")) u.username = jstr(dt.at("text"), "content");
+            }
+            if (u.thumbnailUrl.isEmpty() && vm.contains("image")
+                && vm.at("image").contains("decoratedAvatarViewModel")) {
+                const nlohmann::json &dav = vm.at("image").at("decoratedAvatarViewModel");
+                if (dav.contains("avatar") && dav.at("avatar").contains("avatarViewModel")
+                    && dav.at("avatar").at("avatarViewModel").contains("image"))
+                    u.thumbnailUrl = lastSourceUrl(dav.at("avatar").at("avatarViewModel").at("image"));
+            }
+            // subscriberCount: metadata.contentMetadataViewModel.metadataRows[].metadataParts[]
+            //   .text.content — the rows also carry the @handle and "N videos", and the index
+            //   isn't fixed, so pick the part whose text contains "subscriber".
+            if (u.subscriberCount.isEmpty() && vm.contains("metadata")
+                && vm.at("metadata").contains("contentMetadataViewModel")) {
+                const nlohmann::json &cmv = vm.at("metadata").at("contentMetadataViewModel");
+                if (cmv.contains("metadataRows") && cmv.at("metadataRows").is_array()) {
+                    for (const auto &row : cmv.at("metadataRows")) {
+                        if (!row.contains("metadataParts") || !row.at("metadataParts").is_array())
+                            continue;
+                        for (const auto &p : row.at("metadataParts")) {
+                            if (!p.contains("text")) continue;
+                            const QString txt = jstr(p.at("text"), "content");
+                            if (u.subscriberCount.isEmpty()
+                                && txt.contains("subscriber", Qt::CaseInsensitive))
+                                u.subscriberCount = txt;
+                        }
+                    }
+                }
+            }
+        }
     }
     // Fill gaps from channelMetadataRenderer (id/description/avatar).
     if (response.contains("metadata") && response.at("metadata").contains("channelMetadataRenderer")) {

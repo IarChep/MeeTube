@@ -15,6 +15,7 @@
 
         <!-- components: delegates -->
         <file>qml/components/delegates/VideoDelegate.qml</file>
+        <file>qml/components/delegates/RelatedDelegate.qml</file>
 
         <!-- components: ui (loading / empty / pagination / sections) -->
         <file>qml/components/ui/BusyOverlay.qml</file>

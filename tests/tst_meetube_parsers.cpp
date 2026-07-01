@@ -94,6 +94,19 @@ private slots:
         QCOMPARE(u.subscriberCount, QString("1.2M subscribers"));
         QCOMPARE(u.thumbnailUrl, QString("https://a/l.jpg"));
     }
+
+    // 2024+ WEB channel header: pageHeaderRenderer.content.pageHeaderViewModel with the
+    // subscriber count buried in a metadataRows view-model (index not fixed). Fixture,
+    // not an inline nlohmann initializer — the deep nesting confuses the host compiler.
+    void channelPageHeaderParses() {
+        nlohmann::json resp = loadFixture("channel_pageheader.json");
+        QVERIFY(!resp.is_null());
+        CT::User u = parseChannel(resp);
+        QCOMPARE(u.username, QString("Google for Developers"));
+        QCOMPARE(u.subscriberCount, QString("2.66M subscribers"));   // matched by "subscriber", not index
+        QCOMPARE(u.thumbnailUrl, QString("http://a/s160.jpg"));      // last source = largest
+        QCOMPARE(u.id, QString("UCabc"));                            // from channelMetadata fallback
+    }
     // QML integration: /next watch page → primary details (title/desc/views/likes +
     // channel) and the related list.
     void watchPageParses() {
