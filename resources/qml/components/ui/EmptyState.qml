@@ -1,5 +1,6 @@
 import QtQuick 1.1
 import com.nokia.meego 1.0
+import MeeTube 1.0
 import "../../js/UIConstants.js" as UI
 
 // Illustrated empty / error state: a muted large icon, a title, an optional hint line
@@ -10,6 +11,7 @@ Item {
     anchors.fill: parent
 
     property url iconSource: "image://theme/icon-l-common-video-playback"
+    property real iconSize: 80
     property string title: ""
     property string hint: ""
     property bool showRetry: false
@@ -20,11 +22,20 @@ Item {
         width: parent.width - UI.DEFAULT_MARGIN * 4
         spacing: UI.PADDING_XLARGE
 
-        Image {
+        // The blanco theme's large icons are near-black line art (invisible on the dark
+        // theme), so tint them white: use the icon's alpha as a mask over a white fill.
+        MaskedItem {
             anchors.horizontalCenter: parent.horizontalCenter
-            source: root.iconSource
+            width: root.iconSize
+            height: root.iconSize
             opacity: UI.OPACITY_DISABLED
-            smooth: true
+            mask: Image {
+                width: root.iconSize; height: root.iconSize
+                source: root.iconSource
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+            }
+            Rectangle { anchors.fill: parent; color: UI.COLOR_INVERTED_FOREGROUND }
         }
         Label {
             width: parent.width
