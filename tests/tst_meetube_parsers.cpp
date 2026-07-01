@@ -154,6 +154,25 @@ private slots:
         QCOMPARE(v[1].id, QString("ddd44444444"));
         QCOMPARE(token, QString("FEEDNEXT"));
     }
+    // Watch-page related videos now arrive as lockupViewModel (2024+); the fixture is a
+    // real slice of a /next response — 2 video lockups + 1 playlist lockup (must be skipped).
+    void lockupRelatedParses() {
+        nlohmann::json resp = loadFixture("next_lockup.json");
+        QVERIFY(!resp.is_null());
+        QString token;
+        QList<CT::Video> v = parseVideoList(resp, &token);
+        QCOMPARE(v.size(), 2);                          // playlist lockup skipped
+        QCOMPARE(v[0].id, QString("Zi_XLOBDo_Y"));
+        QCOMPARE(v[0].title, QString("Michael Jackson - Billie Jean (Official Video)"));
+        QVERIFY(!v[0].thumbnailUrl.isEmpty());
+        QVERIFY(!v[0].avatarUrl.isEmpty());             // channel avatar from decoratedAvatarViewModel
+        QVERIFY(v[0].userId.startsWith("UC"));          // channelId via onTap browseEndpoint
+        QCOMPARE(v[0].username, QString("Michael Jackson"));
+        QCOMPARE(v[0].duration, QString("4:56"));
+        QVERIFY(v[0].viewText.contains("views"));
+        QVERIFY(v[0].date.contains("ago"));
+    }
+
     void streams() {
         nlohmann::json p = loadFixture("player_ios.json");
         QList<CT::Stream> s = parseStreams(p);

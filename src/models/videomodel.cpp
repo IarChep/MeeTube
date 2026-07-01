@@ -41,7 +41,7 @@ QVariantMap VideoModel::toMap(const CT::Video &v) {
     m["date"] = v.date; m["duration"] = v.duration; m["url"] = v.url;
     m["streamUrl"] = v.streamUrl; m["userId"] = v.userId; m["username"] = v.username;
     m["avatarUrl"] = v.avatarUrl;
-    m["viewCount"] = v.viewCount; m["downloadable"] = v.downloadable;
+    m["viewCount"] = v.viewCount; m["viewText"] = v.viewText; m["downloadable"] = v.downloadable;
     m["commentsId"] = v.commentsId; m["relatedVideosId"] = v.relatedVideosId;
     m["subtitlesId"] = v.subtitlesId;
     return m;

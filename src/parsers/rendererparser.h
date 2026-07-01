@@ -7,6 +7,9 @@
 namespace yt {
 QString parseText(const nlohmann::json &field);
 CT::Video parseVideoRenderer(const nlohmann::json &r);
+// lockupViewModel (2024+ YouTube surfaces — watch-page related, some feeds/search —
+// replaced compactVideoRenderer/gridVideoRenderer). Caller passes the inner object.
+CT::Video parseLockupViewModel(const nlohmann::json &lm);
 QList<CT::Video> parseVideoList(const nlohmann::json &response, QString *nextToken);
 QList<CT::Comment> parseComments(const nlohmann::json &response, QString *nextToken);
 CT::Playlist parsePlaylistRenderer(const nlohmann::json &r);

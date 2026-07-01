@@ -52,6 +52,80 @@ CT::Video parseVideoRenderer(const nlohmann::json &r) {
     return v;
 }
 
+// Largest url from a viewModel image ("sources" ordered small→large, so back()).
+static QString lastSourceUrl(const nlohmann::json &img) {
+    if (img.is_object() && img.contains("sources") && img.at("sources").is_array()
+        && !img.at("sources").empty())
+        return jstr(img.at("sources").back(), "url");
+    return QString();
+}
+
+CT::Video parseLockupViewModel(const nlohmann::json &lm) {
+    CT::Video v;
+    v.id = jstr(lm, "contentId");
+    // Thumbnail + the duration badge overlay.
+    if (lm.contains("contentImage") && lm.at("contentImage").contains("thumbnailViewModel")) {
+        const nlohmann::json &tvm = lm.at("contentImage").at("thumbnailViewModel");
+        if (tvm.contains("image")) v.thumbnailUrl = lastSourceUrl(tvm.at("image"));
+        if (tvm.contains("overlays") && tvm.at("overlays").is_array()) {
+            for (const auto &ov : tvm.at("overlays")) {
+                if (!ov.contains("thumbnailBottomOverlayViewModel")) continue;
+                const nlohmann::json &bo = ov.at("thumbnailBottomOverlayViewModel");
+                if (!bo.contains("badges") || !bo.at("badges").is_array()) continue;
+                for (const auto &b : bo.at("badges")) {
+                    if (!b.contains("thumbnailBadgeViewModel")) continue;
+                    const QString t = jstr(b.at("thumbnailBadgeViewModel"), "text");
+                    // Only the time-shaped badge ("4:56"/"1:02:03") is the duration.
+                    if (v.duration.isEmpty() && QRegExp("(\\d+:)?\\d?\\d:\\d\\d").exactMatch(t))
+                        v.duration = t;
+                }
+            }
+        }
+    }
+    if (v.thumbnailUrl.isEmpty() && !v.id.isEmpty())
+        v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
+    v.largeThumbnailUrl = v.thumbnailUrl;
+    if (lm.contains("metadata") && lm.at("metadata").contains("lockupMetadataViewModel")) {
+        const nlohmann::json &md = lm.at("metadata").at("lockupMetadataViewModel");
+        if (md.contains("title")) v.title = jstr(md.at("title"), "content");
+        // Channel avatar + id from the decorated avatar's onTap browseEndpoint.
+        if (md.contains("image") && md.at("image").contains("decoratedAvatarViewModel")) {
+            const nlohmann::json &dav = md.at("image").at("decoratedAvatarViewModel");
+            if (dav.contains("avatar") && dav.at("avatar").contains("avatarViewModel")
+                && dav.at("avatar").at("avatarViewModel").contains("image"))
+                v.avatarUrl = lastSourceUrl(dav.at("avatar").at("avatarViewModel").at("image"));
+            if (dav.contains("rendererContext")
+                && dav.at("rendererContext").contains("commandContext")) {
+                const nlohmann::json &cc = dav.at("rendererContext").at("commandContext");
+                if (cc.contains("onTap") && cc.at("onTap").contains("innertubeCommand")
+                    && cc.at("onTap").at("innertubeCommand").contains("browseEndpoint"))
+                    v.userId = jstr(cc.at("onTap").at("innertubeCommand").at("browseEndpoint"), "browseId");
+            }
+        }
+        // metadataRows: row 0 = channel name; a later row = "N views" + "date ago".
+        if (md.contains("metadata") && md.at("metadata").contains("contentMetadataViewModel")) {
+            const nlohmann::json &cmv = md.at("metadata").at("contentMetadataViewModel");
+            if (cmv.contains("metadataRows") && cmv.at("metadataRows").is_array()) {
+                int ri = 0;
+                for (const auto &row : cmv.at("metadataRows")) {
+                    if (row.contains("metadataParts") && row.at("metadataParts").is_array()) {
+                        for (const auto &p : row.at("metadataParts")) {
+                            const QString txt = p.contains("text") ? jstr(p.at("text"), "content") : QString();
+                            if (txt.isEmpty()) continue;
+                            if (v.username.isEmpty() && ri == 0)                       v.username = txt;
+                            else if (v.viewText.isEmpty() && txt.contains("view", Qt::CaseInsensitive)) v.viewText = txt;
+                            else if (v.date.isEmpty() && txt.contains("ago"))          v.date = txt;
+                        }
+                    }
+                    ++ri;
+                }
+            }
+        }
+    }
+    v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
+    return v;
+}
+
 // Bound the recursive descent (see continuation.cpp): defend the stack against a
 // pathological/looping payload on a low-memory device.
 static const int kMaxDepth = 100;
@@ -63,6 +137,14 @@ static void collect(const nlohmann::json &node, QList<CT::Video> &out, int depth
     static const char *kinds[] = { "videoRenderer", "compactVideoRenderer", "gridVideoRenderer",
                                    "playlistVideoRenderer" };
     if (node.is_object()) {
+        // lockupViewModel is a self-contained leaf (no nested video renderers); only the
+        // VIDEO content type becomes a CT::Video (playlist/other lockups are skipped).
+        if (node.contains("lockupViewModel")) {
+            const nlohmann::json &lm = node.at("lockupViewModel");
+            if (jstr(lm, "contentType") == QLatin1String("LOCKUP_CONTENT_TYPE_VIDEO"))
+                out << parseLockupViewModel(lm);
+            return;
+        }
         for (int i = 0; i < 4; ++i)
             if (node.contains(kinds[i])) { out << parseVideoRenderer(node.at(kinds[i])); return; }
         // richItemRenderer wraps content.videoRenderer — recurse into all values
