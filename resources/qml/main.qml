@@ -25,23 +25,31 @@ PageStackWindow {
             appWindow.feed = innertube.video().feed(currentCategoryId);
     }
 
+    // Switch to nav category `idx` — shared by the category dialog, the home chips row,
+    // and the initial load. Updates the header label + the top-level feed.
+    function selectCategory(idx) {
+        var nav = innertube.navEntries();
+        if (idx >= 0 && idx < nav.length) {
+            categoryDialog.selectedIndex = idx;
+            appWindow.currentCategoryLabel = nav[idx].label;
+            appWindow.currentCategoryId = nav[idx].id;
+            appWindow.feed = innertube.video().feed(nav[idx].id);
+        }
+    }
+
     // The top-level video feed, obtained from the API tree (innertube.video().feed()).
     // A C++-owned VideoModel — MainPage's ListView binds to it. Undefined until the
     // first category loads in Component.onCompleted.
     property variant feed
 
-    // --- Shared header background: the YouTube-style red brand gradient. ONE shared
-    // Component instance so navigating between same-background pages doesn't re-fade.
-    // The gradient stops are the sanctioned hardcoded brand colors (light orange-red
-    // top -> dark red bottom).
+    // --- Shared header background: an animated Perlin-noise field in the brand red
+    // palette (a C++ QDeclarativeItem). ONE shared Component instance so navigating
+    // between same-background pages doesn't re-fade; it stops animating when the header
+    // collapses (VideoPage) to save battery.
     property Component stdHeaderBackground: Component {
-        Rectangle {
+        PerlinBackground {
             anchors.fill: parent
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: UI.COLOR_BRAND_RED_LIGHT } // top
-                GradientStop { position: 0.5; color: UI.COLOR_BRAND_RED }       // mid
-                GradientStop { position: 1.0; color: UI.COLOR_BRAND_RED_DARK }  // bottom
-            }
+            speed: 0.4
         }
     }
 
@@ -82,14 +90,7 @@ PageStackWindow {
 
         model: ListModel { id: categoryListModel }
 
-        onAccepted: {
-            var nav = innertube.navEntries();
-            if (selectedIndex >= 0 && selectedIndex < nav.length) {
-                appWindow.currentCategoryLabel = nav[selectedIndex].label;
-                appWindow.currentCategoryId = nav[selectedIndex].id;
-                appWindow.feed = innertube.video().feed(nav[selectedIndex].id);
-            }
-        }
+        onAccepted: appWindow.selectCategory(selectedIndex)
     }
 
     // Populate the category list once + load the first category.
@@ -98,12 +99,8 @@ PageStackWindow {
         var i;
         for (i = 0; i < nav.length; ++i)
             categoryListModel.append({ name: nav[i].label });
-        if (nav.length > 0) {
-            categoryDialog.selectedIndex = 0;
-            appWindow.currentCategoryLabel = nav[0].label;
-            appWindow.currentCategoryId = nav[0].id;
-            appWindow.feed = innertube.video().feed(nav[0].id);
-        }
+        if (nav.length > 0)
+            appWindow.selectCategory(0);
         __updateHeader();
     }
 
