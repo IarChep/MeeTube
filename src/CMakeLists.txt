@@ -26,6 +26,10 @@ add_library(meetube-core STATIC
     innertube/videoapi.cpp
     innertube/channelapi.cpp
     innertube/playlistapi.cpp
+    innertube/videodetails.cpp
+    innertube/streamset.cpp
+    innertube/subtitleset.cpp
+    innertube/channeldetails.cpp
     innertube/innertube.cpp
     models/servicelistmodel.cpp
     models/videomodel.cpp

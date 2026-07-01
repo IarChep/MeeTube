@@ -23,6 +23,9 @@
 #include "requests/streamsrequest.h"
 #include "requests/subtitlesrequest.h"
 #include "requests/actionrequest.h"
+#include "innertube/videodetails.h"
+#include "innertube/streamset.h"
+#include "innertube/subtitleset.h"
 
 namespace yt {
 
@@ -53,6 +56,27 @@ QObject* VideoApi::comments(const QString &videoId) {
     if (!m) { m = new CommentModel(this); m_comments = m; }
     m->list(videoId);
     return m;
+}
+
+QObject* VideoApi::details(const QString &videoId) {
+    VideoDetails *d = qobject_cast<VideoDetails *>(m_details.data());
+    if (!d) { d = new VideoDetails(this); m_details = d; }
+    d->load(videoId);
+    return d;
+}
+
+QObject* VideoApi::streams(const QString &videoId) {
+    StreamSet *s = qobject_cast<StreamSet *>(m_streams.data());
+    if (!s) { s = new StreamSet(this); m_streams = s; }
+    s->load(videoId);
+    return s;
+}
+
+QObject* VideoApi::subtitles(const QString &videoId) {
+    SubtitleSet *s = qobject_cast<SubtitleSet *>(m_subtitles.data());
+    if (!s) { s = new SubtitleSet(this); m_subtitles = s; }
+    s->load(videoId);
+    return s;
 }
 
 QObject* VideoApi::like(const QString &videoId) {

@@ -94,6 +94,14 @@ void VideoModel::cancel() {
     setStatus(ServiceRequest::Canceled);
 }
 
+void VideoModel::assign(const QList<CT::Video> &videos) {
+    m_canPage = false;                       // externally supplied — not a pageable feed
+    QList<QVariantMap> maps;
+    for (const CT::Video &v : videos) maps << toMap(v);
+    resetItems(maps, QString());
+    setStatus(ServiceRequest::Ready);
+}
+
 void VideoModel::onReady(const QList<CT::Video> &videos, const QString &next) {
     QList<QVariantMap> maps;
     for (const CT::Video &v : videos) maps << toMap(v);

@@ -21,6 +21,7 @@
 #include "requests/userrequest.h"
 #include "requests/videorequest.h"
 #include "requests/actionrequest.h"
+#include "innertube/channeldetails.h"
 
 namespace yt {
 
@@ -29,6 +30,20 @@ ChannelApi::ChannelApi(InnertubeClient *client, QObject *parent)
 
 UserRequest*  ChannelApi::newUserRequest()  { return new UserRequest(m_client, this); }
 VideoRequest* ChannelApi::newVideoRequest() { return new VideoRequest(m_client, this); }
+
+QObject* ChannelApi::byId(const QString &channelId) {
+    ChannelDetails *d = qobject_cast<ChannelDetails *>(m_details.data());
+    if (!d) { d = new ChannelDetails(this); m_details = d; }
+    d->loadById(channelId);
+    return d;
+}
+
+QObject* ChannelApi::resolve(const QString &handleUrl) {
+    ChannelDetails *d = qobject_cast<ChannelDetails *>(m_details.data());
+    if (!d) { d = new ChannelDetails(this); m_details = d; }
+    d->loadByUrl(handleUrl);
+    return d;
+}
 
 QObject* ChannelApi::searchChannels(const QString &query) {
     UserModel *m = qobject_cast<UserModel *>(m_search.data());

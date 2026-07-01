@@ -43,6 +43,9 @@ public:
     Q_INVOKABLE QObject* feed(const QString &navId);                                // VideoModel*
     Q_INVOKABLE QObject* searchVideos(const QString &query, const QString &order);  // VideoModel*
     Q_INVOKABLE QObject* comments(const QString &videoId);                          // CommentModel*
+    Q_INVOKABLE QObject* details(const QString &videoId);                           // VideoDetails* (plain)
+    Q_INVOKABLE QObject* streams(const QString &videoId);                           // StreamSet* (plain)
+    Q_INVOKABLE QObject* subtitles(const QString &videoId);                         // SubtitleSet* (plain)
     Q_INVOKABLE QObject* like(const QString &videoId);                             // ActionRequest*
     Q_INVOKABLE QObject* dislike(const QString &videoId);
     Q_INVOKABLE QObject* removeLike(const QString &videoId);
@@ -57,9 +60,12 @@ public:
 
 private:
     InnertubeClient *m_client;
-    QPointer<QObject> m_feed;      // reused VideoModel for feed()
-    QPointer<QObject> m_search;    // reused VideoModel for searchVideos()
-    QPointer<QObject> m_comments;  // reused CommentModel
+    QPointer<QObject> m_feed;       // reused VideoModel for feed()
+    QPointer<QObject> m_search;     // reused VideoModel for searchVideos()
+    QPointer<QObject> m_comments;   // reused CommentModel
+    QPointer<QObject> m_details;    // reused VideoDetails
+    QPointer<QObject> m_streams;    // reused StreamSet
+    QPointer<QObject> m_subtitles;  // reused SubtitleSet
 };
 
 }

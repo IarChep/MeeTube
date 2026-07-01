@@ -8,6 +8,9 @@
 #include "models/playlistmodel.h"
 #include "models/usermodel.h"
 #include "models/watchmodel.h"
+#include "innertube/videodetails.h"
+#include "innertube/streamset.h"
+#include "innertube/channeldetails.h"
 #include "requests/servicerequest.h"
 #include "requests/videorequest.h"
 #include "requests/streamsrequest.h"
@@ -76,6 +79,28 @@ public:
     FakeTransport m_fake;
 protected:
     VideoRequest* newRequest() { return new VideoRequest(&m_fake, this); }
+};
+
+// Detail objects (plain QObjects) — same newRequest() seam.
+class TestVideoDetails : public VideoDetails {
+public:
+    FakeTransport m_fake;
+protected:
+    VideoRequest* newRequest() { return new VideoRequest(&m_fake, this); }
+};
+
+class TestStreamSet : public StreamSet {
+public:
+    FakeTransport m_fake;
+protected:
+    StreamsRequest* newRequest() { return new StreamsRequest(&m_fake, this); }
+};
+
+class TestChannelDetails : public ChannelDetails {
+public:
+    FakeTransport m_fake;
+protected:
+    UserRequest* newRequest() { return new UserRequest(&m_fake, this); }
 };
 
 class TestModel : public QObject { Q_OBJECT
@@ -208,6 +233,45 @@ private slots:
         QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("rel1"));
         QVERIFY(detailsSpy.count() >= 1);
         QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+    }
+
+    // VideoDetails: scalar props from /next + the nested related VideoModel.
+    void videoDetailsLoads() {
+        TestVideoDetails d;
+        d.m_fake.queue("next", loadFixture("watch_next.json"));
+        d.load("vid42");
+        d.m_fake.flush();
+        QCOMPARE(d.description(), QString("Hello description"));
+        QCOMPARE(d.channelName(), QString("Creator"));
+        QCOMPARE((int)d.status(), (int)ServiceRequest::Ready);
+        VideoModel *rel = qobject_cast<VideoModel *>(d.related());
+        QVERIFY(rel != 0);
+        QCOMPARE(rel->rowCount(), 1);
+        QCOMPARE(rel->data(0, QByteArray("id")).toString(), QString("rel1"));
+    }
+
+    // StreamSet: projects the stream list into hlsUrl.
+    void streamSetLoads() {
+        TestStreamSet s;
+        s.m_fake.queue("player", loadFixture("player_ios.json"));
+        s.load("aaa11111111");
+        s.m_fake.flush();
+        QVERIFY(!s.hlsUrl().isEmpty());
+        QCOMPARE((int)s.status(), (int)ServiceRequest::Ready);
+    }
+
+    // ChannelDetails: single channel header via UserRequest.
+    void channelDetailsLoads() {
+        TestChannelDetails c;
+        c.m_fake.queue("browse", nlohmann::json{ {"header", {{"c4TabbedHeaderRenderer", {
+            {"title", "Chan"}, {"channelId", "UCabc"},
+            {"subscriberCountText", {{"simpleText", "10K subscribers"}}} }}}} });
+        c.loadById("UCabc");
+        c.m_fake.flush();
+        QCOMPARE(c.name(), QString("Chan"));
+        QCOMPARE(c.subscriberCount(), QString("10K subscribers"));
+        QCOMPARE(c.channelId(), QString("UCabc"));
+        QCOMPARE((int)c.status(), (int)ServiceRequest::Ready);
     }
 };
 
