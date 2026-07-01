@@ -39,6 +39,10 @@ MaskedItem {
         fillMode: Image.PreserveAspectCrop
         clip: true
         source: (root.source && root.source != "") ? root.source : root.placeholder
+        // Fade in when the (async) image resolves, so the placeholder -> real avatar
+        // swap glides instead of popping.
+        opacity: status === Image.Ready ? UI.OPACITY_ENABLED : 0.0
+        Behavior on opacity { NumberAnimation { duration: UI.ANIM_DEFAULT } }
     }
 
     MouseArea {

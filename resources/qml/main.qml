@@ -13,8 +13,17 @@ PageStackWindow {
 
     initialPage: mainPage
 
-    // Currently-selected nav category label (shown in the header).
+    // Currently-selected nav category label (shown in the header) + its resource id
+    // (kept so the feed can be reloaded on a Retry).
     property string currentCategoryLabel: ""
+    property string currentCategoryId: ""
+
+    // Re-request the current category's feed (Retry from an error state). feed() reuses
+    // the cached VideoModel, so this just re-lists it.
+    function reloadFeed() {
+        if (currentCategoryId !== "")
+            appWindow.feed = innertube.video().feed(currentCategoryId);
+    }
 
     // The top-level video feed, obtained from the API tree (innertube.video().feed()).
     // A C++-owned VideoModel — MainPage's ListView binds to it. Undefined until the
@@ -29,9 +38,9 @@ PageStackWindow {
         Rectangle {
             anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0.0; color: "#FF5A36" } // brand: light orange-red (top)
-                GradientStop { position: 0.5; color: "#F11B1B" } // brand: mid red
-                GradientStop { position: 1.0; color: "#B40D0D" } // brand: dark red (bottom)
+                GradientStop { position: 0.0; color: UI.COLOR_BRAND_RED_LIGHT } // top
+                GradientStop { position: 0.5; color: UI.COLOR_BRAND_RED }       // mid
+                GradientStop { position: 1.0; color: UI.COLOR_BRAND_RED_DARK }  // bottom
             }
         }
     }
@@ -77,6 +86,7 @@ PageStackWindow {
             var nav = innertube.navEntries();
             if (selectedIndex >= 0 && selectedIndex < nav.length) {
                 appWindow.currentCategoryLabel = nav[selectedIndex].label;
+                appWindow.currentCategoryId = nav[selectedIndex].id;
                 appWindow.feed = innertube.video().feed(nav[selectedIndex].id);
             }
         }
@@ -91,6 +101,7 @@ PageStackWindow {
         if (nav.length > 0) {
             categoryDialog.selectedIndex = 0;
             appWindow.currentCategoryLabel = nav[0].label;
+            appWindow.currentCategoryId = nav[0].id;
             appWindow.feed = innertube.video().feed(nav[0].id);
         }
         __updateHeader();

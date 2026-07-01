@@ -14,6 +14,23 @@ Item {
 
     property bool listView: true
 
+    // Native pressed highlight, bled to the row edges — makes the whole card feel
+    // tappable (shows through in the text area; the opaque thumbnail covers the top).
+    Image {
+        anchors.fill: parent
+        visible: rootMouse.pressed
+        source: "image://theme/meegotouch-panel-background-pressed"
+        smooth: true
+    }
+
+    // Neutral skeleton block behind the thumbnail while the (async) image loads, so a
+    // row is never a blank gap.
+    Rectangle {
+        anchors.fill: thumb
+        color: UI.COLOR_DISABLED_FOREGROUND
+        visible: thumb.status !== Image.Ready
+    }
+
     // ---- Thumbnail (16:9) with a bottom-right duration badge -----------------
     Image {
         id: thumb
@@ -24,6 +41,9 @@ Item {
         smooth: true
         asynchronous: true
         source: thumbnailUrl ? thumbnailUrl : ""
+        // Fade in on load rather than popping.
+        opacity: status === Image.Ready ? UI.OPACITY_ENABLED : 0.0
+        Behavior on opacity { NumberAnimation { duration: UI.ANIM_DEFAULT } }
 
         Rectangle {
             id: durationBadge
@@ -36,7 +56,7 @@ Item {
             height: durationText.height + UI.PADDING_SMALL * 2
             radius: UI.PADDING_SMALL
             // Scrim over the thumbnail so light frames stay legible — overlay alpha.
-            color: "#cc000000"
+            color: UI.COLOR_SCRIM
 
             Text {
                 id: durationText
@@ -108,7 +128,15 @@ Item {
         }
     }
 
+    // 1px hairline separating rows.
+    Rectangle {
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: 1
+        color: UI.COLOR_DIVIDER
+    }
+
     MouseArea {
+        id: rootMouse
         anchors.fill: parent
         onClicked: {
             pageStack.replace(Qt.resolvedUrl("../../pages/VideoPage.qml"), {

@@ -16,11 +16,17 @@
         <!-- components: delegates -->
         <file>qml/components/delegates/VideoDelegate.qml</file>
 
+        <!-- components: ui (loading / empty / pagination) -->
+        <file>qml/components/ui/BusyOverlay.qml</file>
+        <file>qml/components/ui/EmptyState.qml</file>
+        <file>qml/components/ui/ListFooter.qml</file>
+
         <!-- components: sheets -->
         <file>qml/components/sheets/CommentsSheet.qml</file>
 
         <!-- shared js -->
         <file>qml/js/UIConstants.js</file>
+        <file>qml/js/Status.js</file>
 
         <!-- assets -->
         <file>qml/images/avatar-mask.png</file>
