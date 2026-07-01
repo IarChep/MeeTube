@@ -223,13 +223,14 @@ Page {
             Rectangle { width: column.width; height: 1; color: UI.COLOR_DIVIDER }
 
             // 3) ---- Action row: like (with count) / dislike / share / save -------
-            // N9 has no thumbs icons; map like->favorite-mark, dislike->favorite-unmark.
-            // Like/dislike POST via the API tree (no-op until auth lands); Share opens the
-            // video URL in the browser (works today).
+            // Like uses icon-s-common-like tinted white (the theme glyph is black line
+            // art); dislike is the same glyph flipped 180 (no dislike asset exists).
+            // Compact row. Like/dislike POST via the API tree (no-op until auth); Share
+            // opens the video URL in the browser (works today).
             Row {
                 id: actionRow
                 width: parent.width
-                height: UI.LIST_ITEM_HEIGHT_DEFAULT + UI.PADDING_LARGE
+                height: UI.LIST_ITEM_HEIGHT_SMALL - UI.PADDING_LARGE   // compact
 
                 // like
                 Item {
@@ -242,11 +243,17 @@ Page {
                     }
                     Column {
                         anchors.centerIn: parent
-                        spacing: UI.PADDING_SMALL
-                        Image {
+                        spacing: UI.PADDING_XSMALL
+                        MaskedItem {
+                            id: likeIcon
                             anchors.horizontalCenter: parent.horizontalCenter
-                            source: "image://theme/icon-m-toolbar-favorite-mark-white"
+                            width: UI.SIZE_ICON_DEFAULT; height: UI.SIZE_ICON_DEFAULT
                             opacity: likeMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
+                            mask: Image {
+                                width: likeIcon.width; height: likeIcon.height
+                                source: "image://theme/icon-s-common-like"; smooth: true
+                            }
+                            Rectangle { anchors.fill: parent; color: UI.COLOR_INVERTED_FOREGROUND }
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
@@ -256,7 +263,7 @@ Page {
                         }
                     }
                 }
-                // dislike
+                // dislike — the like glyph flipped 180
                 Item {
                     width: parent.width / 4
                     height: parent.height
@@ -267,11 +274,18 @@ Page {
                     }
                     Column {
                         anchors.centerIn: parent
-                        spacing: UI.PADDING_SMALL
-                        Image {
+                        spacing: UI.PADDING_XSMALL
+                        MaskedItem {
+                            id: dislikeIcon
                             anchors.horizontalCenter: parent.horizontalCenter
-                            source: "image://theme/icon-m-toolbar-favorite-unmark-white"
+                            width: UI.SIZE_ICON_DEFAULT; height: UI.SIZE_ICON_DEFAULT
+                            rotation: 180
                             opacity: dislikeMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
+                            mask: Image {
+                                width: dislikeIcon.width; height: dislikeIcon.height
+                                source: "image://theme/icon-s-common-like"; smooth: true
+                            }
+                            Rectangle { anchors.fill: parent; color: UI.COLOR_INVERTED_FOREGROUND }
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
@@ -293,9 +307,12 @@ Page {
                     }
                     Column {
                         anchors.centerIn: parent
-                        spacing: UI.PADDING_SMALL
+                        spacing: UI.PADDING_XSMALL
                         Image {
                             anchors.horizontalCenter: parent.horizontalCenter
+                            width: UI.SIZE_ICON_DEFAULT; height: UI.SIZE_ICON_DEFAULT
+                            sourceSize.width: UI.SIZE_ICON_DEFAULT; sourceSize.height: UI.SIZE_ICON_DEFAULT
+                            smooth: true
                             source: "image://theme/icon-m-toolbar-share-white"
                             opacity: shareMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
                         }
@@ -314,9 +331,12 @@ Page {
                     MouseArea { id: saveMouse; anchors.fill: parent }
                     Column {
                         anchors.centerIn: parent
-                        spacing: UI.PADDING_SMALL
+                        spacing: UI.PADDING_XSMALL
                         Image {
                             anchors.horizontalCenter: parent.horizontalCenter
+                            width: UI.SIZE_ICON_DEFAULT; height: UI.SIZE_ICON_DEFAULT
+                            sourceSize.width: UI.SIZE_ICON_DEFAULT; sourceSize.height: UI.SIZE_ICON_DEFAULT
+                            smooth: true
                             source: "image://theme/icon-m-toolbar-add-white"
                             opacity: saveMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
                         }
@@ -377,42 +397,38 @@ Page {
                         elide: Text.ElideRight
                     }
                 }
-                // Compact subscribe pill (much smaller than a stock Button, ~Sheet-button
-                // scale). Not subscribed -> brand red + white "Subscribe"; subscribed ->
-                // muted dark + white "Unsubscribe". Reflects ChannelDetails.subscribed; the
-                // POST needs auth (a later phase), so until then it stays on its loaded state.
-                Rectangle {
+                // Subscribe: a real meego Button using the theme's red "negative" 9-patch
+                // (the only red button asset — there's no red colorN scheme) when not
+                // subscribed, and the muted dark inverted-button when subscribed. Sized
+                // smaller than a stock button. Reflects ChannelDetails.subscribed; the POST
+                // needs auth (a later phase), so until then it stays on its loaded state.
+                Button {
                     id: subscribeButton
                     property bool subscribed: (channel && channel.subscribed) ? true : false
                     anchors {
                         right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
                     }
-                    width: subLabel.paintedWidth + UI.PADDING_XLARGE * 2
-                    height: UI.LIST_ITEM_HEIGHT_SMALL - UI.PADDING_XXLARGE   // ~40px, Sheet-button scale
-                    radius: UI.PADDING_MEDIUM
-                    smooth: true
-                    color: subscribed
-                           ? (subMouse.pressed ? UI.COLOR_BUTTON_DARK_PRESSED : UI.COLOR_BUTTON_DARK)
-                           : (subMouse.pressed ? UI.COLOR_BRAND_RED_DARK : UI.COLOR_BRAND_RED)
-
-                    Text {
-                        id: subLabel
-                        anchors.centerIn: parent
-                        text: subscribeButton.subscribed ? "Unsubscribe" : "Subscribe"
-                        color: UI.COLOR_INVERTED_FOREGROUND
-                        font.pixelSize: UI.FONT_SMALL
-                        font.family: UI.FONT_FAMILY
-                        font.weight: Font.Bold
+                    text: subscribed ? "Unsubscribe" : "Subscribe"
+                    width: 190
+                    platformStyle: ButtonStyle {
+                        buttonWidth: 190
+                        buttonHeight: 46
+                        fontPixelSize: UI.FONT_SMALL
+                        fontWeight: Font.Bold
+                        textColor: UI.COLOR_INVERTED_FOREGROUND
+                        pressedTextColor: UI.COLOR_INVERTED_FOREGROUND
+                        background: subscribeButton.subscribed
+                            ? "image://theme/meegotouch-button-inverted-background"
+                            : "image://theme/meegotouch-button-negative-background"
+                        pressedBackground: subscribeButton.subscribed
+                            ? "image://theme/meegotouch-button-inverted-background-pressed"
+                            : "image://theme/meegotouch-button-negative-background-pressed"
                     }
-                    MouseArea {
-                        id: subMouse
-                        anchors.fill: parent
-                        onClicked: {
-                            if (!channel || !details || !details.channelId) return;
-                            if (channel.subscribed) innertube.channel().unsubscribe(details.channelId);
-                            else                    innertube.channel().subscribe(details.channelId);
-                        }
+                    onClicked: {
+                        if (!channel || !details || !details.channelId) return;
+                        if (channel.subscribed) innertube.channel().unsubscribe(details.channelId);
+                        else                    innertube.channel().subscribe(details.channelId);
                     }
                 }
             }
