@@ -10,7 +10,8 @@ import "../js/Status.js" as Status
 
 // Video detail page. NO global header: pageHeader/pageHeaderBackground are null so the
 // HeaderBar collapses (back navigation lives in the toolbar). Body is a scrolled Column:
-// preview, expandable title/description, action row, author row, comments, related.
+// preview, expandable title/description, action row, author row, comments, related —
+// separated by 1px dividers.
 Page {
     id: page
     orientationLock: PageOrientation.LockPortrait
@@ -24,6 +25,7 @@ Page {
     tools: videoTools
 
     property bool descExpanded: false
+    property bool hasDescription: (details && details.description) ? details.description.length > 0 : false
 
     // From the API tree: details() (one /next → description, like/view text + a nested
     // related VideoModel), comments(), and — once details resolves — the channel header
@@ -76,7 +78,7 @@ Page {
             id: column
             width: flick.width
 
-            // 1) ---- Preview: 16:9 art + a circular play button ------------------
+            // 1) ---- Preview: 16:9 art + a squircle play button -------------------
             Item {
                 id: preview
                 width: parent.width
@@ -93,15 +95,25 @@ Page {
                           : (videoData.largeThumbnailUrl ? videoData.largeThumbnailUrl
                           : (videoData.thumbnailUrl ? videoData.thumbnailUrl : ""))
                 }
-                // Circular play button (scrim disc + white glyph). TODO: real playback
-                // via innertube.video().streams(id).hlsUrl.
-                Rectangle {
+                // Squircle play button: a scrim disc masked to the Nokia squircle (same
+                // silhouette as the avatars) + a fully-white play glyph. TODO: real
+                // playback via innertube.video().streams(id).hlsUrl.
+                Item {
                     anchors.centerIn: parent
                     width: UI.SIZE_BUTTON + UI.PADDING_XXLARGE
                     height: width
-                    radius: width / 2
-                    color: UI.COLOR_SCRIM
                     opacity: playMouse.pressed ? UI.OPACITY_ENABLED : 0.85
+
+                    MaskedItem {
+                        anchors.fill: parent
+                        mask: Image {
+                            width: parent.width; height: parent.height
+                            source: "../images/avatar-mask.png"
+                            fillMode: Image.Stretch
+                            smooth: true
+                        }
+                        Rectangle { anchors.fill: parent; color: UI.COLOR_SCRIM }
+                    }
                     Image {
                         anchors.centerIn: parent
                         source: "image://theme/icon-m-toolbar-mediacontrol-play-white"
@@ -130,19 +142,20 @@ Page {
             }
 
             // 2) ---- Expandable title / metadata / description --------------------
-            Rectangle {
+            Item {
                 id: titleRect
                 width: parent.width
-                color: UI.COLOR_BACKGROUND
                 height: titleColumn.height + UI.PADDING_XLARGE * 2
 
+                // Only offer the expand arrow / tap-to-expand when there IS a description.
                 Image {
                     id: expandArrow
+                    visible: page.hasDescription
                     anchors {
                         right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                         top: parent.top; topMargin: UI.PADDING_XLARGE
                     }
-                    source: "image://theme/icon-m-common-drilldown-arrow"
+                    source: "image://theme/icon-m-common-drilldown-arrow-inverse"
                     rotation: page.descExpanded ? 90 : 0
                     Behavior on rotation { NumberAnimation { duration: UI.ANIM_DEFAULT } }
                 }
@@ -151,7 +164,8 @@ Page {
                     id: titleColumn
                     anchors {
                         left: parent.left; leftMargin: UI.DEFAULT_MARGIN
-                        right: expandArrow.left; rightMargin: UI.PADDING_LARGE
+                        right: page.hasDescription ? expandArrow.left : parent.right
+                        rightMargin: page.hasDescription ? UI.PADDING_LARGE : UI.DEFAULT_MARGIN
                         top: parent.top; topMargin: UI.PADDING_XLARGE
                     }
                     spacing: UI.PADDING_SMALL
@@ -159,7 +173,7 @@ Page {
                     Text {
                         width: parent.width
                         text: videoData && videoData.title ? videoData.title : ""
-                        color: UI.COLOR_FOREGROUND
+                        color: UI.COLOR_INVERTED_FOREGROUND
                         font.pixelSize: UI.FONT_LARGE
                         font.family: UI.FONT_FAMILY
                         wrapMode: Text.WordWrap
@@ -180,9 +194,9 @@ Page {
                     Text {
                         id: descText
                         width: parent.width
-                        visible: page.descExpanded
+                        visible: page.descExpanded && page.hasDescription
                         text: details ? details.description : ""
-                        color: UI.COLOR_FOREGROUND
+                        color: UI.COLOR_INVERTED_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
                         wrapMode: Text.WordWrap
                     }
@@ -192,9 +206,12 @@ Page {
 
                 MouseArea {
                     anchors.fill: parent
+                    enabled: page.hasDescription
                     onClicked: page.descExpanded = !page.descExpanded
                 }
             }
+
+            Rectangle { width: column.width; height: 1; color: UI.COLOR_DIVIDER }
 
             // 3) ---- Action row: like (with count) / dislike / share / save -------
             // N9 has no thumbs icons; map like->favorite-mark, dislike->favorite-unmark.
@@ -219,7 +236,7 @@ Page {
                         spacing: UI.PADDING_SMALL
                         Image {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            source: "image://theme/icon-m-toolbar-favorite-mark"
+                            source: "image://theme/icon-m-toolbar-favorite-mark-white"
                             opacity: likeMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
                         }
                         Text {
@@ -244,7 +261,7 @@ Page {
                         spacing: UI.PADDING_SMALL
                         Image {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            source: "image://theme/icon-m-toolbar-favorite-unmark"
+                            source: "image://theme/icon-m-toolbar-favorite-unmark-white"
                             opacity: dislikeMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
                         }
                         Text {
@@ -270,7 +287,7 @@ Page {
                         spacing: UI.PADDING_SMALL
                         Image {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            source: "image://theme/icon-m-toolbar-share"
+                            source: "image://theme/icon-m-toolbar-share-white"
                             opacity: shareMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
                         }
                         Text {
@@ -291,7 +308,7 @@ Page {
                         spacing: UI.PADDING_SMALL
                         Image {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            source: "image://theme/icon-m-toolbar-add"
+                            source: "image://theme/icon-m-toolbar-add-white"
                             opacity: saveMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
                         }
                         Text {
@@ -304,11 +321,13 @@ Page {
                 }
             }
 
+            Rectangle { width: column.width; height: 1; color: UI.COLOR_DIVIDER }
+
             // 4) ---- Author row: avatar + name + subscriber count + subscribe -----
-            Rectangle {
+            // Transparent (same as the rest of the interface); text is inverted.
+            Item {
                 width: parent.width
                 height: UI.LIST_ITEM_HEIGHT_DEFAULT + UI.PADDING_LARGE
-                color: UI.COLOR_INVERTED_FOREGROUND // white row
 
                 Avatar {
                     id: authorAvatar
@@ -335,10 +354,11 @@ Page {
                         width: parent.width
                         text: (details && details.channelName) ? details.channelName
                               : (videoData && videoData.username ? videoData.username : "")
-                        color: UI.COLOR_FOREGROUND
+                        color: UI.COLOR_INVERTED_FOREGROUND
                         font.pixelSize: UI.FONT_DEFAULT
                         elide: Text.ElideRight
                     }
+                    // Subscriber count under the author name.
                     Text {
                         width: parent.width
                         visible: channel ? (channel.subscriberCount.length > 0) : false
@@ -365,20 +385,28 @@ Page {
                 }
             }
 
+            Rectangle { width: column.width; height: 1; color: UI.COLOR_DIVIDER }
+
             // 5) ---- Comments preview -> CommentsSheet ----------------------------
-            Rectangle {
+            Item {
                 id: commentsRect
                 width: parent.width
                 height: commentsColumn.height + UI.PADDING_XLARGE * 2
-                color: UI.COLOR_BACKGROUND
 
+                // Native pressed highlight so a tap is legible.
+                Image {
+                    anchors.fill: parent
+                    visible: commentsMouse.pressed
+                    source: "image://theme/meegotouch-panel-background-pressed"
+                    smooth: true
+                }
                 Image {
                     id: commentsArrow
                     anchors {
                         right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
                     }
-                    source: "image://theme/icon-m-common-drilldown-arrow"
+                    source: "image://theme/icon-m-common-drilldown-arrow-inverse"
                 }
                 Column {
                     id: commentsColumn
@@ -390,7 +418,7 @@ Page {
                     spacing: UI.PADDING_SMALL
                     Text {
                         text: "Comments" + ((comments && comments.count > 0) ? "  (" + comments.count + ")" : "")
-                        color: UI.COLOR_FOREGROUND
+                        color: UI.COLOR_INVERTED_FOREGROUND
                         font.pixelSize: UI.FONT_DEFAULT
                         font.bold: true
                     }
@@ -406,10 +434,13 @@ Page {
                     }
                 }
                 MouseArea {
+                    id: commentsMouse
                     anchors.fill: parent
                     onClicked: commentsSheet.open()
                 }
             }
+
+            Rectangle { width: column.width; height: 1; color: UI.COLOR_DIVIDER }
 
             // 6) ---- Related videos ----------------------------------------------
             SectionHeader { text: "Related videos" }
