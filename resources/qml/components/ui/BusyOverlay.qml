@@ -15,7 +15,11 @@ Item {
 
     visible: opacity > 0
     opacity: running ? UI.OPACITY_ENABLED : 0.0
-    Behavior on opacity { NumberAnimation { duration: UI.ANIM_DEFAULT } }
+    Behavior on opacity { NumberAnimation { duration: UI.ANIM_SLOW } }
+
+    // Opaque background so the page content stays hidden until loading completes; the
+    // whole overlay then fades out together (via the opacity Behavior above).
+    Rectangle { anchors.fill: parent; color: UI.COLOR_INVERTED_BACKGROUND }
 
     // Swallow taps on the content underneath while the spinner is up.
     MouseArea { anchors.fill: parent; enabled: root.running }

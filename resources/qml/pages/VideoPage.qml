@@ -73,6 +73,8 @@ Page {
         clip: true
         contentWidth: width
         contentHeight: column.height
+        // Don't let the user drag past the content (no rubber-band overscroll).
+        boundsBehavior: Flickable.StopAtBounds
 
         Column {
             id: column

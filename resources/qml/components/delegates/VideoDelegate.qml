@@ -3,25 +3,17 @@ import com.nokia.meego 1.0
 import "../"
 import "../../js/UIConstants.js" as UI
 
-// YouTube-style list item: a big 16:9 thumbnail with a duration badge, the title
-// (up to 2 lines), then an author row (squircle avatar + name + "views • date").
-// Bound to VideoModel roles: title/thumbnailUrl/duration/username/viewCount/date.
+// YouTube-style list item: a big 16:9 thumbnail with a duration badge, then a row of the
+// channel avatar next to the video title (up to 2 lines), with a dimmer metadata line
+// underneath: "channel • views • date".
+// Bound to VideoModel roles: title/thumbnailUrl/duration/username/viewCount/viewText/date.
 Item {
     id: root
 
     width: listView ? ListView.view.width : parent.width
-    height: thumb.height + textColumn.height + UI.PADDING_DOUBLE * 2
+    height: thumb.height + infoRow.height + UI.PADDING_DOUBLE * 2
 
     property bool listView: true
-
-    // Native pressed highlight, bled to the row edges — makes the whole card feel
-    // tappable (shows through in the text area; the opaque thumbnail covers the top).
-    Image {
-        anchors.fill: parent
-        visible: rootMouse.pressed
-        source: "image://theme/meegotouch-panel-background-pressed"
-        smooth: true
-    }
 
     // Neutral skeleton block behind the thumbnail while the (async) image loads, so a
     // row is never a blank gap.
@@ -68,19 +60,26 @@ Item {
         }
     }
 
-    // ---- Title + author row --------------------------------------------------
-    Column {
-        id: textColumn
+    // ---- Avatar + [title / metadata] -----------------------------------------
+    Row {
+        id: infoRow
         anchors {
             top: thumb.bottom; topMargin: UI.PADDING_DOUBLE
             left: parent.left; right: parent.right
             leftMargin: UI.DEFAULT_MARGIN; rightMargin: UI.DEFAULT_MARGIN
         }
-        spacing: UI.PADDING_DOUBLE
+        spacing: UI.PADDING_XLARGE
 
-        // Title + its own metadata paragraph (views • published date), tight together.
+        // Channel avatar, top-aligned with the title (empty url -> placeholder).
+        Avatar {
+            id: avatar
+            width: UI.SIZE_ICON_LARGE
+            height: UI.SIZE_ICON_LARGE
+            source: avatarUrl ? avatarUrl : ""
+        }
+
         Column {
-            width: parent.width
+            width: parent.width - avatar.width - UI.PADDING_XLARGE
             spacing: UI.PADDING_XSMALL
 
             Text {
@@ -93,37 +92,20 @@ Item {
                 maximumLineCount: 2
                 elide: Text.ElideRight
             }
+            // Dimmer metadata: channel • views • date (bullet-joined, skipping blanks).
             Text {
                 width: parent.width
                 visible: text.length > 0
-                // Views (pre-formatted "2.2B views" or numeric) • published date.
-                text: (viewText ? viewText : (viewCount ? viewCount + " views" : ""))
-                      + (date ? " • " + date : "")
+                text: {
+                    var parts = [];
+                    if (username) parts.push(username);
+                    var v = viewText ? viewText : (viewCount ? (viewCount + " views") : "");
+                    if (v) parts.push(v);
+                    if (date) parts.push(date);
+                    return parts.join("  •  ");
+                }
                 color: UI.COLOR_SECONDARY_FOREGROUND
                 font.pixelSize: UI.FONT_XSMALL
-                elide: Text.ElideRight
-            }
-        }
-
-        // Author row: squircle avatar + channel name only.
-        Row {
-            width: parent.width
-            spacing: UI.PADDING_XLARGE
-
-            Avatar {
-                id: avatar
-                width: UI.SIZE_ICON_LARGE
-                height: UI.SIZE_ICON_LARGE
-                anchors.verticalCenter: parent.verticalCenter
-                // Real channel avatar from the VideoModel avatarUrl role; empty -> placeholder.
-                source: avatarUrl ? avatarUrl : ""
-            }
-            Text {
-                width: parent.width - avatar.width - UI.PADDING_XLARGE
-                anchors.verticalCenter: parent.verticalCenter
-                text: username ? username : ""
-                color: UI.COLOR_INVERTED_FOREGROUND
-                font.pixelSize: UI.FONT_SMALL
                 elide: Text.ElideRight
             }
         }
@@ -134,6 +116,15 @@ Item {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         height: 1
         color: UI.COLOR_DIVIDER
+    }
+
+    // Pressed highlight — a subtle white wash over the whole card (reads on the dark
+    // theme where the pressed-panel tile did not) so a tap is obvious.
+    Rectangle {
+        anchors.fill: parent
+        color: UI.COLOR_INVERTED_FOREGROUND
+        opacity: rootMouse.pressed ? 0.15 : 0.0
+        Behavior on opacity { NumberAnimation { duration: UI.ANIM_FAST } }
     }
 
     MouseArea {
