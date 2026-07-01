@@ -55,7 +55,7 @@ VideoRequest* VideoModel::request() {
     if (!m_request) {
         m_request = newRequest();
         if (m_request) {
-            connect(m_request, SIGNAL(ready(QList<CT::Video>,QString)),
+            connect(m_request, SIGNAL(videosReady(QList<CT::Video>,QString)),
                     this, SLOT(onReady(QList<CT::Video>,QString)));
             connect(m_request, SIGNAL(failed(QString)), this, SLOT(onFailed(QString)));
         }
@@ -69,7 +69,7 @@ void VideoModel::list(const QString &resourceId) {
     m_canPage = true;
     clear();
     setStatus(ServiceRequest::Loading);
-    m_request->list(resourceId, QString());
+    m_request->browseFeed(resourceId, QString());
 }
 
 void VideoModel::search(const QString &query, const QString &order) {
@@ -78,14 +78,14 @@ void VideoModel::search(const QString &query, const QString &order) {
     m_canPage = false;                      // search has no page token in the contract
     clear();
     setStatus(ServiceRequest::Loading);
-    m_request->search(query, order);
+    m_request->searchVideos(query, order);
 }
 
 void VideoModel::fetchMore() {
     if (!m_canPage || nextToken().isEmpty() || status() == ServiceRequest::Loading) return;
     if (!request()) return;
     setStatus(ServiceRequest::Loading);
-    m_request->list(m_resourceId, nextToken());
+    m_request->browseFeed(m_resourceId, nextToken());
 }
 
 void VideoModel::cancel() {

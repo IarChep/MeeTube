@@ -16,7 +16,6 @@
 
 #include "videorequest.h"
 #include "parsers/rendererparser.h"
-#include "parsers/playerparser.h"
 
 namespace yt {
 
@@ -27,34 +26,28 @@ static std::string sortParam(const QString &order) {
     return std::string();   // relevance
 }
 
-void VideoRequest::list(const QString &resourceId, const QString &page) {
+void VideoRequest::browseFeed(const QString &resourceId, const QString &page) {
     setStatus(Loading);
-    m_mode = ModeList;
+    m_mode = ModeBrowse;
     nlohmann::json body;
     if (!page.isEmpty()) body["continuation"] = page.toStdString();
     else                 body["browseId"] = resourceId.toStdString();
     connect(m_t->post("browse", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
-void VideoRequest::search(const QString &query, const QString &order) {
+void VideoRequest::searchVideos(const QString &query, const QString &order) {
     setStatus(Loading);
-    m_mode = ModeList;
+    m_mode = ModeSearch;
     nlohmann::json body; body["query"] = query.toStdString();
     const std::string p = sortParam(order);
     if (!p.empty()) body["params"] = p;
     connect(m_t->post("search", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
-void VideoRequest::get(const QString &id) {
+void VideoRequest::loadWatch(const QString &videoId) {
     setStatus(Loading);
-    m_mode = ModeGet;
-    nlohmann::json body{ {"videoId", id.toStdString()}, {"contentCheckOk", true}, {"racyCheckOk", true} };
-    connect(m_t->post("player", ClientId::IOS, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
-}
-
-void VideoRequest::related(const QString &videoId) {
-    setStatus(Loading);
-    m_mode = ModeList;            // parseVideoList harvests the compactVideoRenderers
+    m_mode = ModeWatch;
+    m_videoId = videoId;
     nlohmann::json body{ {"videoId", videoId.toStdString()} };
     connect(m_t->post("next", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
@@ -65,25 +58,20 @@ void VideoRequest::onFinished() {
     const Reply r = rep->result();
     rep->deleteLater();
     if (aborted(r)) return;
-    if (m_mode == ModeGet) {
-        QString reason;
-        if (!isPlayable(r.json, &reason)) { fail(reason); return; }
-        const CT::Video v = parseVideoDetails(r.json);
-        // Playable status but no videoDetails block → don't pass off a blank Video as
-        // success; surface a failure the UI can show.
-        if (v.id.isEmpty()) { fail(QString::fromLatin1("video unavailable")); return; }
-        deliver(QList<CT::Video>() << v, QString());
+    if (m_mode == ModeWatch) {
+        CT::Video primary; QList<CT::Video> related;
+        parseWatchPage(r.json, &primary, &related);
+        primary.id = m_videoId;                    // /next does not echo the id; carry it
+        primary.commentsId = m_videoId; primary.subtitlesId = m_videoId; primary.relatedVideosId = m_videoId;
+        setStatus(Ready);
+        emit watchReady(primary, related);
     } else {
         QString token; QList<CT::Video> v = parseVideoList(r.json, &token);
-        deliver(v, token);
+        setStatus(Ready);
+        emit videosReady(v, token);
     }
 }
 
 void VideoRequest::cancel() { setStatus(Canceled); }
-
-void VideoRequest::deliver(const QList<CT::Video> &videos, const QString &next) {
-    setStatus(Ready);
-    emit ready(videos, next);
-}
 
 }

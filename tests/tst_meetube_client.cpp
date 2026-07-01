@@ -63,10 +63,10 @@ private slots:
         t.queue("browse", loadFixture("browse_feed.json"));
 
         VideoRequest req(&t);
-        QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
+        QSignalSpy readySpy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
         QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
 
-        req.list("FEwhat_to_watch", QString());
+        req.browseFeed("FEwhat_to_watch", QString());
         QCOMPARE((int)req.status(), (int)ServiceRequest::Loading);  // posted, not delivered
         QCOMPARE(t.sent.size(), 1);                                 // the POST went out
 
@@ -85,8 +85,8 @@ private slots:
         FakeTransport t;
         t.queue("browse", loadFixture("browse_feed.json"));
         VideoRequest req(&t);
-        QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
-        req.list("FEwhat_to_watch", QString());
+        QSignalSpy readySpy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
+        req.browseFeed("FEwhat_to_watch", QString());
         QCOMPARE(readySpy.count(), 0);     // nothing until flush
         t.flush();
         QCOMPARE(readySpy.count(), 1);

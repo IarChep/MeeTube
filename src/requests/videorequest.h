@@ -22,34 +22,29 @@
 
 namespace yt {
 
+// The video request. Two shapes of result, one class (the watch-page request was
+// merged in here): a paged video list (browse feed / search) via videosReady(), and
+// the watch page (one /next → the video's details + its related list) via watchReady().
 class VideoRequest : public ServiceRequest {
     Q_OBJECT
 public:
     explicit VideoRequest(ITransport *t, QObject *parent = 0)
-        : ServiceRequest(parent), m_t(t), m_mode(ModeList) {}
+        : ServiceRequest(parent), m_t(t), m_mode(ModeBrowse) {}
 public Q_SLOTS:
-    void list(const QString &resourceId, const QString &page);
-    void search(const QString &query, const QString &order);
-    void get(const QString &id);
-    // Suggested/related videos for a watch page: /next by videoId returns
-    // compactVideoRenderers in secondaryResults, which parseVideoList collects.
-    void related(const QString &videoId);
-    // Forget the in-flight reply: marking the request Canceled makes onFinished()
-    // bail (via aborted()) before it parses/delivers. The transport also aborts the
-    // network reply because the reply handle is parented to `this`.
+    void browseFeed(const QString &resourceId, const QString &page);  // browse a category/FE feed
+    void searchVideos(const QString &query, const QString &order);    // search videos
+    void loadWatch(const QString &videoId);                           // /next: details + related
     void cancel();
 Q_SIGNALS:
-    void ready(const QList<CT::Video> &videos, const QString &nextPageToken);
-protected:
-    void deliver(const QList<CT::Video> &videos, const QString &nextPageToken = QString());
+    void videosReady(const QList<CT::Video> &videos, const QString &nextPageToken);
+    void watchReady(const CT::Video &primary, const QList<CT::Video> &related);
 private Q_SLOTS:
     void onFinished();
 private:
-    // list()/search() share one parse path (a video list); get() reads a single
-    // player response — m_mode tells onFinished() which.
-    enum Mode { ModeList, ModeGet };
+    enum Mode { ModeBrowse, ModeSearch, ModeWatch };
     ITransport *m_t;
     Mode m_mode;
+    QString m_videoId;   // remembered for loadWatch (/next does not echo the id)
 };
 
 }

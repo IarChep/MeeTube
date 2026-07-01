@@ -14,6 +14,7 @@ using namespace yt;
 class TestRequests : public QObject { Q_OBJECT
 private slots:
     void initTestCase() {
+        qRegisterMetaType<CT::Video>("CT::Video");   // WatchRequest merge: watchReady primary
         qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");
         qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
         qRegisterMetaType<QList<CT::Comment> >("QList<CT::Comment>");
@@ -57,66 +58,55 @@ private slots:
         QCOMPARE(t.sent.size(), 2);
     }
 
-    void videoListBrowse() {
+    void videoBrowseFeed() {
         FakeTransport t; t.queue("browse", loadFixture("browse_feed.json"));
         VideoRequest req(&t);
-        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
-        req.list("FEwhat_to_watch", QString());
+        QSignalSpy spy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
+        req.browseFeed("FEwhat_to_watch", QString());
         t.flush();
         QCOMPARE(spy.count(), 1);
         QList<CT::Video> got = qvariant_cast<QList<CT::Video> >(spy.at(0).at(0));
         QCOMPARE(got.size(), 2);
         QCOMPARE(got[0].id, QString("ccc33333333"));
         QCOMPARE(spy.at(0).at(1).toString(), QString("FEEDNEXT"));
-        // body carried the browseId
         QCOMPARE(QString::fromStdString(t.sent.at(0).value("browseId", std::string())), QString("FEwhat_to_watch"));
     }
-    void videoSearch() {
+    void videoSearchVideos() {
         FakeTransport t; t.queue("search", loadFixture("search_videos.json"));
         VideoRequest req(&t);
-        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
-        req.search("cats", "date");
+        QSignalSpy spy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
+        req.searchVideos("cats", "date");
         t.flush();
         QCOMPARE(spy.count(), 1);
         QCOMPARE(QString::fromStdString(t.sent.at(0).value("query", std::string())), QString("cats"));
         QVERIFY(t.sent.at(0).contains("params"));   // date sort param attached
     }
-    void videoGet() {
-        FakeTransport t; t.queue("player", loadFixture("player_ios.json"));
-        VideoRequest req(&t);
-        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
-        req.get("aaa11111111");
-        t.flush();
-        QCOMPARE(spy.count(), 1);
-        QList<CT::Video> got = qvariant_cast<QList<CT::Video> >(spy.at(0).at(0));
-        QCOMPARE(got.size(), 1);
-        QCOMPARE(got[0].title, QString("First Video"));
-        QCOMPARE(QString::fromStdString(t.sent.at(0).value("videoId", std::string())), QString("aaa11111111"));
-    }
 
-    void videoListContinuation() {
+    void videoBrowseContinuation() {
         FakeTransport t; t.queue("browse", loadFixture("browse_feed.json"));
         VideoRequest req(&t);
-        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
-        req.list("FEwhat_to_watch", "SOMETOKEN");
+        QSignalSpy spy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
+        req.browseFeed("FEwhat_to_watch", "SOMETOKEN");
         t.flush();
         QCOMPARE(spy.count(), 1);
         QVERIFY(t.sent.at(0).contains("continuation"));
         QVERIFY(!t.sent.at(0).contains("browseId"));
     }
 
-    void videoGetNonPlayable() {
-        FakeTransport t;
-        nlohmann::json nonPlayable{{"playabilityStatus", {{"status","LOGIN_REQUIRED"},{"reason","Sign in"}}}};
-        t.queue("player", nonPlayable);
+    // The merged watch call: one /next → primary details + related, via watchReady().
+    void videoLoadWatch() {
+        FakeTransport t; t.queue("next", loadFixture("watch_next.json"));
         VideoRequest req(&t);
-        QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
-        QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
-        req.get("aaa11111111");
+        QSignalSpy spy(&req, SIGNAL(watchReady(CT::Video,QList<CT::Video>)));
+        req.loadWatch("vid42");
         t.flush();
-        QCOMPARE(readySpy.count(), 0);
-        QCOMPARE(failedSpy.count(), 1);
-        QCOMPARE((int)req.status(), (int)ServiceRequest::Failed);
+        QCOMPARE(spy.count(), 1);
+        CT::Video primary = qvariant_cast<CT::Video>(spy.at(0).at(0));
+        QList<CT::Video> related = qvariant_cast<QList<CT::Video> >(spy.at(0).at(1));
+        QCOMPARE(primary.id, QString("vid42"));            // carried, /next doesn't echo it
+        QCOMPARE(primary.description, QString("Hello description"));
+        QVERIFY(related.size() >= 1);
+        QCOMPARE(QString::fromStdString(t.sent.at(0).value("videoId", std::string())), QString("vid42"));
     }
 
     void bothClientsFail() {
@@ -192,19 +182,6 @@ private slots:
     }
 
     // P0.5: playable status but no videoDetails must fail, not deliver a blank Video.
-    void videoGetEmptyDetails() {
-        FakeTransport t;
-        t.queue("player", nlohmann::json{{"playabilityStatus", {{"status", "OK"}}}});
-        VideoRequest req(&t);
-        QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
-        QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
-        req.get("zzz");
-        t.flush();
-        QCOMPARE(readySpy.count(), 0);
-        QCOMPARE(failedSpy.count(), 1);
-        QCOMPARE((int)req.status(), (int)ServiceRequest::Failed);
-    }
-
     // P0.5: both clients return playable-but-all-ciphered formats → a distinct error
     // (so the UI can choose a system-handoff) rather than a generic "no streams".
     void streamsAllCiphered() {
@@ -258,20 +235,6 @@ private slots:
         QCOMPARE(got.size(), 1);
         QCOMPARE(got[0].id, QString("UCabc"));
         QCOMPARE(t.sent.size(), 2);
-    }
-
-    // P2.3: related() posts /next by videoId and collects the result as a video list.
-    void relatedVideos() {
-        FakeTransport t;
-        t.queue("next", loadFixture("browse_feed.json"));   // carries videoRenderers
-        VideoRequest req(&t);
-        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Video>,QString)));
-        req.related("vid");
-        t.flush();
-        QCOMPARE(spy.count(), 1);
-        QVERIFY(t.sent.at(0).contains("videoId"));
-        QList<CT::Video> got = qvariant_cast<QList<CT::Video> >(spy.at(0).at(0));
-        QVERIFY(got.size() >= 1);
     }
 
     // P4.2: subscribe posts subscription/subscribe with channelIds → done(true).

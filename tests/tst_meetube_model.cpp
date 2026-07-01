@@ -16,7 +16,6 @@
 #include "requests/subtitlesrequest.h"
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
-#include "requests/watchrequest.h"
 
 using namespace yt;
 
@@ -76,7 +75,7 @@ class TestWatchModel : public WatchModel {
 public:
     FakeTransport m_fake;
 protected:
-    WatchRequest* newRequest() { return new WatchRequest(&m_fake, this); }
+    VideoRequest* newRequest() { return new VideoRequest(&m_fake, this); }
 };
 
 class TestModel : public QObject { Q_OBJECT
