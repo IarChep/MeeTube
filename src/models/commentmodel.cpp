@@ -40,7 +40,8 @@ QVariantMap CommentModel::toMap(const CT::Comment &c) {
 }
 
 CommentRequest* CommentModel::newRequest() {
-    return Innertube::instance() ? Innertube::instance()->createCommentRequest() : 0;
+    Innertube *e = Innertube::instance();
+    return e ? e->video()->newCommentRequest() : 0;
 }
 
 CommentRequest* CommentModel::request() {

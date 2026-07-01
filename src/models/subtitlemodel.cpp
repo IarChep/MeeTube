@@ -39,7 +39,8 @@ QVariantMap SubtitleModel::toMap(const CT::Subtitle &s) {
 }
 
 SubtitlesRequest* SubtitleModel::newRequest() {
-    return Innertube::instance() ? Innertube::instance()->createSubtitlesRequest() : 0;
+    Innertube *e = Innertube::instance();
+    return e ? e->video()->newSubtitlesRequest() : 0;
 }
 
 SubtitlesRequest* SubtitleModel::request() {

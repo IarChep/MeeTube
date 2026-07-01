@@ -21,9 +21,25 @@ namespace yt {
 Innertube *Innertube::self = 0;
 
 Innertube::Innertube(QObject *parent)
-    : QObject(parent), m_client(this), m_store(QString(), this), m_manager(&m_client, &m_store, this) {
+    : QObject(parent), m_client(this), m_store(QString(), this), m_manager(&m_client, &m_store, this),
+      m_video(0), m_channel(0), m_playlist(0) {
     if (!self) self = this;
     connect(&m_manager, SIGNAL(bearerChanged()), this, SLOT(applyBearer()));
+}
+
+VideoApi* Innertube::video() {
+    if (!m_video) m_video = new VideoApi(&m_client, this);
+    return m_video;
+}
+
+ChannelApi* Innertube::channel() {
+    if (!m_channel) m_channel = new ChannelApi(&m_client, this);
+    return m_channel;
+}
+
+PlaylistApi* Innertube::playlist() {
+    if (!m_playlist) m_playlist = new PlaylistApi(&m_client, this);
+    return m_playlist;
 }
 
 void Innertube::applyBearer() {

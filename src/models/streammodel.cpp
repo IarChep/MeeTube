@@ -40,7 +40,8 @@ QVariantMap StreamModel::toMap(const CT::Stream &s) {
 }
 
 StreamsRequest* StreamModel::newRequest() {
-    return Innertube::instance() ? Innertube::instance()->createStreamsRequest() : 0;
+    Innertube *e = Innertube::instance();
+    return e ? e->video()->newStreamsRequest() : 0;
 }
 
 StreamsRequest* StreamModel::request() {
