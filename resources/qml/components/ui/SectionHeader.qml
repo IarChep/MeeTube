@@ -7,7 +7,7 @@ import "../../js/UIConstants.js" as UI
 Item {
     id: root
     property string text: ""
-    property color accent: UI.COLOR_BRAND_RED
+    property color accent: UI.COLOR_INVERTED_FOREGROUND
 
     width: parent ? parent.width : 0
     height: label.text.length > 0 ? (label.paintedHeight + UI.PADDING_XLARGE * 2) : 1
