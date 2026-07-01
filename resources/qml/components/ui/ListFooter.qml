@@ -18,7 +18,7 @@ Item {
 
     Image {
         anchors.centerIn: parent
-        source: "image://theme/icon-m-common-refresh"
+        source: "image://theme/icon-m-toolbar-refresh-white"
         smooth: true
         NumberAnimation on rotation {
             running: root.active && root.hasMore

@@ -132,7 +132,7 @@ var COLOR_BRAND_RED_LIGHT = "#FF5A36"; // brand gradient top
 var COLOR_BRAND_RED_DARK  = "#B40D0D"; // brand gradient bottom
 var COLOR_SCRIM           = "#cc000000"; // dark overlay over thumbnails (duration badge, play scrim)
 var COLOR_SCRIM_LIGHT     = "#66000000"; // lighter overlay (hover/press over imagery)
-var COLOR_DIVIDER         = "#c6c7c8"; // 1px list hairline
+var COLOR_DIVIDER         = "#333333"; // 1px hairline (subtle on the dark theme)
 
 // Animation durations (ms) — not defined by the platform UIConstants; centralized.
 var ANIM_FAST    = 150;

@@ -46,6 +46,8 @@ CT::Video parseVideoRenderer(const nlohmann::json &r) {
         const QString vc = parseText(r.at("viewCountText"));
         v.viewCount = QString(vc).remove(QRegExp("[^0-9]")).toLongLong();
     }
+    if (r.contains("publishedTimeText"))        // "2 days ago" — shown on the delegate
+        v.date = parseText(r.at("publishedTimeText"));
     v.commentsId = v.id;
     v.subtitlesId = v.id;
     v.relatedVideosId = v.id;
