@@ -230,7 +230,7 @@ Page {
             Row {
                 id: actionRow
                 width: parent.width
-                height: UI.LIST_ITEM_HEIGHT_SMALL - UI.PADDING_LARGE   // compact
+                height: UI.LIST_ITEM_HEIGHT_DEFAULT + UI.PADDING_LARGE   // restored (was too small)
 
                 // like
                 Item {
@@ -410,9 +410,19 @@ Page {
                         verticalCenter: parent.verticalCenter
                     }
                     text: subscribed ? "Unsubscribe" : "Subscribe"
-                    width: 190
+                    // Snug to the label (the 9-patch keeps 22px non-stretch borders each
+                    // side); avoids the over-wide fixed width.
+                    width: subMetrics.paintedWidth + UI.PADDING_XXLARGE * 2
+                    Text {
+                        id: subMetrics
+                        visible: false
+                        text: subscribeButton.text
+                        font.pixelSize: UI.FONT_SMALL
+                        font.family: UI.FONT_FAMILY
+                        font.weight: Font.Bold
+                    }
                     platformStyle: ButtonStyle {
-                        buttonWidth: 190
+                        buttonWidth: subMetrics.paintedWidth + UI.PADDING_XXLARGE * 2
                         buttonHeight: 46
                         fontPixelSize: UI.FONT_SMALL
                         fontWeight: Font.Bold
