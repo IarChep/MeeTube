@@ -1,13 +1,9 @@
 #include <QtTest/QtTest>
 #include "testutil.h"
 #include "models/videomodel.h"
-#include "models/streammodel.h"
 #include "models/commentmodel.h"
-#include "models/categorymodel.h"
-#include "models/subtitlemodel.h"
 #include "models/playlistmodel.h"
-#include "models/usermodel.h"
-#include "models/watchmodel.h"
+#include "models/channelmodel.h"
 #include "innertube/videodetails.h"
 #include "innertube/streamset.h"
 #include "innertube/channeldetails.h"
@@ -15,8 +11,6 @@
 #include "requests/videorequest.h"
 #include "requests/streamsrequest.h"
 #include "requests/commentrequest.h"
-#include "requests/categoryrequest.h"
-#include "requests/subtitlesrequest.h"
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
 
@@ -33,31 +27,11 @@ protected:
     VideoRequest* newRequest() { return new VideoRequest(&m_fake, this); }
 };
 
-class TestStreamModel : public StreamModel {
-public:
-    FakeTransport m_fake;
-protected:
-    StreamsRequest* newRequest() { return new StreamsRequest(&m_fake, this); }
-};
-
 class TestCommentModel : public CommentModel {
 public:
     FakeTransport m_fake;
 protected:
     CommentRequest* newRequest() { return new CommentRequest(&m_fake, this); }
-};
-
-class TestCategoryModel : public CategoryModel {
-protected:
-    // CategoryRequest is synchronous (no transport); just avoid the singleton.
-    CategoryRequest* newRequest() { return new CategoryRequest(this); }
-};
-
-class TestSubtitleModel : public SubtitleModel {
-public:
-    FakeTransport m_fake;
-protected:
-    SubtitlesRequest* newRequest() { return new SubtitlesRequest(&m_fake, this); }
 };
 
 class TestPlaylistModel : public PlaylistModel {
@@ -67,18 +41,11 @@ protected:
     PlaylistRequest* newRequest() { return new PlaylistRequest(&m_fake, this); }
 };
 
-class TestUserModel : public UserModel {
+class TestChannelModel : public ChannelModel {
 public:
     FakeTransport m_fake;
 protected:
     UserRequest* newRequest() { return new UserRequest(&m_fake, this); }
-};
-
-class TestWatchModel : public WatchModel {
-public:
-    FakeTransport m_fake;
-protected:
-    VideoRequest* newRequest() { return new VideoRequest(&m_fake, this); }
 };
 
 // Detail objects (plain QObjects) — same newRequest() seam.
@@ -109,7 +76,6 @@ private slots:
         qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
         qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");
         qRegisterMetaType<QList<CT::Comment> >("QList<CT::Comment>");
-        qRegisterMetaType<QList<CT::Category> >("QList<CT::Category>");
         qRegisterMetaType<QList<CT::Subtitle> >("QList<CT::Subtitle>");
         qRegisterMetaType<QList<CT::Playlist> >("QList<CT::Playlist>");
         qRegisterMetaType<QList<CT::User> >("QList<CT::User>");
@@ -155,17 +121,6 @@ private slots:
                  QString("FEEDNEXT"));
     }
 
-    void streamModelPopulates() {
-        TestStreamModel model;
-        model.m_fake.queue("player", loadFixture("player_ios.json"));
-        model.get("aaa11111111");
-        model.m_fake.flush();
-        QVERIFY(model.rowCount() >= 3);
-        QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("hls"));
-        QVERIFY(!model.data(0, QByteArray("url")).toString().isEmpty());
-        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
-    }
-
     void commentModelPopulates() {
         TestCommentModel model;
         model.m_fake.queue("next", loadFixture("next_for_comments.json"));  // discover token
@@ -175,25 +130,6 @@ private slots:
         QCOMPARE(model.rowCount(), 2);
         QVERIFY(!model.data(0, QByteArray("body")).toString().isEmpty());
         QVERIFY(model.canFetchMore());     // comments_page has a continuation token
-        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
-    }
-
-    void categoryModelPopulates() {
-        TestCategoryModel model;
-        model.list();                       // synchronous — no flush needed
-        QVERIFY(model.rowCount() >= 2);
-        QCOMPARE(model.data(0, QByteArray("title")).toString(), QString("Music"));
-        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
-    }
-
-    void subtitleModelPopulates() {
-        TestSubtitleModel model;
-        model.m_fake.queue("player", loadFixture("player_ios.json"));   // has captionTracks
-        model.get("aaa11111111");
-        model.m_fake.flush();
-        QVERIFY(model.rowCount() >= 1);
-        QVERIFY(!model.data(0, QByteArray("url")).toString().isEmpty());
-        QVERIFY(!model.data(0, QByteArray("language")).toString().isEmpty());
         QCOMPARE(model.status(), (int)ServiceRequest::Ready);
     }
 
@@ -208,30 +144,16 @@ private slots:
         QCOMPARE(model.status(), (int)ServiceRequest::Ready);
     }
 
-    void userModelChannel() {
-        TestUserModel model;
-        model.m_fake.queue("browse", nlohmann::json{ {"header", {{"c4TabbedHeaderRenderer", {
-            {"title", "Chan"}, {"channelId", "UCabc"},
-            {"subscriberCountText", {{"simpleText", "10K subscribers"}}} }}}} });
-        model.get("UCabc");
+    // ChannelModel: channel search results (single-channel headers are ChannelDetails).
+    void channelModelSearch() {
+        TestChannelModel model;
+        model.m_fake.queue("search", nlohmann::json{ {"contents", nlohmann::json::array({
+            nlohmann::json{{"channelRenderer", {{"channelId", "UCx"}, {"title", {{"simpleText", "Chan"}}}}}} })}});
+        model.search("chan");
         model.m_fake.flush();
         QCOMPARE(model.rowCount(), 1);
-        QCOMPARE(model.data(0, QByteArray("username")).toString(), QString("Chan"));
-        QCOMPARE(model.data(0, QByteArray("subscriberCount")).toString(), QString("10K subscribers"));
-        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
-    }
-
-    void watchModelDetailsAndRelated() {
-        TestWatchModel model;
-        model.m_fake.queue("next", loadFixture("watch_next.json"));
-        QSignalSpy detailsSpy(&model, SIGNAL(detailsChanged()));
-        model.get("vid42");
-        model.m_fake.flush();
-        QCOMPARE(model.description(), QString("Hello description"));
-        QCOMPARE(model.channelName(), QString("Creator"));
-        QCOMPARE(model.rowCount(), 1);                     // one related video
-        QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("rel1"));
-        QVERIFY(detailsSpy.count() >= 1);
+        QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("UCx"));
+        QVERIFY(model.m_fake.sent.at(0).contains("params"));   // channels filter
         QCOMPARE(model.status(), (int)ServiceRequest::Ready);
     }
 

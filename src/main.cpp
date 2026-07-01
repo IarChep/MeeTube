@@ -10,15 +10,6 @@
 #include <QDeclarativeEngine>
 #include <QDeclarativeView>
 
-#include "models/videomodel.h"
-#include "models/streammodel.h"
-#include "models/commentmodel.h"
-#include "models/categorymodel.h"
-#include "models/subtitlemodel.h"
-#include "models/playlistmodel.h"
-#include "models/usermodel.h"
-#include "models/accountmodel.h"
-#include "models/watchmodel.h"
 #include "models/servicemetatypes.h"
 #include "innertube/innertube.h"
 #include "harmattan/maskeditem.h"
@@ -56,15 +47,9 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
 #endif
 
     registerMeeTubeMetaTypes();
-    qmlRegisterType<VideoModel>("MeeTube", 1, 0, "VideoModel");
-    qmlRegisterType<StreamModel>("MeeTube", 1, 0, "StreamModel");
-    qmlRegisterType<CommentModel>("MeeTube", 1, 0, "CommentModel");
-    qmlRegisterType<CategoryModel>("MeeTube", 1, 0, "CategoryModel");
-    qmlRegisterType<SubtitleModel>("MeeTube", 1, 0, "SubtitleModel");
-    qmlRegisterType<PlaylistModel>("MeeTube", 1, 0, "PlaylistModel");
-    qmlRegisterType<UserModel>("MeeTube", 1, 0, "UserModel");
-    qmlRegisterType<AccountModel>("MeeTube", 1, 0, "AccountModel");
-    qmlRegisterType<WatchModel>("MeeTube", 1, 0, "WatchModel");
+    // Models/detail objects are handed to QML by the API tree (innertube.video()…),
+    // not instantiated in QML, so they need no qmlRegisterType. Only MaskedItem is
+    // declared directly in QML (Avatar's root).
     qmlRegisterType<MaskedItem>("MeeTube", 1, 0, "MaskedItem");
 
     QmlApplicationViewer viewer;

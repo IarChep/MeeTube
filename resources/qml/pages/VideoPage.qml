@@ -58,7 +58,8 @@ Page {
                     smooth: true
                     source: videoData && videoData.thumbnailUrl ? videoData.thumbnailUrl : ""
                 }
-                // Play overlay. TODO Phase 2/3: real StreamModel playback; for now a glyph.
+                // Play overlay. TODO: real playback via innertube.video().streams(id)
+                // (StreamSet.hlsUrl); for now a glyph.
                 Image {
                     anchors.centerIn: parent
                     source: "image://theme/icon-m-toolbar-mediacontrol-forward"

@@ -4,7 +4,6 @@
 #include "requests/streamsrequest.h"
 #include "requests/videorequest.h"
 #include "requests/commentrequest.h"
-#include "requests/categoryrequest.h"
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
 #include "requests/actionrequest.h"
@@ -18,7 +17,6 @@ private slots:
         qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");
         qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
         qRegisterMetaType<QList<CT::Comment> >("QList<CT::Comment>");
-        qRegisterMetaType<QList<CT::Category> >("QList<CT::Category>");
         qRegisterMetaType<QList<CT::Playlist> >("QList<CT::Playlist>");
         qRegisterMetaType<QList<CT::User> >("QList<CT::User>");
     }
@@ -169,16 +167,6 @@ private slots:
         QCOMPARE(t.sent.size(), 1);          // only ONE POST, no discovery step
         QCOMPARE(QString::fromStdString(t.sent.at(0).value("continuation", std::string())), QString("EXISTING_TOKEN"));
         QCOMPARE(spy.count(), 1);
-    }
-
-    void categories() {
-        CategoryRequest req;
-        QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Category>)));
-        req.list(QString());
-        QCOMPARE(spy.count(), 1);
-        QList<CT::Category> got = qvariant_cast<QList<CT::Category> >(spy.at(0).at(0));
-        QVERIFY(got.size() >= 2);
-        QCOMPARE(got[0].title, QString("Music"));
     }
 
     // P0.5: playable status but no videoDetails must fail, not deliver a blank Video.

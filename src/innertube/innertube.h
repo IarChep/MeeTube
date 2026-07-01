@@ -30,7 +30,6 @@
 #include "requests/videorequest.h"
 #include "requests/streamsrequest.h"
 #include "requests/commentrequest.h"
-#include "requests/categoryrequest.h"
 #include "requests/subtitlesrequest.h"
 #include "requests/playlistrequest.h"
 #include "requests/userrequest.h"
@@ -52,17 +51,8 @@ public:
     // gl = region, hl = language (Innertube context locale).
     Q_INVOKABLE void applySettings(const QString &region, const QString &language);
 
-    // Factories return a heap request parented to the engine. Created on the GUI
-    // thread with the shared transport — no worker hop. (CategoryRequest is
-    // synchronous and needs no transport.)
-    Q_INVOKABLE VideoRequest*    createVideoRequest()    { return new VideoRequest(&m_client, this); }
-    Q_INVOKABLE StreamsRequest*  createStreamsRequest()  { return new StreamsRequest(&m_client, this); }
-    Q_INVOKABLE CommentRequest*  createCommentRequest()  { return new CommentRequest(&m_client, this); }
-    Q_INVOKABLE CategoryRequest* createCategoryRequest() { return new CategoryRequest(this); }
-    Q_INVOKABLE SubtitlesRequest* createSubtitlesRequest() { return new SubtitlesRequest(&m_client, this); }
-    Q_INVOKABLE PlaylistRequest* createPlaylistRequest() { return new PlaylistRequest(&m_client, this); }
-    Q_INVOKABLE UserRequest*     createUserRequest()     { return new UserRequest(&m_client, this); }
-    Q_INVOKABLE ActionRequest*   createActionRequest()   { return new ActionRequest(&m_client, this); }
+    // (Requests are no longer obtained here — the API-tree groups own newXxxRequest();
+    //  the models/detail objects delegate to them. See videoApi()/channelApi() below.)
 
     Q_INVOKABLE QVariantList navEntries() const;       // hardcoded (ported from the YouTube plugin)
     Q_INVOKABLE QVariantList searchTypes() const;      // hardcoded (ported from the YouTube plugin)
