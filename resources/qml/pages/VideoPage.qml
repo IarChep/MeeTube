@@ -35,17 +35,34 @@ Page {
         if (videoData && videoData.id) {
             details = innertube.video().details(videoData.id);
             comments = innertube.video().comments(videoData.id);
-            // When the watch details resolve we learn the channelId → load its header.
-            // Imperative connect (not a Connections element) because `details` is a
-            // variant that's undefined at element-creation time.
-            details.loaded.connect(page.onDetailsLoaded);
         }
     }
-    function onDetailsLoaded() {
-        // Qualify with `page.` — when invoked via signal.connect() the unqualified
-        // property scope isn't the page's, so bare `details` is not resolvable.
-        if (page.details && page.details.channelId && !page.channel)
-            page.channel = innertube.channel().byId(page.details.channelId);
+    // When the watch details resolve we learn the channelId → load its header. A
+    // Connections element (NOT an imperative details.loaded.connect) so it auto-
+    // disconnects when this page is destroyed: details is a cached/reused object, and a
+    // leaked handler bound to a destroyed page threw on the next visit and aborted load.
+    Connections {
+        target: details
+        ignoreUnknownSignals: true
+        onLoaded: {
+            if (details && details.channelId && !channel)
+                channel = innertube.channel().byId(details.channelId);
+        }
+    }
+
+    // The page is "loading" until everything is in: title/description/likes (details),
+    // comments, and — once we know the channel — the author header. computeLoading()'s
+    // property reads are tracked, so pageLoading re-evaluates as each status changes.
+    property bool pageLoading: computeLoading()
+    function computeLoading() {
+        if (!details || !comments) return true;
+        if (details.status === Status.Null || details.status === Status.Loading) return true;
+        if (comments.status === Status.Null || comments.status === Status.Loading) return true;
+        if (details.status === Status.Ready && details.channelId) {
+            if (!channel) return true;
+            if (channel.status === Status.Null || channel.status === Status.Loading) return true;
+        }
+        return false;
     }
 
     Flickable {
@@ -416,6 +433,13 @@ Page {
                 delegate: VideoDelegate { listView: false; width: column.width }
             }
         }
+    }
+
+    // Full-page loader (like MainPage): stays up until title/description/likes,
+    // comments and the author header have all arrived.
+    BusyOverlay {
+        running: page.pageLoading
+        text: "Loading…"
     }
 
     CommentsSheet { id: commentsSheet; commentModel: comments }
