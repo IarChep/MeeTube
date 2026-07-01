@@ -78,17 +78,34 @@ Item {
         }
         spacing: UI.PADDING_DOUBLE
 
-        Text {
+        // Title + its own metadata paragraph (views • published date), tight together.
+        Column {
             width: parent.width
-            text: title ? title : ""
-            color: UI.COLOR_FOREGROUND
-            font.pixelSize: UI.FONT_DEFAULT
-            font.family: UI.FONT_FAMILY
-            wrapMode: Text.WordWrap
-            maximumLineCount: 2
-            elide: Text.ElideRight
+            spacing: UI.PADDING_XSMALL
+
+            Text {
+                width: parent.width
+                text: title ? title : ""
+                color: UI.COLOR_INVERTED_FOREGROUND
+                font.pixelSize: UI.FONT_DEFAULT
+                font.family: UI.FONT_FAMILY
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+                elide: Text.ElideRight
+            }
+            Text {
+                width: parent.width
+                visible: text.length > 0
+                // Views (pre-formatted "2.2B views" or numeric) • published date.
+                text: (viewText ? viewText : (viewCount ? viewCount + " views" : ""))
+                      + (date ? " • " + date : "")
+                color: UI.COLOR_SECONDARY_FOREGROUND
+                font.pixelSize: UI.FONT_XSMALL
+                elide: Text.ElideRight
+            }
         }
 
+        // Author row: squircle avatar + channel name only.
         Row {
             width: parent.width
             spacing: UI.PADDING_XLARGE
@@ -101,29 +118,13 @@ Item {
                 // Real channel avatar from the VideoModel avatarUrl role; empty -> placeholder.
                 source: avatarUrl ? avatarUrl : ""
             }
-
-            Column {
+            Text {
                 width: parent.width - avatar.width - UI.PADDING_XLARGE
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: UI.PADDING_XSMALL
-
-                Text {
-                    width: parent.width
-                    text: username ? username : ""
-                    color: UI.COLOR_FOREGROUND
-                    font.pixelSize: UI.FONT_SMALL
-                    elide: Text.ElideRight
-                }
-                Text {
-                    width: parent.width
-                    // Prefer the pre-formatted view text ("2.2B views" from lockupViewModel);
-                    // fall back to the numeric viewCount role for classic renderers.
-                    text: (viewText ? viewText : (viewCount ? viewCount + " views" : ""))
-                          + (date ? " • " + date : "")
-                    color: UI.COLOR_SECONDARY_FOREGROUND
-                    font.pixelSize: UI.FONT_XSMALL
-                    elide: Text.ElideRight
-                }
+                text: username ? username : ""
+                color: UI.COLOR_INVERTED_FOREGROUND
+                font.pixelSize: UI.FONT_SMALL
+                elide: Text.ElideRight
             }
         }
     }

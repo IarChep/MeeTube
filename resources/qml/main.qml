@@ -95,6 +95,11 @@ PageStackWindow {
 
     // Populate the category list once + load the first category.
     Component.onCompleted: {
+        // Dark (inverted) theme app-wide: flips the window background to black and
+        // restyles every com.nokia.meego component (Label/Button/Sheet/BusyIndicator/…)
+        // and auto-whitens standard ToolIcons.
+        theme.inverted = true;
+
         var nav = innertube.navEntries();
         var i;
         for (i = 0; i < nav.length; ++i)

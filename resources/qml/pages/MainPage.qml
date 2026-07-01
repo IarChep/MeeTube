@@ -71,63 +71,6 @@ Page {
         model: appWindow.feed
         delegate: VideoDelegate {}
 
-        // YouTube-style horizontal category chips (from navEntries()); the selected
-        // chip is filled brand red. Tapping switches the feed inline.
-        header: Item {
-            width: list.width
-            height: UI.LIST_ITEM_HEIGHT_SMALL
-
-            Flickable {
-                id: chipsFlick
-                anchors.fill: parent
-                contentWidth: chipsRow.width + UI.DEFAULT_MARGIN
-                contentHeight: height
-                flickableDirection: Flickable.HorizontalFlick
-                clip: true
-
-                Row {
-                    id: chipsRow
-                    x: UI.DEFAULT_MARGIN
-                    height: parent.height
-                    spacing: UI.PADDING_LARGE
-
-                    Repeater {
-                        model: innertube.navEntries()
-                        delegate: Item {
-                            height: chipsRow.height
-                            width: chip.width
-
-                            Rectangle {
-                                id: chip
-                                anchors.verticalCenter: parent.verticalCenter
-                                height: UI.LIST_ITEM_HEIGHT_SMALL - UI.PADDING_XXLARGE
-                                width: chipText.width + UI.PADDING_XXLARGE
-                                radius: height / 2
-                                color: (appWindow.currentCategoryId === modelData.id)
-                                       ? UI.COLOR_BRAND_RED : UI.COLOR_INVERTED_FOREGROUND
-                                border.width: 1
-                                border.color: UI.COLOR_DIVIDER
-
-                                Text {
-                                    id: chipText
-                                    anchors.centerIn: parent
-                                    text: modelData.label
-                                    color: (appWindow.currentCategoryId === modelData.id)
-                                           ? UI.COLOR_INVERTED_FOREGROUND : UI.COLOR_FOREGROUND
-                                    font.pixelSize: UI.FONT_SMALL
-                                    font.family: UI.FONT_FAMILY
-                                }
-                                MouseArea {
-                                    anchors.fill: parent
-                                    onClicked: appWindow.selectCategory(index)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         // Animated "loading more" footer for infinite scroll; collapses to 0 at the end.
         footer: ListFooter {
             hasMore: appWindow.feed ? appWindow.feed.canFetchMore : false
