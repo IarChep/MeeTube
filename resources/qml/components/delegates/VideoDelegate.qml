@@ -96,7 +96,9 @@ Item {
                 }
                 Text {
                     width: parent.width
-                    text: (viewCount ? viewCount + " views" : "")
+                    // Prefer the pre-formatted view text ("2.2B views" from lockupViewModel);
+                    // fall back to the numeric viewCount role for classic renderers.
+                    text: (viewText ? viewText : (viewCount ? viewCount + " views" : ""))
                           + (date ? " • " + date : "")
                     color: UI.COLOR_SECONDARY_FOREGROUND
                     font.pixelSize: UI.FONT_XSMALL
