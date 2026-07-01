@@ -24,6 +24,9 @@
 #include "innertube/session.h"
 #include "innertube/accountstore.h"
 #include "innertube/accountmanager.h"
+#include "innertube/videoapi.h"
+#include "innertube/channelapi.h"
+#include "innertube/playlistapi.h"
 #include "requests/videorequest.h"
 #include "requests/streamsrequest.h"
 #include "requests/commentrequest.h"
@@ -72,6 +75,12 @@ public:
     // QML context-property convenience (exposed as `account`).
     Q_INVOKABLE QObject* account()   { return &m_manager; }
 
+    // The API tree: innertube.video()/channel()/playlist(). Lazily created, cached,
+    // parented to the engine. This is where "obtaining Request classes" now lives.
+    Q_INVOKABLE VideoApi*    video();
+    Q_INVOKABLE ChannelApi*  channel();
+    Q_INVOKABLE PlaylistApi* playlist();
+
 private Q_SLOTS:
     // Copy the account manager's current bearer into the session so authed browse/
     // next calls carry it (player stays anonymous via the ContextBuilder guard).
@@ -84,6 +93,10 @@ private:
     InnertubeClient m_client;
     AccountStore    m_store;
     AccountManager  m_manager;
+    // API-tree groups (lazy; parented to the engine).
+    VideoApi    *m_video;
+    ChannelApi  *m_channel;
+    PlaylistApi *m_playlist;
 };
 
 }
