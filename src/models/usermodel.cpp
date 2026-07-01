@@ -43,7 +43,7 @@ QVariantMap UserModel::toMap(const CT::User &u) {
 
 UserRequest* UserModel::newRequest() {
     Innertube *e = Innertube::instance();
-    return e ? e->channel()->newUserRequest() : 0;
+    return e ? e->channelApi()->newUserRequest() : 0;
 }
 
 UserRequest* UserModel::request() {

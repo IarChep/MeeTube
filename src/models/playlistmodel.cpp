@@ -42,7 +42,7 @@ QVariantMap PlaylistModel::toMap(const CT::Playlist &p) {
 
 PlaylistRequest* PlaylistModel::newRequest() {
     Innertube *e = Innertube::instance();
-    return e ? e->playlist()->newPlaylistRequest() : 0;
+    return e ? e->playlistApi()->newPlaylistRequest() : 0;
 }
 
 PlaylistRequest* PlaylistModel::request() {

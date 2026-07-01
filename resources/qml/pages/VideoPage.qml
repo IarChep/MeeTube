@@ -23,14 +23,14 @@ Page {
 
     property bool descExpanded: false
 
-    // One /next call gives the description, like/view text AND the related-videos list
-    // (watch.* + watch rows). Comments come from a separate CommentModel.
-    WatchModel { id: watch }
-    CommentModel { id: comments }
+    // From the API tree: details() (one /next → description, like/view text + a nested
+    // related VideoModel) and comments(). Both are C++-owned objects bound here.
+    property variant details
+    property variant comments
     Component.onCompleted: {
         if (videoData && videoData.id) {
-            watch.get(videoData.id);
-            comments.list(videoData.id);
+            details = innertube.video().details(videoData.id);
+            comments = innertube.video().comments(videoData.id);
         }
     }
 
@@ -105,8 +105,8 @@ Page {
                         // Real like/view text from the watch (/next) response; both are
                         // optional (likes are sometimes hidden), so each segment is conditional.
                         text: "@" + (videoData && videoData.username ? videoData.username : "")
-                              + (watch.likeText ? "  •  " + watch.likeText + " likes" : "")
-                              + "  •  " + (watch.viewText ? watch.viewText
+                              + (details && details.likeText ? "  •  " + details.likeText + " likes" : "")
+                              + "  •  " + (details && details.viewText ? details.viewText
                                           : (videoData && videoData.viewCount ? videoData.viewCount + " views" : ""))
                         color: UI.COLOR_SECONDARY_FOREGROUND
                         font.pixelSize: UI.FONT_XSMALL
@@ -116,7 +116,7 @@ Page {
                         id: descText
                         width: parent.width
                         visible: page.descExpanded
-                        text: watch.description
+                        text: details ? details.description : ""
                         color: UI.COLOR_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
                         wrapMode: Text.WordWrap
@@ -175,9 +175,9 @@ Page {
                         left: parent.left; leftMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
                     }
-                    // Channel avatar from the watch response, falling back to the one
+                    // Channel avatar from the details response, falling back to the one
                     // carried over from the list item.
-                    source: watch.avatarUrl ? watch.avatarUrl
+                    source: (details && details.avatarUrl) ? details.avatarUrl
                             : (videoData && videoData.avatarUrl ? videoData.avatarUrl : "")
                 }
                 Text {
@@ -244,7 +244,7 @@ Page {
                     // First real comment (or a status line) from the CommentModel.
                     Text {
                         width: parent.width
-                        text: comments.count > 0
+                        text: (comments && comments.count > 0)
                               ? (comments.data(0, "username") + ": " + comments.data(0, "body"))
                               : "No comments"
                         color: UI.COLOR_SECONDARY_FOREGROUND
@@ -274,7 +274,7 @@ Page {
                 }
             }
             Repeater {
-                model: watch
+                model: details ? details.related : null
                 delegate: VideoDelegate { listView: false; width: column.width }
             }
         }

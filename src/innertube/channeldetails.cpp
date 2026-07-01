@@ -23,7 +23,7 @@ ChannelDetails::ChannelDetails(QObject *parent) : QObject(parent), m_status(Serv
 
 UserRequest* ChannelDetails::newRequest() {
     Innertube *e = Innertube::instance();
-    return e ? e->channel()->newUserRequest() : 0;
+    return e ? e->channelApi()->newUserRequest() : 0;
 }
 
 UserRequest* ChannelDetails::request() {
