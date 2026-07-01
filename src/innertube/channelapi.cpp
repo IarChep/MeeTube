@@ -16,7 +16,7 @@
 
 #include "channelapi.h"
 #include "innertube/innertubeclient.h"
-#include "models/usermodel.h"
+#include "models/channelmodel.h"
 #include "models/videomodel.h"
 #include "requests/userrequest.h"
 #include "requests/videorequest.h"
@@ -46,8 +46,8 @@ QObject* ChannelApi::resolve(const QString &handleUrl) {
 }
 
 QObject* ChannelApi::searchChannels(const QString &query) {
-    UserModel *m = qobject_cast<UserModel *>(m_search.data());
-    if (!m) { m = new UserModel(this); m_search = m; }
+    ChannelModel *m = qobject_cast<ChannelModel *>(m_search.data());
+    if (!m) { m = new ChannelModel(this); m_search = m; }
     m->search(query);
     return m;
 }

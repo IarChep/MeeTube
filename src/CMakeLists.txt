@@ -16,7 +16,6 @@ add_library(meetube-core STATIC
     requests/videorequest.cpp
     requests/streamsrequest.cpp
     requests/commentrequest.cpp
-    requests/categoryrequest.cpp
     requests/subtitlesrequest.cpp
     requests/playlistrequest.cpp
     requests/userrequest.cpp
@@ -33,14 +32,10 @@ add_library(meetube-core STATIC
     innertube/innertube.cpp
     models/servicelistmodel.cpp
     models/videomodel.cpp
-    models/streammodel.cpp
     models/commentmodel.cpp
-    models/categorymodel.cpp
-    models/subtitlemodel.cpp
     models/playlistmodel.cpp
-    models/usermodel.cpp
+    models/channelmodel.cpp
     models/accountmodel.cpp
-    models/watchmodel.cpp
     models/servicemetatypes.cpp
 )
 # AUTOMOC: innertube/innertubeclient.h declares a Q_OBJECT (signals/slots for

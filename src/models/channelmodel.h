@@ -14,23 +14,21 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef USERMODEL_H
-#define USERMODEL_H
+#ifndef CHANNELMODEL_H
+#define CHANNELMODEL_H
 
 #include <QPointer>
 #include "servicelistmodel.h"
 #include "requests/userrequest.h"
 
-// Channels. get()/resolve() yield a single-row model (the channel header); search()
-// yields the channel results' first page.
-class UserModel : public ServiceListModel {
+// A list of channels (channel-search results) for a ListView. A single channel's
+// header is a plain ChannelDetails object, not this list.
+class ChannelModel : public ServiceListModel {
     Q_OBJECT
 public:
-    explicit UserModel(QObject *parent = 0);
-    ~UserModel();
+    explicit ChannelModel(QObject *parent = 0);
+    ~ChannelModel();
 
-    Q_INVOKABLE void get(const QString &channelId);
-    Q_INVOKABLE void resolve(const QString &url);
     Q_INVOKABLE void search(const QString &query);
 
 public Q_SLOTS:
@@ -50,4 +48,4 @@ private:
     QPointer<yt::UserRequest> m_request;
 };
 
-#endif // USERMODEL_H
+#endif // CHANNELMODEL_H
