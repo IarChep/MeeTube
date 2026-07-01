@@ -116,6 +116,12 @@ Page {
                     }
                     Image {
                         anchors.centerIn: parent
+                        // The play PNG has asymmetric transparent padding (opaque box +9+9
+                        // in its 40x40 canvas), which pushes the triangle down-right; nudge
+                        // it back to sit centered in the squircle.
+                        anchors.horizontalCenterOffset: -1
+                        anchors.verticalCenterOffset: -2
+                        smooth: true
                         source: "image://theme/icon-m-toolbar-mediacontrol-play-white"
                     }
                     MouseArea { id: playMouse; anchors.fill: parent }
@@ -368,19 +374,42 @@ Page {
                         elide: Text.ElideRight
                     }
                 }
-                // Subscribe toggle. Reflects ChannelDetails.subscribed; the POST needs auth
-                // (a later phase), so until then it stays on its loaded state.
-                Button {
+                // Compact subscribe pill (much smaller than a stock Button, ~Sheet-button
+                // scale). Not subscribed -> brand red + white "Subscribe"; subscribed ->
+                // muted dark + white "Unsubscribe". Reflects ChannelDetails.subscribed; the
+                // POST needs auth (a later phase), so until then it stays on its loaded state.
+                Rectangle {
                     id: subscribeButton
+                    property bool subscribed: (channel && channel.subscribed) ? true : false
                     anchors {
                         right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
                     }
-                    text: (channel && channel.subscribed) ? "Subscribed" : "Subscribe"
-                    onClicked: {
-                        if (!channel || !details || !details.channelId) return;
-                        if (channel.subscribed) innertube.channel().unsubscribe(details.channelId);
-                        else                    innertube.channel().subscribe(details.channelId);
+                    width: subLabel.paintedWidth + UI.PADDING_XLARGE * 2
+                    height: UI.LIST_ITEM_HEIGHT_SMALL - UI.PADDING_XXLARGE   // ~40px, Sheet-button scale
+                    radius: UI.PADDING_MEDIUM
+                    smooth: true
+                    color: subscribed
+                           ? (subMouse.pressed ? UI.COLOR_BUTTON_DARK_PRESSED : UI.COLOR_BUTTON_DARK)
+                           : (subMouse.pressed ? UI.COLOR_BRAND_RED_DARK : UI.COLOR_BRAND_RED)
+
+                    Text {
+                        id: subLabel
+                        anchors.centerIn: parent
+                        text: subscribeButton.subscribed ? "Unsubscribe" : "Subscribe"
+                        color: UI.COLOR_INVERTED_FOREGROUND
+                        font.pixelSize: UI.FONT_SMALL
+                        font.family: UI.FONT_FAMILY
+                        font.weight: Font.Bold
+                    }
+                    MouseArea {
+                        id: subMouse
+                        anchors.fill: parent
+                        onClicked: {
+                            if (!channel || !details || !details.channelId) return;
+                            if (channel.subscribed) innertube.channel().unsubscribe(details.channelId);
+                            else                    innertube.channel().subscribe(details.channelId);
+                        }
                     }
                 }
             }
@@ -393,12 +422,13 @@ Page {
                 width: parent.width
                 height: commentsColumn.height + UI.PADDING_XLARGE * 2
 
-                // Native pressed highlight so a tap is legible.
-                Image {
+                // Pressed highlight so a tap is legible (a subtle white wash reads on the
+                // dark theme where the stretched pressed-panel tile did not).
+                Rectangle {
                     anchors.fill: parent
-                    visible: commentsMouse.pressed
-                    source: "image://theme/meegotouch-panel-background-pressed"
-                    smooth: true
+                    color: UI.COLOR_INVERTED_FOREGROUND
+                    opacity: commentsMouse.pressed ? 0.15 : 0.0
+                    Behavior on opacity { NumberAnimation { duration: UI.ANIM_FAST } }
                 }
                 Image {
                     id: commentsArrow
@@ -461,7 +491,7 @@ Page {
 
             Repeater {
                 model: details ? details.related : null
-                delegate: VideoDelegate { listView: false; width: column.width }
+                delegate: RelatedDelegate { listView: false; width: column.width }
             }
         }
     }
