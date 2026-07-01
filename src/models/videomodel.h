@@ -31,6 +31,10 @@ public:
     Q_INVOKABLE void search(const QString &query, const QString &order);
     Q_INVOKABLE void fetchMore();
 
+    // Populate directly from an already-parsed list (no network) — used by VideoDetails
+    // to fill the related-videos model from the single /next response.
+    void assign(const QList<CT::Video> &videos);
+
 public Q_SLOTS:
     void cancel();
 
