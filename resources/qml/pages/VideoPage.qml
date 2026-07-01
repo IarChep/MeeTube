@@ -105,9 +105,12 @@ Page {
                     opacity: playMouse.pressed ? UI.OPACITY_ENABLED : 0.85
 
                     MaskedItem {
+                        id: playSquircle
                         anchors.fill: parent
+                        // The mask Image is assigned to the `mask` property (not a visual
+                        // child), so it has no `parent`; size it off the MaskedItem's id.
                         mask: Image {
-                            width: parent.width; height: parent.height
+                            width: playSquircle.width; height: playSquircle.height
                             source: "../images/avatar-mask.png"
                             fillMode: Image.Stretch
                             smooth: true
