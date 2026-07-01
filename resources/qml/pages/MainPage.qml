@@ -95,9 +95,11 @@ Page {
 
     // Empty (loaded but no rows) / error state, with Retry on failure.
     EmptyState {
-        property bool failed: appWindow.feed && appWindow.feed.status === Status.Failed
-        visible: appWindow.feed && appWindow.feed.count === 0
-                 && (appWindow.feed.status === Status.Ready || failed)
+        property bool failed: appWindow.feed ? (appWindow.feed.status === Status.Failed) : false
+        visible: appWindow.feed
+                 ? (appWindow.feed.count === 0
+                    && (appWindow.feed.status === Status.Ready || failed))
+                 : false
         title: failed ? "Couldn't load videos" : "Nothing here yet"
         hint: failed ? appWindow.feed.errorString : "Try another category."
         showRetry: failed

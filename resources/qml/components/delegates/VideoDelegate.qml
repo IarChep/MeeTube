@@ -138,13 +138,20 @@ Item {
     MouseArea {
         id: rootMouse
         anchors.fill: parent
+        // push (not replace) so the back button pops straight to the preserved feed
+        // (and its scroll position); related-video taps stack video pages.
         onClicked: {
-            pageStack.replace(Qt.resolvedUrl("../../pages/VideoPage.qml"), {
+            pageStack.push(Qt.resolvedUrl("../../pages/VideoPage.qml"), {
                 videoData: {
                     title: title,
                     username: username,
                     viewCount: viewCount,
+                    viewText: viewText,
+                    date: date,
+                    duration: duration,
+                    description: description,
                     thumbnailUrl: thumbnailUrl,
+                    largeThumbnailUrl: largeThumbnailUrl,
                     avatarUrl: avatarUrl,
                     id: id
                 }
