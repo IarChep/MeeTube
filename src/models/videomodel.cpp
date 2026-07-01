@@ -23,7 +23,7 @@ static QList<QByteArray> videoRoles() {
     QList<QByteArray> r;
     r << "id" << "title" << "description" << "thumbnailUrl" << "largeThumbnailUrl"
       << "date" << "duration" << "url" << "streamUrl" << "userId" << "username" << "avatarUrl"
-      << "viewCount" << "downloadable" << "commentsId" << "relatedVideosId" << "subtitlesId";
+      << "viewCount" << "viewText" << "downloadable" << "commentsId" << "relatedVideosId" << "subtitlesId";
     return r;
 }
 
