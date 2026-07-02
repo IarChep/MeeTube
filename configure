@@ -21,6 +21,16 @@ if [[ $# -gt 0 && ! "$1" =~ ^- ]]; then
     shift
 fi
 
+# Honor an explicit -DCMAKE_BUILD_TYPE=… among the extra cmake args. Conan MUST
+# generate for the SAME build type: CMakeDeps gates the package include dirs per
+# configuration (…_INCLUDE_DIRS_RELEASE), so a Debug CMake build over Release-only
+# conan generators "loses" nlohmann/json.hpp at compile time while configuring fine.
+for arg in "$@"; do
+    case "$arg" in
+        -DCMAKE_BUILD_TYPE=*) BUILD_TYPE="${arg#-DCMAKE_BUILD_TYPE=}" ;;
+    esac
+done
+
 case "$TARGET" in
     n9)
         : "${BUILD_DIR:=${ROOT_DIR}/build-n9}"
