@@ -22,8 +22,12 @@ if(BUILD_N9)
         -Wl,--dynamic-linker,/lib/ld-linux.so.3)
     # Package the plugin + the bundled libwebp into the .deb.
     install(TARGETS qwebp LIBRARY DESTINATION /opt/meetube/qtplugins/imageformats)
+    # libsharpyuv is REQUIRED: libwebp >= 1.3 split its YUV conversion out into a
+    # separate .so (DT_NEEDED of libwebp.so.7) — without it the device loader
+    # rejects the whole qwebp plugin ("libsharpyuv.so.0: cannot open shared
+    # object file") and every WebP thumbnail fails with "Unsupported image format".
     install(DIRECTORY ${LIBWEBP_INSTALL}/lib/ DESTINATION /opt/meetube/lib
-            FILES_MATCHING PATTERN "libwebp.so*"
+            FILES_MATCHING PATTERN "libwebp.so*" PATTERN "libsharpyuv.so*"
             PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE)
 else()
     # Host simulator: link the host libwebp (Arch ships libwebp + headers).
