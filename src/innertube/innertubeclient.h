@@ -51,7 +51,11 @@ private Q_SLOTS:
     void cacheResponse();
 
 private:
-    struct CacheEntry { nlohmann::json json; qint64 expiresAtMs; };
+    struct CacheEntry {
+        nlohmann::json json;                    // transitional — being replaced by `body`
+        std::shared_ptr<const std::string> body;
+        qint64 expiresAtMs;
+    };
     QNetworkAccessManager m_nam;
     Session m_session;
     int m_timeoutMs;
