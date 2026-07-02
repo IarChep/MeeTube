@@ -192,6 +192,12 @@ configure_file(${CACERT_PEM} ${OSSL_INSTALL}/ssl/cert.pem COPYONLY)
 
 if(BUILD_N9)
     install(FILES ${CACERT_PEM} DESTINATION /opt/meetube/ssl RENAME cert.pem)
+    # Bundled OpenSSL 1.0.2 (real .so + the soname symlink farm), app-scoped under
+    # /opt/meetube/lib — the binary's DT_RPATH points here so our TLS-1.2-capable
+    # 1.0.2 wins over the device's stock 0.9.8. FILES_MATCHING keeps the External
+    # project's headers/static libs out of the package.
+    install(DIRECTORY ${OSSL_INSTALL}/lib/ DESTINATION /opt/meetube/lib
+            FILES_MATCHING PATTERN "libssl.so*" PATTERN "libcrypto.so*")
 endif()
 
 # ---------------------------------------------------------------------------
@@ -234,10 +240,15 @@ endif()
 # plugins that pull in libpng12.so.0 / libjpeg.so.62 transitively.
 # ---------------------------------------------------------------------------
 if(BUILD_N9)
+    # EXCLUDE the cmake/ + pkgconfig/ subtrees: FILES_MATCHING still recreates every
+    # traversed directory, so without these the package would carry empty
+    # lib/cmake/… and lib/pkgconfig/ dirs.
     install(DIRECTORY ${LIBPNG12_INSTALL}/lib/ DESTINATION /opt/meetube/lib
-            FILES_MATCHING PATTERN "libpng12.so*")
+            FILES_MATCHING PATTERN "libpng12.so*"
+            PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE)
     install(DIRECTORY ${LIBJPEG62_INSTALL}/lib/ DESTINATION /opt/meetube/lib
-            FILES_MATCHING PATTERN "libjpeg.so*")
+            FILES_MATCHING PATTERN "libjpeg.so*"
+            PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE)
 endif()
 
 # ---------------------------------------------------------------------------

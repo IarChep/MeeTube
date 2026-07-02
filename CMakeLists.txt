@@ -174,3 +174,38 @@ else()
     set(MEETUBE_CA_BUNDLE "${OSSL_INSTALL}/ssl/cert.pem")
 endif()
 target_compile_definitions(meetube PRIVATE MEETUBE_CA_BUNDLE="${MEETUBE_CA_BUNDLE}")
+
+# ---------------------------------------------------------------------------
+# N9 packaging (device only): the freedesktop launcher entry + icons, and the
+# `package` target that stages everything through debian/rules and builds the
+# .deb with the Madde-wrapped dpkg-buildpackage. The app payload itself
+# (binary, bundled OpenSSL/png/jpeg/webp, WebP plugin, CA bundle) is installed
+# under /opt/meetube by the install() rules above and in deps/ + webp-imageformat/.
+# ---------------------------------------------------------------------------
+if(BUILD_N9)
+    install(FILES resources/packaging/meetube_harmattan.desktop
+            DESTINATION /usr/share/applications)
+    install(FILES resources/packaging/meetube80.png
+            DESTINATION /usr/share/icons/hicolor/80x80/apps)
+    install(FILES resources/packaging/meetube64.png
+            DESTINATION /usr/share/icons/hicolor/64x64/apps)
+
+    # Copy debian/ into the build dir so dpkg-buildpackage (run from there) finds it.
+    add_custom_target(copy_debian_dir
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/debian" "${CMAKE_BINARY_DIR}/debian"
+        COMMENT "Copying debian/ into the build directory")
+
+    # Build the .deb. debian/rules' install target re-enters
+    # `cmake --build . --target install` with DESTDIR, so every install() rule
+    # populates the package staging root. -nc keeps the already-built tree;
+    # -uc -us skip signing (aegis still signs via mad). Run: make -C build-n9 package
+    add_custom_target(package
+        # dpkg-genchanges chokes on a stale debian/files referencing removed .debs;
+        # drop it so dpkg regenerates a fresh list each run.
+        COMMAND ${CMAKE_COMMAND} -E rm -f debian/files
+        COMMAND /home/iarchep/QtSDK/Madde/bin/mad -t harmattan_10.2011.34-1_rt1.2 dpkg-buildpackage -nc -uc -us
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Building the Debian package with mad..."
+        DEPENDS meetube copy_debian_dir)
+endif()

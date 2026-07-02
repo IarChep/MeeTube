@@ -23,7 +23,8 @@ if(BUILD_N9)
     # Package the plugin + the bundled libwebp into the .deb.
     install(TARGETS qwebp LIBRARY DESTINATION /opt/meetube/qtplugins/imageformats)
     install(DIRECTORY ${LIBWEBP_INSTALL}/lib/ DESTINATION /opt/meetube/lib
-            FILES_MATCHING PATTERN "libwebp.so*")
+            FILES_MATCHING PATTERN "libwebp.so*"
+            PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE)
 else()
     # Host simulator: link the host libwebp (Arch ships libwebp + headers).
     find_path(WEBP_INCLUDE_DIR webp/decode.h)
