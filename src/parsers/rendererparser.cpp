@@ -329,6 +329,8 @@ CT::User parseChannel(const nlohmann::json &response) {
             u.thumbnailUrl = lastOf(hh.at("avatar").at("thumbnails"));
         if (hh.contains("subscriberCountText"))
             u.subscriberCount = parseText(hh.at("subscriberCountText"));
+        if (hh.contains("banner") && hh.at("banner").contains("thumbnails"))
+            u.bannerUrl = lastOf(hh.at("banner").at("thumbnails"));
 
         // --- Current pageHeaderRenderer.content.pageHeaderViewModel (nested view-models):
         // 2024+ WEB channel headers moved name/avatar/subscriberCount here, which is why
@@ -347,9 +349,14 @@ CT::User parseChannel(const nlohmann::json &response) {
                     && dav.at("avatar").at("avatarViewModel").contains("image"))
                     u.thumbnailUrl = lastSourceUrl(dav.at("avatar").at("avatarViewModel").at("image"));
             }
-            // subscriberCount: metadata.contentMetadataViewModel.metadataRows[].metadataParts[]
-            //   .text.content — the rows also carry the @handle and "N videos", and the index
-            //   isn't fixed, so pick the part whose text contains "subscriber".
+            if (u.bannerUrl.isEmpty() && vm.contains("banner")
+                && vm.at("banner").contains("imageBannerViewModel")
+                && vm.at("banner").at("imageBannerViewModel").contains("image"))
+                u.bannerUrl = lastSourceUrl(vm.at("banner").at("imageBannerViewModel").at("image"));
+            // metadata.contentMetadataViewModel.metadataRows[].metadataParts[].text.content —
+            // the rows carry the subscriber line, the @handle and "N videos" with no fixed
+            // index, so pick each by its shape (contains "subscriber" / starts with '@' /
+            // contains "video").
             if (u.subscriberCount.isEmpty() && vm.contains("metadata")
                 && vm.at("metadata").contains("contentMetadataViewModel")) {
                 const nlohmann::json &cmv = vm.at("metadata").at("contentMetadataViewModel");
@@ -363,6 +370,11 @@ CT::User parseChannel(const nlohmann::json &response) {
                             if (u.subscriberCount.isEmpty()
                                 && txt.contains("subscriber", Qt::CaseInsensitive))
                                 u.subscriberCount = txt;
+                            else if (u.handle.isEmpty() && txt.startsWith(QLatin1Char('@')))
+                                u.handle = txt;
+                            else if (u.videoCount.isEmpty()
+                                     && txt.contains("video", Qt::CaseInsensitive))
+                                u.videoCount = txt;
                         }
                     }
                 }

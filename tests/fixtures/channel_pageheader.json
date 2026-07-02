@@ -18,6 +18,16 @@
               }
             }
           },
+          "banner": {
+            "imageBannerViewModel": {
+              "image": {
+                "sources": [
+                  { "url": "http://b/banner960.jpg" },
+                  { "url": "http://b/banner1600.jpg" }
+                ]
+              }
+            }
+          },
           "metadata": {
             "contentMetadataViewModel": {
               "metadataRows": [

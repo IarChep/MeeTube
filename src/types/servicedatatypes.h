@@ -35,7 +35,8 @@ struct Playlist {
     int videoCount = 0;
 };
 struct User {
-    QString id, username, description, thumbnailUrl, subscriberCount, videosId, playlistsId;
+    QString id, username, description, thumbnailUrl, subscriberCount, videosId, playlistsId,
+            bannerUrl, handle, videoCount;
     bool subscribed = false;
 };
 struct Comment { QString id, body, date, userId, username, thumbnailUrl, videoId; };
