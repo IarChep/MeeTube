@@ -22,7 +22,7 @@ namespace yt {
 void AccountRequest::list() {
     setStatus(Loading);
     nlohmann::json body{ {"accountReadMask", nlohmann::json{ {"returnOwner", true} }} };
-    connect(m_t->post("account/accounts_list", ClientId::WEB, body, this),
+    connect(m_t->post("account/accounts_list", ClientId::TVHTML5, body, this),
             SIGNAL(finished()), this, SLOT(onFinished()));
 }
 

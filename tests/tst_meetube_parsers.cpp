@@ -236,6 +236,25 @@ private slots:
         // graceful on garbage
         QVERIFY(parseAccountsList(nlohmann::json::object()).username.isEmpty());
     }
+    // TVHTML5 feeds (history/subscriptions/library) deliver tileRenderer items —
+    // the OAuth bearer only works on the TV client, so authed feeds arrive TV-shaped.
+    void parsesTileRenderers() {
+        const nlohmann::json j = loadFixture("tiles_history.json");
+        QVERIFY(!j.is_discarded());
+        QString token;
+        const QList<CT::Video> v = parseVideoList(j, &token);
+        QCOMPARE(v.size(), 2);                       // the channel tile is skipped
+        QCOMPARE(v[0].id, QString("u7OQ7kKBEHs"));
+        QCOMPARE(v[0].title, QString("What if You Encounter an ENEMY"));
+        QCOMPARE(v[0].username, QString("kesMadgik"));
+        QCOMPARE(v[0].viewText, QString("350K views"));
+        QCOMPARE(v[0].duration, QString("0:59"));
+        QCOMPARE(v[0].largeThumbnailUrl, QString("https://i.ytimg.com/vi/u7OQ7kKBEHs/sddefault.jpg"));
+        QVERIFY(!v[0].thumbnailUrl.isEmpty());
+        QCOMPARE(v[1].id, QString("dQw4w9WgXcQ"));
+        QCOMPARE(v[1].title, QString("Second Video"));
+        QCOMPARE(v[1].username, QString("Channel B"));
+    }
     void isPlayableStatus() {
         nlohmann::json ok = {{"playabilityStatus", {{"status", "OK"}}}};
         QVERIFY(yt::isPlayable(ok, 0));
