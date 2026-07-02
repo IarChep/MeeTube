@@ -443,6 +443,31 @@ Page {
                         else                    innertube.channel().subscribe(details.channelId);
                     }
                 }
+
+                // Tap on the avatar + name area (the Subscribe button keeps its own
+                // input: this area stops at its x) opens the channel page, with the
+                // already-loaded name/avatar prefetched so its header paints instantly.
+                Rectangle {
+                    anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                    width: subscribeButton.x
+                    color: UI.COLOR_INVERTED_FOREGROUND
+                    opacity: authorMouse.pressed ? 0.15 : 0.0
+                    Behavior on opacity { NumberAnimation { duration: UI.ANIM_FAST } }
+                }
+                MouseArea {
+                    id: authorMouse
+                    anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                    width: subscribeButton.x
+                    onClicked: {
+                        if (!details || details.channelId === "") return;
+                        pageStack.push(Qt.resolvedUrl("ChannelPage.qml"), {
+                            channelId: details.channelId,
+                            channelName: (channel && channel.name) ? channel.name
+                                         : (details.channelName ? details.channelName : ""),
+                            channelAvatar: (channel && channel.avatarUrl) ? channel.avatarUrl : ""
+                        });
+                    }
+                }
             }
 
             Rectangle { width: column.width; height: 1; color: UI.COLOR_DIVIDER }

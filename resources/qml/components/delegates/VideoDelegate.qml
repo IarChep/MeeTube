@@ -150,4 +150,22 @@ Item {
             });
         }
     }
+
+    // Sits above the root MouseArea, exactly over the avatar (cross-hierarchy
+    // position binding — anchors can't target a non-sibling): tapping the channel
+    // avatar opens the channel page; the rest of the row still opens the video.
+    MouseArea {
+        x: infoRow.x + avatar.x
+        y: infoRow.y + avatar.y
+        width: avatar.width
+        height: avatar.height
+        onClicked: {
+            if (!userId || userId === "") return;
+            pageStack.push(Qt.resolvedUrl("../../pages/ChannelPage.qml"), {
+                channelId: userId,
+                channelName: username ? username : "",
+                channelAvatar: avatarUrl ? avatarUrl : ""
+            });
+        }
+    }
 }
