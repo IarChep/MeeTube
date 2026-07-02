@@ -105,6 +105,17 @@ private slots:
         QVERIFY(!m2.m_fake.sent.at(0).contains("params"));
     }
 
+    // Same for a channel's playlists: the Playlists-tab params must ride along.
+    void playlistListPassesTabParams() {
+        TestPlaylistModel m;
+        m.m_fake.queue("browse", nlohmann::json::object());   // body assertion only
+        m.list("UCchannel", "EglwbGF5bGlzdHPyBgQKAkIA");
+        QCOMPARE(m.m_fake.sent.size(), 1);
+        QVERIFY(m.m_fake.sent.at(0).contains("params"));
+        QCOMPARE(QString::fromStdString(m.m_fake.sent.at(0)["params"].get<std::string>()),
+                 QString("EglwbGF5bGlzdHPyBgQKAkIA"));
+    }
+
     void initTestCase() {
         qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
         qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");

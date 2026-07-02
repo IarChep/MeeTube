@@ -19,11 +19,15 @@
 
 namespace yt {
 
-void PlaylistRequest::list(const QString &resourceId, const QString &page) {
+void PlaylistRequest::list(const QString &resourceId, const QString &page, const QString &params) {
     setStatus(Loading);
     nlohmann::json body;
     if (!page.isEmpty()) body["continuation"] = page.toStdString();
-    else                 body["browseId"] = resourceId.toStdString();
+    else {
+        body["browseId"] = resourceId.toStdString();
+        // Tab selector (a channel's Playlists tab) — continuations re-encode it.
+        if (!params.isEmpty()) body["params"] = params.toStdString();
+    }
     connect(m_t->post("browse", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
 

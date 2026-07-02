@@ -27,7 +27,9 @@ public:
     explicit PlaylistModel(QObject *parent = 0);
     ~PlaylistModel();
 
-    Q_INVOKABLE void list(const QString &resourceId);
+    // `params` selects a tab inside the browse (a channel's Playlists tab); empty
+    // for plain lists. Continuations re-encode it, so fetchMore() never needs it.
+    Q_INVOKABLE void list(const QString &resourceId, const QString &params = QString());
     Q_INVOKABLE void search(const QString &query);
     Q_INVOKABLE void fetchMore();
 

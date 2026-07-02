@@ -30,7 +30,10 @@ class PlaylistRequest : public ServiceRequest {
 public:
     explicit PlaylistRequest(ITransport *t, QObject *parent = 0) : ServiceRequest(parent), m_t(t) {}
 public Q_SLOTS:
-    void list(const QString &resourceId, const QString &page);
+    // `params` selects a tab (a channel's Playlists tab) on the first page —
+    // continuations re-encode it.
+    void list(const QString &resourceId, const QString &page,
+              const QString &params = QString());
     void search(const QString &query);
     void cancel();
 Q_SIGNALS:

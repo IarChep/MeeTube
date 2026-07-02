@@ -32,7 +32,9 @@ VideoRequest*    PlaylistApi::newVideoRequest()    { return new VideoRequest(m_c
 QObject* PlaylistApi::byChannel(const QString &channelId) {
     PlaylistModel *m = qobject_cast<PlaylistModel *>(m_list.data());
     if (!m) { m = new PlaylistModel(this); m_list = m; }
-    m->list(channelId);
+    // The Playlists tab explicitly — the default browse lands on the shelf-shaped
+    // Home tab (same protobuf scheme as the Videos tab, live-verified).
+    m->list(channelId, QLatin1String("EglwbGF5bGlzdHPyBgQKAkIA"));
     return m;
 }
 

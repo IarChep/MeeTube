@@ -236,6 +236,21 @@ private slots:
         QCOMPARE(c[0].body, QString("Nice video"));
         QCOMPARE(token, QString("MORE_COMMENTS"));
     }
+    // 2024+ channel Playlists tab: playlists arrive as lockupViewModel with
+    // LOCKUP_CONTENT_TYPE_PLAYLIST (no gridPlaylistRenderer anywhere).
+    void parsesPlaylistLockups() {
+        const nlohmann::json j = loadFixture("browse_playlists_lockup.json");
+        QVERIFY(!j.is_discarded());
+        QString token;
+        const QList<CT::Playlist> p = parsePlaylistList(j, &token);
+        QCOMPARE(p.size(), 1);                       // the video lockup is skipped
+        QCOMPARE(p[0].id, QString("PLOU2XLYxmsIJ78oALT6XEKLHNFEggOI75"));
+        QCOMPARE(p[0].title, QString("GDG Inspiring Stories"));
+        QCOMPARE(p[0].videoCount, 5);
+        QCOMPARE(p[0].thumbnailUrl, QString("https://i.ytimg.com/vi/YFJZk4H_Bk4/hqdefault.jpg"));
+        QCOMPARE(p[0].videosId, p[0].id);
+    }
+
     void parsesAccountsList() {
         const nlohmann::json j = loadFixture("accounts_list.json");
         QVERIFY(!j.is_discarded());
