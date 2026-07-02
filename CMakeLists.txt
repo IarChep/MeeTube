@@ -85,6 +85,22 @@ if(NOT BUILD_N9)
 endif()
 
 # ---------------------------------------------------------------------------
+# bench_json — parity-dump + micro-benchmark harness for the JSON backend.
+# Built for BOTH targets (the benchmark numbers that matter are the on-device
+# ones); never installed, not a ctest. No QtTest dependency — plain QtCore.
+# ---------------------------------------------------------------------------
+add_executable(bench_json tests/bench_json.cpp)
+target_link_libraries(bench_json PRIVATE meetube-core)
+if(BUILD_N9)
+    # Same device-runnability recipe as the app: hard-float loader pin + static
+    # C++ runtime (the device's GCC-4.x libstdc++ lacks this build's symbols).
+    target_link_options(bench_json PRIVATE
+        -static-libstdc++ -static-libgcc
+        -Wl,--dynamic-linker,/lib/ld-linux.so.3
+        -Wl,-rpath,/opt/meetube/lib -Wl,--disable-new-dtags)
+endif()
+
+# ---------------------------------------------------------------------------
 # WebP image-format plugin (libqwebp.so).
 # ---------------------------------------------------------------------------
 add_subdirectory(webp-imageformat)
