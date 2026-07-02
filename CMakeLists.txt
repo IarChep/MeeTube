@@ -24,6 +24,26 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_compile_definitions($<$<BOOL:${BUILD_N9}>:BUILD_N9>)
 
 # ---------------------------------------------------------------------------
+# Full-release device optimizations (BUILD_N9 + Release only). Applies to our
+# own targets (meetube-core, the app, the qwebp plugin) — the deps/ External
+# Projects keep their own tuned build systems.
+#   -mcpu=cortex-a8       pipeline-accurate scheduling for the N9's OMAP3630
+#                         (the toolchain default is generic -march=armv7-a+simd;
+#                         NEON + hard-float are already the defaults — the float
+#                         ABI must NOT be touched, it matches the device libs).
+#   -ffunction/-fdata-sections + --gc-sections
+#                         drop unreferenced code/data: smaller binary, faster
+#                         cold start, less icache pressure.
+# NO -flto: the link deliberately goes through the 2009 binutils ld (2.19.51,
+# no plugin API) for device-loader compatibility, where LTO silently degrades
+# to a plain link — not worth destabilizing the loader setup for zero gain.
+# ---------------------------------------------------------------------------
+if(BUILD_N9 AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_compile_options(-mcpu=cortex-a8 -ffunction-sections -fdata-sections)
+    add_link_options(-Wl,--gc-sections -Wl,-O1)
+endif()
+
+# ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
 find_package(Qt4 4.7.4 COMPONENTS
