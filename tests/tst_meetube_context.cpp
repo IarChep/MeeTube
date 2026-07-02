@@ -47,12 +47,15 @@ private slots:
         for (int i=0;i<h.size();++i) if (h[i].first=="Authorization") { sawAuth=true; QCOMPARE(h[i].second, QByteArray("Bearer tok")); }
         QVERIFY(sawAuth);
     }
-    // P3.4: the bearer must NOT be attached to IOS/ANDROID (their /player rejects it
-    // with 400), but must be on WEB/TVHTML5.
-    void bearerSkippedForMobile() {
+    // The bearer is minted with the TV client credentials and ONLY the TVHTML5
+    // client honors it — every other client (incl. WEB /next, /browse, comments)
+    // rejects it with 400 INVALID_ARGUMENT (live-verified 2026-07-02). Signed-in
+    // WEB requests must therefore stay anonymous.
+    void bearerOnlyOnTv() {
         Session s; s.bearer = "tok";
-        QVERIFY(hasAuth(ContextBuilder::headers(ClientId::WEB, s)));
         QVERIFY(hasAuth(ContextBuilder::headers(ClientId::TVHTML5, s)));
+        QVERIFY(!hasAuth(ContextBuilder::headers(ClientId::WEB, s)));
+        QVERIFY(!hasAuth(ContextBuilder::headers(ClientId::WEB_SAFARI, s)));
         QVERIFY(!hasAuth(ContextBuilder::headers(ClientId::IOS, s)));
         QVERIFY(!hasAuth(ContextBuilder::headers(ClientId::ANDROID, s)));
         QVERIFY(!hasAuth(ContextBuilder::headers(ClientId::ANDROID_VR, s)));
