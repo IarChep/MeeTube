@@ -29,11 +29,11 @@ Page {
                     left: parent.left; leftMargin: UI.DEFAULT_MARGIN
                     verticalCenter: parent.verticalCenter
                 }
-                text: "Playlists"
+                textFormat: Text.RichText
+                text: "<b>MeeTube:</b> Playlists"
                 color: UI.COLOR_INVERTED_FOREGROUND
                 font.pixelSize: UI.FONT_XLARGE
                 font.family: UI.FONT_FAMILY
-                font.bold: true
             }
         }
     }

@@ -364,6 +364,9 @@ Page {
                     id: authorAvatar
                     width: UI.SIZE_ICON_LARGE
                     height: UI.SIZE_ICON_LARGE
+                    // The author row (authorMouse) owns the tap → channel page; the
+                    // avatar must not react on its own or swallow that tap.
+                    interactive: false
                     anchors {
                         left: parent.left; leftMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter

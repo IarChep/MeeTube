@@ -15,10 +15,14 @@ MaskedItem {
     property url placeholder: Qt.resolvedUrl("../images/avatar-placeholder.png")
     property alias fillMode: avatar.fillMode
     property alias status: avatar.status
+    // Whether the avatar reacts to taps (press-darken + clicked()). Set false where
+    // the avatar is purely decorative (identity headers, comment rows) so it neither
+    // dims on touch nor swallows a tap meant for an enclosing row.
+    property bool interactive: true
 
     signal clicked
 
-    opacity: mouseArea.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
+    opacity: (interactive && mouseArea.pressed) ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
 
     mask: Image {
         width: root.width
@@ -49,7 +53,7 @@ MaskedItem {
         id: mouseArea
 
         anchors.fill: parent
-        enabled: root.enabled
+        enabled: root.interactive && root.enabled
         onClicked: root.clicked()
     }
 }

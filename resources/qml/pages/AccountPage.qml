@@ -8,7 +8,7 @@ import "../js/Status.js" as Status
 
 // The YouTube mobile "You" tab adapted to N9: identity header (squircle avatar +
 // name + @handle + Sign out), a horizontal History carousel, then Subscriptions /
-// Library / Playlists rows. Signed-in entry point only (main.qml routes to the
+// Playlists rows. Signed-in entry point only (main.qml routes to the
 // AuthorisationSheet when signed out).
 Page {
     id: page
@@ -36,7 +36,7 @@ Page {
                     verticalCenter: parent.verticalCenter
                 }
                 textFormat: Text.RichText
-                text: "<b>You</b>"
+                text: "<b>MeeTube:</b> You"
                 color: UI.COLOR_INVERTED_FOREGROUND
                 font.pixelSize: UI.FONT_XLARGE
                 font.family: UI.FONT_FAMILY
@@ -71,6 +71,7 @@ Page {
                     id: avatar
                     width: 96
                     height: 96
+                    interactive: false           // decorative — the row has no tap action
                     anchors {
                         left: parent.left; leftMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
@@ -203,12 +204,6 @@ Page {
                 label: "Subscriptions"
                 onClicked: pageStack.push(Qt.resolvedUrl("FeedPage.qml"),
                                           { pageTitle: "Subscriptions", feedId: "FEsubscriptions" })
-            }
-            NavRow {
-                iconSource: "image://theme/icon-m-common-favorite-mark-inverse"
-                label: "Library"
-                onClicked: pageStack.push(Qt.resolvedUrl("FeedPage.qml"),
-                                          { pageTitle: "Library", feedId: "FElibrary" })
             }
             NavRow {
                 visible: page.details ? page.details.channelId !== "" : false

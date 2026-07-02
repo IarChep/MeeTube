@@ -45,26 +45,11 @@ Page {
         page.currentTab = tab;
     }
 
-    property Component pageHeader: Component {
-        Item {
-            anchors.fill: parent
-            Text {
-                anchors {
-                    left: parent.left; leftMargin: UI.DEFAULT_MARGIN
-                    right: parent.right; rightMargin: UI.DEFAULT_MARGIN
-                    verticalCenter: parent.verticalCenter
-                }
-                text: (page.details && page.details.name !== "") ? page.details.name
-                      : (page.channelName !== "" ? page.channelName : "Channel")
-                color: UI.COLOR_INVERTED_FOREGROUND
-                font.pixelSize: UI.FONT_XLARGE
-                font.family: UI.FONT_FAMILY
-                font.bold: true
-                elide: Text.ElideRight
-            }
-        }
-    }
-    property Component pageHeaderBackground: appWindow.stdHeaderBackground
+    // No global header — the banner + identity block are the channel's own header, so
+    // the shared HeaderBar collapses (null, like VideoPage) and the banner reaches the
+    // top of the page.
+    property variant pageHeader: null
+    property variant pageHeaderBackground: null
 
     Component { id: videoDelegateComponent; RelatedDelegate {} }
     Component { id: playlistDelegateComponent; PlaylistDelegate {} }
@@ -112,6 +97,7 @@ Page {
                     id: channelAvatarItem
                     width: 96
                     height: 96
+                    interactive: false           // decorative — this is the channel's own header
                     anchors {
                         left: parent.left; leftMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
