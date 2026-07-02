@@ -38,8 +38,8 @@ StreamsRequest*   VideoApi::newStreamsRequest()   { return new StreamsRequest(m_
 SubtitlesRequest* VideoApi::newSubtitlesRequest() { return new SubtitlesRequest(m_client, this); }
 
 QObject* VideoApi::feed(const QString &navId) {
-    VideoModel *m = qobject_cast<VideoModel *>(m_feed.data());
-    if (!m) { m = new VideoModel(this); m_feed = m; }
+    VideoModel *m = qobject_cast<VideoModel *>(m_feeds.value(navId).data());
+    if (!m) { m = new VideoModel(this); m_feeds.insert(navId, QPointer<QObject>(m)); }
     m->list(navId);
     return m;
 }

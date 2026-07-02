@@ -19,6 +19,7 @@
 #include <QObject>
 #include <QString>
 #include <QPointer>
+#include <QMap>
 
 namespace yt {
 
@@ -60,7 +61,9 @@ public:
 
 private:
     InnertubeClient *m_client;
-    QPointer<QObject> m_feed;       // reused VideoModel for feed()
+    // One cached VideoModel per feed id — the home feed, the History carousel and
+    // any pushed feed page must not re-list each other's model.
+    QMap<QString, QPointer<QObject> > m_feeds;
     QPointer<QObject> m_search;     // reused VideoModel for searchVideos()
     QPointer<QObject> m_comments;   // reused CommentModel
     QPointer<QObject> m_details;    // reused VideoDetails

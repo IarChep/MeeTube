@@ -1,5 +1,7 @@
 #include <QtTest/QtTest>
 #include "testutil.h"
+#include "innertube/videoapi.h"
+#include "innertube/innertubeclient.h"
 #include "models/videomodel.h"
 #include "models/commentmodel.h"
 #include "models/playlistmodel.h"
@@ -72,6 +74,20 @@ protected:
 
 class TestModel : public QObject { Q_OBJECT
 private slots:
+    // feed() must hand out ONE model per browse id — the home feed, the AccountPage
+    // history carousel and any pushed FeedPage coexist. (list() here posts through
+    // the engine's real transport, but with no event loop no I/O actually runs —
+    // the test only asserts identity.)
+    void feedCachesPerBrowseId() {
+        InnertubeClient client;
+        VideoApi api(&client);
+        QObject *history = api.feed("FEhistory");
+        QObject *news = api.feed("FEnews_destination");
+        QVERIFY(history != 0);
+        QVERIFY(history != news);                  // distinct ids -> distinct models
+        QCOMPARE(api.feed("FEhistory"), history);  // same id -> same cached model
+    }
+
     void initTestCase() {
         qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
         qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");
