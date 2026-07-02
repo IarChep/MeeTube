@@ -36,10 +36,12 @@ QList<QPair<QByteArray, QByteArray> > ContextBuilder::headers(ClientId id, const
     h << qMakePair(QByteArray("Cookie"), QByteArray(Catalog::kConsentCookie));
     if (!s.visitorData.isEmpty())
         h << qMakePair(QByteArray("X-Goog-Visitor-Id"), s.visitorData.toUtf8());
-    // Bearer only on WEB/TVHTML5-family clients: the IOS/ANDROID /player endpoint
-    // rejects a Bearer with 400 INVALID_ARGUMENT (research §6.1, Dmitry-confirmed),
-    // and playback is always anonymous anyway.
-    if (!s.bearer.isEmpty() && id != ClientId::IOS && id != ClientId::ANDROID && id != ClientId::ANDROID_VR)
+    // Bearer ONLY on TVHTML5: the token is minted with the TV client credentials
+    // and every other client rejects it with 400 INVALID_ARGUMENT — not just the
+    // IOS/ANDROID /player (research §6.1) but also signed-in WEB /next, /browse and
+    // comments (live-verified 2026-07-02, broke the whole watch page after login).
+    // WEB therefore stays anonymous; authed surfaces all go through the TV client.
+    if (!s.bearer.isEmpty() && id == ClientId::TVHTML5)
         h << qMakePair(QByteArray("Authorization"), QByteArray("Bearer ") + s.bearer.toUtf8());
     return h;
 }

@@ -24,16 +24,18 @@ void ActionRequest::like(const QString &videoId)          { videoAction("like/li
 void ActionRequest::dislike(const QString &videoId)       { videoAction("like/dislike",    videoId); }
 void ActionRequest::removeLike(const QString &videoId)    { videoAction("like/removelike", videoId); }
 
+// TVHTML5, not WEB: these writes need the Bearer, which only rides on the TV client
+// (the ContextBuilder guard keeps every other client anonymous).
 void ActionRequest::channelAction(const QString &endpoint, const QString &channelId) {
     setStatus(Loading);
     nlohmann::json body{ {"channelIds", nlohmann::json::array({ channelId.toStdString() })} };
-    connect(m_t->post(endpoint, ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post(endpoint, ClientId::TVHTML5, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void ActionRequest::videoAction(const QString &endpoint, const QString &videoId) {
     setStatus(Loading);
     nlohmann::json body{ {"target", { {"videoId", videoId.toStdString()} }} };
-    connect(m_t->post(endpoint, ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post(endpoint, ClientId::TVHTML5, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void ActionRequest::onFinished() {
