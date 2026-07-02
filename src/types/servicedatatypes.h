@@ -42,7 +42,7 @@ struct Comment { QString id, body, date, userId, username, thumbnailUrl, videoId
 struct Stream  { QString id, url, description; int width = 0, height = 0; };
 struct Subtitle{ QString id, url, title, language; };
 struct Category{ QString id, title; };
-struct Account { QString id, username, thumbnailUrl; };
+struct Account { QString id, username, thumbnailUrl, handle, channelId; };
 
 } // namespace CT
 

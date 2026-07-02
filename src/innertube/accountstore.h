@@ -36,6 +36,10 @@ public:
     ~AccountStore();
 
     void save(const CT::Account &account, const QString &refreshToken);
+    // accounts_list write-through: refresh the ACTIVE record's identity fields.
+    // The record id and refresh token are deliberately untouched.
+    void updateActive(const CT::Account &account);
+    CT::Account active() const;
     void remove(const QString &id);
     QString refreshToken(const QString &id) const;
     QList<CT::Account> accounts() const;
