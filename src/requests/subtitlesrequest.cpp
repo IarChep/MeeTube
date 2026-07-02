@@ -33,7 +33,7 @@ void SubtitlesRequest::onFinished() {
     if (aborted(r)) return;
     // Captions live in the player response; an absent track list yields an empty
     // (successful) list — the model shows "no subtitles" rather than an error.
-    deliver(parseCaptions(r.json));
+    deliver(parseCaptions(*r.body));
 }
 
 void SubtitlesRequest::cancel() { setStatus(Canceled); }

@@ -43,7 +43,7 @@ void PlaylistRequest::onFinished() {
     const Reply r = rep->result();
     rep->deleteLater();
     if (aborted(r)) return;
-    QString token; QList<CT::Playlist> p = parsePlaylistList(r.json, &token);
+    QString token; QList<CT::Playlist> p = parsePlaylistList(*r.body, &token);
     deliver(p, token);
 }
 

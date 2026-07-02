@@ -2,31 +2,35 @@
 #define YT_RENDERERPARSER_H
 #include <QString>
 #include <QList>
-#include <nlohmann/json.hpp>
+#include <string_view>
 #include "servicedatatypes.h"
 namespace yt {
-QString parseText(const nlohmann::json &field);
-CT::Video parseVideoRenderer(const nlohmann::json &r);
+// Every function takes raw JSON bytes: either a whole InnerTube response
+// (parse*List / parseChannel / parseAccountsList / parseWatchPage) or the inner
+// renderer object itself (parseVideoRenderer & co, parseText). The buffer only
+// needs to stay alive for the duration of the call.
+QString parseText(std::string_view field);
+CT::Video parseVideoRenderer(std::string_view r);
 // lockupViewModel (2024+ YouTube surfaces — watch-page related, some feeds/search —
 // replaced compactVideoRenderer/gridVideoRenderer). Caller passes the inner object.
-CT::Video parseLockupViewModel(const nlohmann::json &lm);
+CT::Video parseLockupViewModel(std::string_view lm);
 // tileRenderer (TVHTML5 surfaces): the authed feeds (history/subscriptions/library)
 // arrive TV-shaped because the OAuth bearer is only honored by the TV client.
-CT::Video parseTileRenderer(const nlohmann::json &t);
-QList<CT::Video> parseVideoList(const nlohmann::json &response, QString *nextToken);
-QList<CT::Comment> parseComments(const nlohmann::json &response, QString *nextToken);
-CT::Playlist parsePlaylistRenderer(const nlohmann::json &r);
-QList<CT::Playlist> parsePlaylistList(const nlohmann::json &response, QString *nextToken);
+CT::Video parseTileRenderer(std::string_view t);
+QList<CT::Video> parseVideoList(std::string_view response, QString *nextToken);
+QList<CT::Comment> parseComments(std::string_view response, QString *nextToken);
+CT::Playlist parsePlaylistRenderer(std::string_view r);
+QList<CT::Playlist> parsePlaylistList(std::string_view response, QString *nextToken);
 // Channel header (c4TabbedHeaderRenderer / pageHeaderRenderer) → CT::User.
-CT::User parseChannel(const nlohmann::json &response);
-CT::User parseUserRenderer(const nlohmann::json &r);
-QList<CT::User> parseUserList(const nlohmann::json &response, QString *nextToken);
+CT::User parseChannel(std::string_view response);
+CT::User parseUserRenderer(std::string_view r);
+QList<CT::User> parseUserList(std::string_view response, QString *nextToken);
 // account/accounts_list (authed) → the active account's identity. The channel id is
 // reconstructed as "UC" + offlineCacheKeyToken.clientCacheKey (the youtubei.js trick —
 // the response carries no plain channelId).
-CT::Account parseAccountsList(const nlohmann::json &response);
+CT::Account parseAccountsList(std::string_view response);
 // Watch page (/next): the primary video's details (title/description/views/likes +
 // channel name/avatar/id) and the related-videos list, in one response.
-void parseWatchPage(const nlohmann::json &response, CT::Video *primary, QList<CT::Video> *related);
+void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Video> *related);
 }
 #endif

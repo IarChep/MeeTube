@@ -62,12 +62,12 @@ void UserRequest::onFinished() {
         return;
     }
     if (m_mode == ModeSearch) {
-        QString token; QList<CT::User> u = parseUserList(r.json, &token);
+        QString token; QList<CT::User> u = parseUserList(*r.body, &token);
         deliver(u, token);
         return;
     }
     // ModeChannel: the channel header → a single CT::User.
-    const CT::User u = parseChannel(r.json);
+    const CT::User u = parseChannel(*r.body);
     if (u.id.isEmpty() && u.username.isEmpty()) { fail(QString::fromLatin1("channel unavailable")); return; }
     deliver(QList<CT::User>() << u, QString());
 }

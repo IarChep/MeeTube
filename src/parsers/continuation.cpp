@@ -1,38 +1,54 @@
 #include "continuation.h"
-#include "jsonutil.h"
+#include "ytjson.h"
+#include "jsonscan.h"
 namespace yt {
 
-// Bound the recursion: real InnerTube responses nest a few dozen levels deep; a
-// pathological or looping payload must not blow the stack on a 1 GB-RAM N9.
-static const int kMaxDepth = 100;
+using namespace gj;
 
-static QString findToken(const nlohmann::json &node, int depth) {
-    if (depth > kMaxDepth) return QString();
-    if (node.is_object()) {
-        if (node.contains("continuationCommand")) {
-            const QString t = jstr(node.at("continuationCommand"), "token");
-            if (!t.isEmpty()) return t;
-        }
-        if (node.contains("nextContinuationData")) {
-            const QString t = jstr(node.at("nextContinuationData"), "continuation");
-            if (!t.isEmpty()) return t;
-        }
-        if (node.contains("reloadContinuationData")) {
-            const QString t = jstr(node.at("reloadContinuationData"), "continuation");
-            if (!t.isEmpty()) return t;
-        }
-        for (auto it = node.begin(); it != node.end(); ++it) {
-            const QString t = findToken(it.value(), depth + 1);
-            if (!t.isEmpty()) return t;
-        }
-    } else if (node.is_array()) {
-        for (const auto &e : node) {
-            const QString t = findToken(e, depth + 1);
-            if (!t.isEmpty()) return t;
+// The three token-bearing wrappers. Each capture is the wrapper OBJECT; the
+// token string sits under a per-shape inner key.
+struct TokenShapes {
+    std::optional<std::string> token;          // continuationCommand
+    std::optional<std::string> continuation;   // next/reloadContinuationData
+};
+
+// DFS-first-match over the whole tree, single pass. A wrapper whose token
+// string is missing/empty does not stop the search (the old fall-through).
+struct TokenFinder {
+    std::string found;
+    void enter(int) {}
+    void leave(int) {}
+    scan::Action what(std::string_view key, int)
+    {
+        if (!found.empty()) return scan::Action::Skip;
+        if (key == "continuationCommand" || key == "nextContinuationData"
+            || key == "reloadContinuationData")
+            return scan::Action::Capture;
+        return scan::Action::Descend;
+    }
+    void capture(std::string_view key, std::string_view value, int)
+    {
+        TokenShapes s{};
+        readJson(s, value);
+        if (key == "continuationCommand") {
+            if (s.token && !s.token->empty()) found = *s.token;
+        } else {
+            if (s.continuation && !s.continuation->empty()) found = *s.continuation;
         }
     }
-    return QString();
+};
+
+QString findContinuationToken(std::string_view json)
+{
+    TokenFinder f;
+    scan::document(json, f);
+    return QString::fromUtf8(f.found.data(), (int)f.found.size());
 }
 
-QString findContinuationToken(const nlohmann::json &node) { return findToken(node, 0); }
+QString findContinuationTokenUnder(std::string_view json, const char *rootKey)
+{
+    const std::string_view sub = scan::topLevelValue(json, rootKey);
+    if (sub.empty()) return QString();
+    return findContinuationToken(sub);
+}
 }
