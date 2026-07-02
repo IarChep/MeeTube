@@ -89,6 +89,7 @@ void AccountManager::onToken() {
         if (m_store) m_store->save(acc, refresh);
         m_deviceCode.clear();
         emit bearerChanged();
+        emit signedInChanged();
         emit authenticated();
         return;
     }
@@ -109,6 +110,7 @@ void AccountManager::signOut() {
     }
     m_bearer.clear();
     emit bearerChanged();   // clear the session bearer too
+    emit signedInChanged();
 }
 
 void AccountManager::restore() { requestRefresh(); }

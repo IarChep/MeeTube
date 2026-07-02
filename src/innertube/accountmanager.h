@@ -33,6 +33,7 @@ class AccountStore;
 // (the ContextBuilder guard enforces that).
 class AccountManager : public QObject {
     Q_OBJECT
+    Q_PROPERTY(bool signedIn READ isSignedIn NOTIFY signedInChanged)
 public:
     explicit AccountManager(ITransport *t, AccountStore *store, QObject *parent = 0);
 
@@ -50,6 +51,9 @@ Q_SIGNALS:
     // The cached access token changed (minted or refreshed) — the engine copies it
     // into the session so authed browse/next calls carry it.
     void bearerChanged();
+    // isSignedIn() flipped (token grant / sign-out) — QML gates the account entry
+    // point on this (sheet when signed out, AccountPage when signed in).
+    void signedInChanged();
 
 protected:
     // Test seam: schedule the next poll. Default arms a single-shot QTimer at the

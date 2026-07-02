@@ -97,6 +97,25 @@ private slots:
         QCOMPARE(t.sentForm.size(), 3);   // device + 2 token polls
     }
 
+    void signedInPropertyNotifies() {
+        FakeTransport t;
+        AccountStore store(iniPath());
+        t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl), nlohmann::json{
+            {"device_code", "DC"}, {"user_code", "ABCD"}, {"interval", 5}});
+        t.queue(QString::fromLatin1(Catalog::kTokenUrl), nlohmann::json{
+            {"access_token", "AT"}, {"refresh_token", "RT"}});
+        TestAccountManager mgr(&t, &store);
+        QSignalSpy sSpy(&mgr, SIGNAL(signedInChanged()));
+        QVERIFY(!mgr.property("signedIn").toBool());
+        mgr.signIn();
+        t.flush();
+        QCOMPARE(sSpy.count(), 1);
+        QVERIFY(mgr.property("signedIn").toBool());
+        mgr.signOut();
+        QCOMPARE(sSpy.count(), 2);
+        QVERIFY(!mgr.property("signedIn").toBool());
+    }
+
     void deviceCodeDenied() {
         FakeTransport t;
         AccountStore store(iniPath());
