@@ -32,11 +32,11 @@ Page {
                     right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                     verticalCenter: parent.verticalCenter
                 }
-                text: page.pageTitle
+                textFormat: Text.RichText
+                text: "<b>MeeTube:</b> " + page.pageTitle
                 color: UI.COLOR_INVERTED_FOREGROUND
                 font.pixelSize: UI.FONT_XLARGE
                 font.family: UI.FONT_FAMILY
-                font.bold: true
                 elide: Text.ElideRight
             }
         }

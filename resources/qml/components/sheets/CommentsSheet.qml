@@ -47,6 +47,7 @@ Sheet {
                     id: commentAvatar
                     width: UI.SIZE_ICON_DEFAULT
                     height: UI.SIZE_ICON_DEFAULT
+                    interactive: false           // decorative — comment rows don't navigate
                     anchors {
                         top: parent.top; topMargin: UI.PADDING_XLARGE
                         left: parent.left; leftMargin: UI.DEFAULT_MARGIN
