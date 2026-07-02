@@ -255,9 +255,53 @@ Page {
             }
         }
 
-        footer: ListFooter {
-            hasMore: page.activeModel ? page.activeModel.canFetchMore : false
-            active: page.activeModel ? (page.activeModel.status === Status.Loading) : false
+        // Tab-content states live in the FOOTER (right under the clone header) —
+        // a page-level overlay would sit on top of the banner/identity block.
+        footer: Column {
+            width: list.width
+
+            // Pagination spinner — only once the tab actually has rows.
+            ListFooter {
+                hasMore: page.activeModel ? page.activeModel.canFetchMore : false
+                active: page.activeModel
+                        ? (page.activeModel.status === Status.Loading && page.activeModel.count > 0)
+                        : false
+            }
+
+            // First-load / empty / failed block for the ACTIVE tab.
+            Item {
+                width: parent.width
+                height: visible ? 320 : 0
+                visible: !page.activeModel || page.activeModel.count === 0
+
+                BusyIndicator {
+                    anchors.centerIn: parent
+                    visible: running
+                    running: !page.activeModel
+                             || (page.activeModel.status === Status.Loading
+                                 && page.activeModel.count === 0)
+                    platformStyle: BusyIndicatorStyle { size: "large" }
+                }
+
+                EmptyState {
+                    property bool failed: page.activeModel
+                                          ? (page.activeModel.status === Status.Failed) : false
+                    visible: page.activeModel
+                             ? (page.activeModel.count === 0
+                                && (page.activeModel.status === Status.Ready || failed))
+                             : false
+                    title: failed ? "Couldn't load the channel"
+                                  : (page.currentTab === 0 ? "No videos yet" : "No playlists yet")
+                    hint: failed ? page.activeModel.errorString : ""
+                    showRetry: failed
+                    onRetry: {
+                        if (page.currentTab === 0)
+                            page.uploads = innertube.channel().videos(page.channelId);
+                        else
+                            page.playlists = innertube.playlist().byChannel(page.channelId);
+                    }
+                }
+            }
         }
 
         onAtYEndChanged: {
@@ -266,32 +310,6 @@ Page {
         }
 
         ScrollDecorator { flickableItem: list }
-    }
-
-    BusyOverlay {
-        running: page.activeModel
-                 ? (page.activeModel.status === Status.Loading && page.activeModel.count === 0)
-                 : true
-        text: page.currentTab === 0 ? "Loading videos…" : "Loading playlists…"
-    }
-
-    EmptyState {
-        property bool failed: page.activeModel
-                              ? (page.activeModel.status === Status.Failed) : false
-        visible: page.activeModel
-                 ? (page.activeModel.count === 0
-                    && (page.activeModel.status === Status.Ready || failed))
-                 : false
-        title: failed ? "Couldn't load the channel"
-                      : (page.currentTab === 0 ? "No videos yet" : "No playlists yet")
-        hint: failed ? page.activeModel.errorString : ""
-        showRetry: failed
-        onRetry: {
-            if (page.currentTab === 0)
-                page.uploads = innertube.channel().videos(page.channelId);
-            else
-                page.playlists = innertube.playlist().byChannel(page.channelId);
-        }
     }
 
     ToolBarLayout {
