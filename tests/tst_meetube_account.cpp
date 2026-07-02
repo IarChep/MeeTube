@@ -7,6 +7,7 @@
 #include "innertube/accountmanager.h"
 #include "innertube/catalog.h"
 #include "requests/accountrequest.h"
+#include "innertube/accountdetails.h"
 
 using namespace yt;
 
@@ -17,6 +18,16 @@ public:
     TestAccountManager(ITransport *t, AccountStore *s) : AccountManager(t, s) {}
 protected:
     void schedulePoll() { poll(); }
+};
+
+// Injects a FakeTransport-backed AccountRequest through the newRequest() seam.
+class TestAccountDetails : public AccountDetails {
+public:
+    TestAccountDetails(ITransport *t, AccountStore *s) : AccountDetails(s), m_t(t) {}
+protected:
+    AccountRequest* newRequest() { return new AccountRequest(m_t, this); }
+private:
+    ITransport *m_t;
 };
 
 class TestAccount : public QObject { Q_OBJECT
@@ -79,6 +90,38 @@ private slots:
         QCOMPARE(a.username, QString("Ivan Petrov"));
         QCOMPARE(a.channelId, QString("UCabc123def"));
         QVERIFY(t.sent.at(0).contains("accountReadMask"));   // read mask in the body
+    }
+
+    // ---- AccountDetails (identity detail object) ----
+    void detailsLoadsAndWritesThrough() {
+        FakeTransport t;
+        AccountStore store(iniPath());
+        CT::Account placeholder; placeholder.id = "default"; placeholder.username = "YouTube";
+        store.save(placeholder, "RT");
+        t.queue("account/accounts_list", loadFixture("accounts_list.json"));
+        TestAccountDetails d(&t, &store);
+        QCOMPARE(d.username(), QString("YouTube"));    // seeded from the store cache
+        QSignalSpy loadedSpy(&d, SIGNAL(loaded()));
+        d.load();
+        t.flush();
+        QCOMPARE(loadedSpy.count(), 1);
+        QCOMPARE(d.username(), QString("Ivan Petrov"));
+        QCOMPARE(d.handle(), QString("@ivanpetrov"));
+        QCOMPARE(d.channelId(), QString("UCabc123def"));
+        QCOMPARE(store.active().username, QString("Ivan Petrov"));  // write-through
+        QCOMPARE(store.refreshToken("default"), QString("RT"));     // token intact
+    }
+
+    void detailsKeepsCacheOnFailure() {
+        FakeTransport t;   // nothing queued -> the post fails
+        AccountStore store(iniPath());
+        CT::Account cached; cached.id = "default"; cached.username = "Ivan";
+        store.save(cached, "RT");
+        TestAccountDetails d(&t, &store);
+        d.load();
+        t.flush();
+        QCOMPARE(d.status(), (int) ServiceRequest::Failed);
+        QCOMPARE(d.username(), QString("Ivan"));       // cached identity survives
     }
 
     // ---- AccountManager device-code flow ----

@@ -27,6 +27,7 @@
 #include "innertube/videoapi.h"
 #include "innertube/channelapi.h"
 #include "innertube/playlistapi.h"
+#include "innertube/accountapi.h"
 #include "requests/videorequest.h"
 #include "requests/streamsrequest.h"
 #include "requests/commentrequest.h"
@@ -62,8 +63,8 @@ public:
 
     AccountStore*   accountStore()   { return &m_store; }
     AccountManager* accountManager() { return &m_manager; }
-    // QML context-property convenience (exposed as `account`).
-    Q_INVOKABLE QObject* account()   { return &m_manager; }
+    // OAuth manager — QML: innertube.auth().signIn()/.signedIn.
+    Q_INVOKABLE QObject* auth()      { return &m_manager; }
 
     // The API tree. Internal typed accessors (C++: models/detail objects obtain their
     // requests here) + QML-facing wrappers that return QObject* — a Q_INVOKABLE that
@@ -73,9 +74,11 @@ public:
     VideoApi*    videoApi();
     ChannelApi*  channelApi();
     PlaylistApi* playlistApi();
+    AccountApi*  accountApi();
     Q_INVOKABLE QObject* video()    { return videoApi(); }
     Q_INVOKABLE QObject* channel()  { return channelApi(); }
     Q_INVOKABLE QObject* playlist() { return playlistApi(); }
+    Q_INVOKABLE QObject* account()  { return accountApi(); }
 
 private Q_SLOTS:
     // Copy the account manager's current bearer into the session so authed browse/
@@ -93,6 +96,7 @@ private:
     VideoApi    *m_video;
     ChannelApi  *m_channel;
     PlaylistApi *m_playlist;
+    AccountApi  *m_accountApi;
 };
 
 }
