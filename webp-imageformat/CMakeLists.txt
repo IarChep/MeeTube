@@ -17,9 +17,20 @@ if(BUILD_N9)
     # Same device-loadability fix as the service plugins: the N9's GCC-4.x libstdc++ lacks the
     # newer GLIBCXX/CXXABI symbols this GCC-14 cross build emits, so link the C++ runtime
     # statically (else QImageReader silently drops the plugin), and pin the device loader.
+    #
+    # RPATH /opt/meetube/lib: the plugin is dlopen'd by Qt, so resolving its libwebp.so.7
+    # dependency must NOT rely on the MAIN executable's DT_RPATH — under applauncherd
+    # (the .desktop invoker path) the main executable is the booster daemon, not meetube,
+    # so that rpath is absent and the plugin fails to load ("libwebp.so.7: cannot open
+    # shared object file"). The plugin therefore carries its OWN DT_RPATH. --disable-new-dtags
+    # makes it a DT_RPATH (not DT_RUNPATH) so it is inherited by libwebp's own dep
+    # (libsharpyuv.so.0). Because the plugin links libwebp by full build-tree path, CMake
+    # manages its rpath and rewrites it to INSTALL_RPATH at install time.
     target_link_options(qwebp PRIVATE
         -static-libstdc++ -static-libgcc
-        -Wl,--dynamic-linker,/lib/ld-linux.so.3)
+        -Wl,--dynamic-linker,/lib/ld-linux.so.3
+        -Wl,--disable-new-dtags)
+    set_target_properties(qwebp PROPERTIES INSTALL_RPATH "/opt/meetube/lib")
     # Package the plugin + the bundled libwebp into the .deb.
     install(TARGETS qwebp LIBRARY DESTINATION /opt/meetube/qtplugins/imageformats)
     # libsharpyuv is REQUIRED: libwebp >= 1.3 split its YUV conversion out into a
