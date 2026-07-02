@@ -39,6 +39,23 @@ private slots:
         QVERIFY(store.isEmpty());
     }
 
+    void storeUpdateActiveKeepsToken() {
+        AccountStore store(iniPath());
+        CT::Account a; a.id = "default"; a.username = "YouTube";
+        store.save(a, "RT");
+        CT::Account real;
+        real.username = "Ivan Petrov"; real.thumbnailUrl = "https://t/a.jpg";
+        real.handle = "@ivanpetrov"; real.channelId = "UC123";
+        store.updateActive(real);
+        QCOMPARE(store.refreshToken("default"), QString("RT"));  // token untouched
+        CT::Account out = store.active();
+        QCOMPARE(out.id, QString("default"));                    // id untouched
+        QCOMPARE(out.username, QString("Ivan Petrov"));
+        QCOMPARE(out.handle, QString("@ivanpetrov"));
+        QCOMPARE(out.channelId, QString("UC123"));
+        QCOMPARE(out.thumbnailUrl, QString("https://t/a.jpg"));
+    }
+
     void storePersistsAcrossInstances() {
         { AccountStore s1(iniPath()); CT::Account a; a.id = "x"; a.username = "U"; s1.save(a, "RT"); }
         AccountStore s2(iniPath());           // fresh instance, same file

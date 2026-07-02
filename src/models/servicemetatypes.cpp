@@ -23,6 +23,7 @@ void registerMeeTubeMetaTypes() {
     // Value types carried by the typed ready()/watchReady() signals — string-based
     // Qt4 connects and QSignalSpy need these registered. (Request-pointer metatypes
     // are gone with the create*Request() Q_INVOKABLEs; the tree hands out QObject*.)
+    qRegisterMetaType<CT::Account>("CT::Account");
     qRegisterMetaType<CT::Video>("CT::Video");
     qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
     qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");

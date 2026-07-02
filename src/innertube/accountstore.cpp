@@ -30,12 +30,37 @@ void AccountStore::save(const CT::Account &account, const QString &refreshToken)
     if (account.id.isEmpty()) return;
     m_s->setValue("accounts/" + account.id + "/username", account.username);
     m_s->setValue("accounts/" + account.id + "/thumbnailUrl", account.thumbnailUrl);
+    m_s->setValue("accounts/" + account.id + "/handle", account.handle);
+    m_s->setValue("accounts/" + account.id + "/channelId", account.channelId);
     if (!refreshToken.isEmpty())
         m_s->setValue("accounts/" + account.id + "/refreshToken", refreshToken);
     if (activeId().isEmpty())
         m_s->setValue("accounts/active", account.id);
     m_s->sync();
     emit accountsChanged();
+}
+
+void AccountStore::updateActive(const CT::Account &account) {
+    const QString id = activeId();
+    if (id.isEmpty()) return;
+    m_s->setValue("accounts/" + id + "/username", account.username);
+    m_s->setValue("accounts/" + id + "/thumbnailUrl", account.thumbnailUrl);
+    m_s->setValue("accounts/" + id + "/handle", account.handle);
+    m_s->setValue("accounts/" + id + "/channelId", account.channelId);
+    m_s->sync();
+    emit accountsChanged();
+}
+
+CT::Account AccountStore::active() const {
+    CT::Account a;
+    const QString id = activeId();
+    if (id.isEmpty()) return a;
+    a.id = id;
+    a.username = m_s->value("accounts/" + id + "/username").toString();
+    a.thumbnailUrl = m_s->value("accounts/" + id + "/thumbnailUrl").toString();
+    a.handle = m_s->value("accounts/" + id + "/handle").toString();
+    a.channelId = m_s->value("accounts/" + id + "/channelId").toString();
+    return a;
 }
 
 void AccountStore::remove(const QString &id) {
@@ -64,6 +89,8 @@ QList<CT::Account> AccountStore::accounts() const {
         a.id = ids.at(i);
         a.username = m_s->value("accounts/" + a.id + "/username").toString();
         a.thumbnailUrl = m_s->value("accounts/" + a.id + "/thumbnailUrl").toString();
+        a.handle = m_s->value("accounts/" + a.id + "/handle").toString();
+        a.channelId = m_s->value("accounts/" + a.id + "/channelId").toString();
         out << a;
     }
     return out;
