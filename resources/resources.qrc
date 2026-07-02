@@ -6,6 +6,7 @@
         <!-- pages -->
         <file>qml/pages/MainPage.qml</file>
         <file>qml/pages/VideoPage.qml</file>
+        <file>qml/pages/FeedPage.qml</file>
 
         <!-- components -->
         <file>qml/components/Avatar.qml</file>
