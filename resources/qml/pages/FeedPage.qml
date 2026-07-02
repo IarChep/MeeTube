@@ -56,7 +56,8 @@ Page {
         cacheBuffer: 1000
         boundsBehavior: Flickable.StopAtBounds
         model: page.feedModel
-        delegate: VideoDelegate {}
+        // Compact rows — the big-thumbnail VideoDelegate stays home-page only.
+        delegate: RelatedDelegate {}
 
         footer: ListFooter {
             hasMore: page.feedModel ? page.feedModel.canFetchMore : false
