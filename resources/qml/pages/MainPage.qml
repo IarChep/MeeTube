@@ -108,15 +108,21 @@ Page {
 
     ToolBarLayout {
         id: mainTools
-        // Search (opens the search page) on the left, account on the right. The
-        // category picker moved off the toolbar — it opens from the header tap.
-        ToolIcon {
-            iconId: "toolbar-search"
-            onClicked: pageStack.push(Qt.resolvedUrl("SearchPage.qml"))
-        }
-        ToolIcon {
-            iconId: "toolbar-contact"
-            onClicked: appWindow.openAccount()
+        // A segmented TabButton pair (the SDK's replacement for the deprecated
+        // TabBarLayout): search opens the search page, account opens the account
+        // page. exclusive:false keeps them momentary — navigation, not a stuck
+        // tab selection. TabButton takes iconSource directly and (unlike ToolIcon)
+        // is not auto-whitened on the dark theme, so use the -white assets.
+        ButtonRow {
+            exclusive: false
+            TabButton {
+                iconSource: "image://theme/icon-m-toolbar-search-white"
+                onClicked: pageStack.push(Qt.resolvedUrl("SearchPage.qml"))
+            }
+            TabButton {
+                iconSource: "image://theme/icon-m-toolbar-contact-white"
+                onClicked: appWindow.openAccount()
+            }
         }
     }
 }
