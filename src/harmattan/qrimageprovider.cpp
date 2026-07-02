@@ -23,7 +23,9 @@
 
 QImage QrImageProvider::requestImage(const QString &id, QSize *size, const QSize &requestedSize) {
     const QString text = QUrl::fromPercentEncoding(id.toUtf8());
-    QImage img(1, 1, QImage::Format_RGB32); img.fill(Qt::white);
+    // Qt 4.7: QImage::fill() takes a raw pixel value (the QColor overload is 4.8+) —
+    // fill(Qt::white) would paint pixel 0x3, i.e. near-black.
+    QImage img(1, 1, QImage::Format_RGB32); img.fill(qRgb(255, 255, 255));
     try {
         const qrcodegen::QrCode qr =
             qrcodegen::QrCode::encodeText(text.toUtf8().constData(), qrcodegen::QrCode::Ecc::MEDIUM);
@@ -33,7 +35,7 @@ QImage QrImageProvider::requestImage(const QString &id, QSize *size, const QSize
         const int target = requestedSize.width() > 0 ? requestedSize.width() : dim * 6;
         const int scale = qMax(1, target / dim);
         img = QImage(dim * scale, dim * scale, QImage::Format_RGB32);
-        img.fill(Qt::white);
+        img.fill(qRgb(255, 255, 255));
         for (int y = 0; y < n; ++y)
             for (int x = 0; x < n; ++x)
                 if (qr.getModule(x, y))
