@@ -57,6 +57,9 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     QmlApplicationViewer viewer;
     viewer.engine()->addImageProvider("qr", new QrImageProvider);   // image://qr/<text>
     viewer.rootContext()->setContextProperty("innertube", yt::Innertube::instance());
+    // Mint a bearer from the stored refresh token (no-op when signed out) so the
+    // authed feeds work right after launch.
+    yt::Innertube::instance()->accountManager()->restore();
     viewer.setOrientation(QmlApplicationViewer::ScreenOrientationLockPortrait);
     viewer.setSource(QUrl("qrc:/qml/main.qml"));   // UI is out of scope; placeholder for now
     viewer.showExpanded();
