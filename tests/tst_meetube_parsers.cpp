@@ -225,6 +225,17 @@ private slots:
         QCOMPARE(c[0].body, QString("Nice video"));
         QCOMPARE(token, QString("MORE_COMMENTS"));
     }
+    void parsesAccountsList() {
+        const nlohmann::json j = loadFixture("accounts_list.json");
+        QVERIFY(!j.is_discarded());
+        const CT::Account a = parseAccountsList(j);
+        QCOMPARE(a.username, QString("Ivan Petrov"));
+        QCOMPARE(a.handle, QString("@ivanpetrov"));
+        QCOMPARE(a.thumbnailUrl, QString("https://yt3.example/big.jpg"));
+        QCOMPARE(a.channelId, QString("UCabc123def"));
+        // graceful on garbage
+        QVERIFY(parseAccountsList(nlohmann::json::object()).username.isEmpty());
+    }
     void isPlayableStatus() {
         nlohmann::json ok = {{"playabilityStatus", {{"status", "OK"}}}};
         QVERIFY(yt::isPlayable(ok, 0));

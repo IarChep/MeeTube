@@ -418,4 +418,52 @@ void parseWatchPage(const nlohmann::json &response, CT::Video *primary, QList<CT
     v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     *primary = v;
 }
+
+// accountItem objects sit ~7 renderer levels deep and the wrapper chain has shifted
+// before (getMultiPageMenuAction vs openPopupAction); scan recursively instead of
+// hard-coding the path.
+static void collectAccountItems(const nlohmann::json &n, QList<const nlohmann::json *> &out) {
+    if (n.is_object()) {
+        if (n.contains("accountItem") && n["accountItem"].is_object())
+            out << &n["accountItem"];
+        for (nlohmann::json::const_iterator it = n.begin(); it != n.end(); ++it)
+            collectAccountItems(it.value(), out);
+    } else if (n.is_array()) {
+        for (size_t i = 0; i < n.size(); ++i)
+            collectAccountItems(n[i], out);
+    }
+}
+
+CT::Account parseAccountsList(const nlohmann::json &response) {
+    CT::Account out;
+    QList<const nlohmann::json *> items;
+    collectAccountItems(response, items);
+    const nlohmann::json *pick = 0;
+    for (int i = 0; i < items.size(); ++i)
+        if (items.at(i)->value("isSelected", false)) { pick = items.at(i); break; }
+    if (!pick && !items.isEmpty()) pick = items.first();
+    if (!pick) return out;
+    const nlohmann::json &it = *pick;
+    if (it.contains("accountName")) out.username = parseText(it["accountName"]);
+    if (it.contains("channelHandle")) out.handle = parseText(it["channelHandle"]);
+    if (it.contains("accountPhoto") && it["accountPhoto"].contains("thumbnails")
+        && it["accountPhoto"]["thumbnails"].is_array()
+        && !it["accountPhoto"]["thumbnails"].empty()) {
+        const nlohmann::json &ths = it["accountPhoto"]["thumbnails"];
+        out.thumbnailUrl = jstr(ths[ths.size() - 1], "url");   // last = largest
+    }
+    if (it.contains("serviceEndpoint")
+        && it["serviceEndpoint"].contains("selectActiveIdentityEndpoint")
+        && it["serviceEndpoint"]["selectActiveIdentityEndpoint"].contains("supportedTokens")) {
+        const nlohmann::json &tokens =
+            it["serviceEndpoint"]["selectActiveIdentityEndpoint"]["supportedTokens"];
+        for (size_t i = 0; i < tokens.size(); ++i) {
+            if (!tokens[i].contains("offlineCacheKeyToken")) continue;
+            const QString key = jstr(tokens[i]["offlineCacheKeyToken"], "clientCacheKey");
+            if (!key.isEmpty())
+                out.channelId = key.startsWith("UC") ? key : "UC" + key;
+        }
+    }
+    return out;
+}
 }
