@@ -22,7 +22,7 @@ Innertube *Innertube::self = 0;
 
 Innertube::Innertube(QObject *parent)
     : QObject(parent), m_client(this), m_store(QString(), this), m_manager(&m_client, &m_store, this),
-      m_video(0), m_channel(0), m_playlist(0) {
+      m_video(0), m_channel(0), m_playlist(0), m_accountApi(0) {
     if (!self) self = this;
     connect(&m_manager, SIGNAL(bearerChanged()), this, SLOT(applyBearer()));
 }
@@ -40,6 +40,11 @@ ChannelApi* Innertube::channelApi() {
 PlaylistApi* Innertube::playlistApi() {
     if (!m_playlist) m_playlist = new PlaylistApi(&m_client, this);
     return m_playlist;
+}
+
+AccountApi* Innertube::accountApi() {
+    if (!m_accountApi) m_accountApi = new AccountApi(&m_client, &m_store, this);
+    return m_accountApi;
 }
 
 void Innertube::applyBearer() {
