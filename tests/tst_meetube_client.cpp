@@ -26,6 +26,7 @@ public:
         m_srv.listen(QHostAddress::LocalHost, 0);
     }
     QString url() const { return QString("http://127.0.0.1:%1/").arg(m_srv.serverPort()); }
+    int connections() const { return m_held.size(); }   // network hits observed
 private slots:
     void onConn() {
         QTcpSocket *s = m_srv.nextPendingConnection();
@@ -175,6 +176,62 @@ private slots:
         et.restart();
         while (spy2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
         QCOMPARE(capSpy.count(), 1);
+    }
+
+    // ---- part (c): the TTL response cache -------------------------------------
+    // An identical cacheable POST within its TTL is served from the cache (no second
+    // network hit, same payload); write endpoints are never cached; clearCache()
+    // forces a refetch.
+    void postCachesWithinTtl() {
+        LoopbackServer srv(LoopbackServer::Respond, "{\"marker\":1}");
+        InnertubeClient client;
+        client.setBaseUrl(srv.url());
+        QObject owner;
+        nlohmann::json body{ {"browseId", "FEtest"} };
+
+        TransportReply *r1 = client.post("browse", ClientId::WEB, body, &owner);
+        QSignalSpy s1(r1, SIGNAL(finished()));
+        QElapsedTimer et; et.start();
+        while (s1.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QVERIFY(r1->result().ok);
+        QCOMPARE(srv.connections(), 1);
+
+        // Identical request: cache hit — delivered async, no new connection.
+        TransportReply *r2 = client.post("browse", ClientId::WEB, body, &owner);
+        QSignalSpy s2(r2, SIGNAL(finished()));
+        QCOMPARE(s2.count(), 0);                 // NOT synchronous (connect-then-fire)
+        et.restart();
+        while (s2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(s2.count(), 1);
+        QVERIFY(r2->result().ok);
+        QCOMPARE((int) r2->result().json.value("marker", 0), 1);
+        QCOMPARE(srv.connections(), 1);          // served from the cache
+
+        // A different body misses the cache.
+        nlohmann::json body2{ {"browseId", "FEother"} };
+        TransportReply *r3 = client.post("browse", ClientId::WEB, body2, &owner);
+        QSignalSpy s3(r3, SIGNAL(finished()));
+        et.restart();
+        while (s3.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(srv.connections(), 2);
+
+        // Writes are never cached: two identical like/like posts -> two hits.
+        nlohmann::json likeBody{ {"target", { {"videoId", "vid"} }} };
+        for (int i = 0; i < 2; ++i) {
+            TransportReply *r = client.post("like/like", ClientId::TVHTML5, likeBody, &owner);
+            QSignalSpy s(r, SIGNAL(finished()));
+            et.restart();
+            while (s.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        }
+        QCOMPARE(srv.connections(), 4);
+
+        // clearCache() (bearer/locale changed) forces a refetch.
+        client.clearCache();
+        TransportReply *r4 = client.post("browse", ClientId::WEB, body, &owner);
+        QSignalSpy s4(r4, SIGNAL(finished()));
+        et.restart();
+        while (s4.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(srv.connections(), 5);
     }
 
     // A persisted visitorData seeded into the session wins over the server's.

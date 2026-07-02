@@ -59,6 +59,9 @@ AccountApi* Innertube::accountApi() {
 
 void Innertube::applyBearer() {
     m_client.session().bearer = m_manager.currentBearer();
+    // Sign-in/sign-out/refresh: cached personalized payloads (authed feeds,
+    // accounts_list) belong to the previous identity — drop them all.
+    m_client.clearCache();
 }
 
 QVariantList Innertube::authedFeeds() const {
@@ -83,6 +86,7 @@ Innertube* Innertube::instance() { return self ? self : self = new Innertube; }
 void Innertube::applySettings(const QString &region, const QString &language) {
     if (!region.isEmpty())   m_client.session().gl = region;
     if (!language.isEmpty()) m_client.session().hl = language;
+    m_client.clearCache();   // localized payloads must not outlive the old locale
 }
 
 QVariantList Innertube::navEntries() const {

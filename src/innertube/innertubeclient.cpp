@@ -5,12 +5,31 @@
 #include <QTimer>
 #include <QPointer>
 #include <QUrl>
+#include <QDateTime>
+#include <QCryptographicHash>
 
 namespace yt {
 
 // Watchdog: abort a request that has not finished within this many ms. Aborting
 // makes QNetworkReply::finished() fire, which routes through the normal teardown.
 static const int kRequestTimeoutMs = 20000;
+
+// Response-cache bound: enough for a browsing session (home + a few feeds + pages),
+// small enough to be irrelevant on the N9's RAM.
+static const int kMaxCacheEntries = 64;
+
+// Per-endpoint cache TTLs (seconds) — mirrors the reference WP client's knobs
+// (browse 180s, account 900s). 0 = never cache: writes must always hit the network,
+// and /player payloads carry short-lived stream URLs.
+static int cacheTtlSecs(const QString &endpoint)
+{
+    if (endpoint == QLatin1String("account/accounts_list")) return 900;
+    if (endpoint == QLatin1String("browse")
+        || endpoint == QLatin1String("search")
+        || endpoint == QLatin1String("next")
+        || endpoint == QLatin1String("navigation/resolve_url")) return 180;
+    return 0;
+}
 
 // Build a Reply from a finished QNetworkReply. `timedOut` is set by the watchdog
 // path so a timeout is reported distinctly from a transport error / user cancel.
@@ -111,7 +130,33 @@ private:
     bool m_timedOut;
 };
 
-InnertubeClient::InnertubeClient(QObject *parent) : QObject(parent), m_timeoutMs(kRequestTimeoutMs) {}
+// A cache hit. Emits finished() asynchronously (0-timer) so the caller can
+// connect first — exactly like a network reply arriving via the event loop.
+class CachedReply : public TransportReply {
+    Q_OBJECT
+public:
+    CachedReply(const nlohmann::json &json, QObject *owner) : TransportReply(owner)
+    {
+        m_result.ok = true;
+        m_result.json = json;
+        QTimer::singleShot(0, this, SLOT(fire()));
+    }
+    Reply result() const { return m_result; }
+private Q_SLOTS:
+    void fire() { emit finished(); }
+private:
+    Reply m_result;
+};
+
+InnertubeClient::InnertubeClient(QObject *parent)
+    : QObject(parent), m_timeoutMs(kRequestTimeoutMs),
+      m_baseUrl(QLatin1String("https://www.youtube.com/youtubei/v1/")) {}
+
+void InnertubeClient::clearCache()
+{
+    m_cache.clear();
+    m_cacheOrder.clear();
+}
 
 TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, const nlohmann::json &body, QObject *owner)
 {
@@ -119,7 +164,24 @@ TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, 
     payload["context"] = ContextBuilder::context(client, m_session);
     const std::string s = payload.dump();
 
-    QNetworkRequest req(QUrl("https://www.youtube.com/youtubei/v1/" + endpoint + "?prettyPrint=false"));
+    // Cache lookup: the key covers the endpoint, the client and the whole payload
+    // (browseId/continuation + context incl. hl/gl/visitorData).
+    const int ttl = cacheTtlSecs(endpoint);
+    QByteArray key;
+    if (ttl > 0) {
+        QCryptographicHash h(QCryptographicHash::Md5);
+        h.addData(endpoint.toUtf8());
+        h.addData("|", 1);
+        h.addData(QByteArray::number((int) client));
+        h.addData("|", 1);
+        h.addData(s.data(), (int) s.size());
+        key = h.result();
+        QHash<QByteArray, CacheEntry>::const_iterator it = m_cache.constFind(key);
+        if (it != m_cache.constEnd() && it->expiresAtMs > QDateTime::currentMSecsSinceEpoch())
+            return new CachedReply(it->json, owner ? owner : this);
+    }
+
+    QNetworkRequest req(QUrl(m_baseUrl + endpoint + "?prettyPrint=false"));
     const QList<QPair<QByteArray, QByteArray> > hs = ContextBuilder::headers(client, m_session);
     for (int i = 0; i < hs.size(); ++i)
         req.setRawHeader(hs[i].first, hs[i].second);
@@ -127,7 +189,29 @@ TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, 
     QNetworkReply *reply = m_nam.post(req, QByteArray(s.data(), (int)s.size()));
     TransportReply *rep = new NamReply(reply, m_timeoutMs, owner ? owner : this);
     connect(rep, SIGNAL(finished()), this, SLOT(captureVisitorData()));
+    if (ttl > 0) {
+        rep->setProperty("cacheKey", key);
+        rep->setProperty("cacheTtlMs", ttl * 1000);
+        connect(rep, SIGNAL(finished()), this, SLOT(cacheResponse()));
+    }
     return rep;
+}
+
+void InnertubeClient::cacheResponse()
+{
+    TransportReply *rep = qobject_cast<TransportReply *>(sender());
+    if (!rep) return;
+    const Reply r = rep->result();
+    if (!r.ok) return;                      // only successful payloads are replayable
+    const QByteArray key = rep->property("cacheKey").toByteArray();
+    if (key.isEmpty()) return;
+    CacheEntry e;
+    e.json = r.json;
+    e.expiresAtMs = QDateTime::currentMSecsSinceEpoch() + rep->property("cacheTtlMs").toInt();
+    if (!m_cache.contains(key)) m_cacheOrder << key;
+    m_cache.insert(key, e);
+    while (m_cacheOrder.size() > kMaxCacheEntries)
+        m_cache.remove(m_cacheOrder.takeFirst());
 }
 
 TransportReply *InnertubeClient::get(const QString &url, QObject *owner)
