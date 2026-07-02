@@ -292,10 +292,54 @@ CT::Playlist parsePlaylistRenderer(const nlohmann::json &r) {
     return p;
 }
 
+// lockupViewModel with LOCKUP_CONTENT_TYPE_PLAYLIST — the 2024+ channel Playlists
+// tab ships these instead of gridPlaylistRenderer. The thumbnail hides under
+// collectionThumbnailViewModel.primaryThumbnail and "N videos" is a thumbnail badge.
+static CT::Playlist parsePlaylistLockup(const nlohmann::json &lm) {
+    CT::Playlist p;
+    p.id = jstr(lm, "contentId");
+    if (lm.contains("contentImage")
+        && lm.at("contentImage").contains("collectionThumbnailViewModel")) {
+        const nlohmann::json &ct = lm.at("contentImage").at("collectionThumbnailViewModel");
+        if (ct.contains("primaryThumbnail")
+            && ct.at("primaryThumbnail").contains("thumbnailViewModel")) {
+            const nlohmann::json &tvm = ct.at("primaryThumbnail").at("thumbnailViewModel");
+            if (tvm.contains("image")) p.thumbnailUrl = lastSourceUrl(tvm.at("image"));
+            if (tvm.contains("overlays") && tvm.at("overlays").is_array())
+                for (const auto &ov : tvm.at("overlays")) {
+                    if (!ov.contains("thumbnailOverlayBadgeViewModel")) continue;
+                    const nlohmann::json &b = ov.at("thumbnailOverlayBadgeViewModel");
+                    if (!b.contains("thumbnailBadges") || !b.at("thumbnailBadges").is_array())
+                        continue;
+                    for (const auto &bb : b.at("thumbnailBadges")) {
+                        if (!bb.contains("thumbnailBadgeViewModel")) continue;
+                        const QString t = jstr(bb.at("thumbnailBadgeViewModel"), "text");
+                        if (p.videoCount == 0 && t.contains("video", Qt::CaseInsensitive))
+                            p.videoCount = (int) QString(t).remove(QRegExp("[^0-9]")).toLongLong();
+                    }
+                }
+        }
+    }
+    if (lm.contains("metadata") && lm.at("metadata").contains("lockupMetadataViewModel")) {
+        const nlohmann::json &md = lm.at("metadata").at("lockupMetadataViewModel");
+        if (md.contains("title")) p.title = jstr(md.at("title"), "content");
+    }
+    p.videosId = p.id;
+    return p;
+}
+
 static void collectPlaylists(const nlohmann::json &node, QList<CT::Playlist> &out, int depth = 0) {
     if (depth > kMaxDepth) return;
     static const char *kinds[] = { "playlistRenderer", "gridPlaylistRenderer", "compactPlaylistRenderer" };
     if (node.is_object()) {
+        // lockupViewModel is a self-contained leaf; only the PLAYLIST content type
+        // becomes a CT::Playlist (video/other lockups are skipped).
+        if (node.contains("lockupViewModel")) {
+            const nlohmann::json &lm = node.at("lockupViewModel");
+            if (jstr(lm, "contentType") == QLatin1String("LOCKUP_CONTENT_TYPE_PLAYLIST"))
+                out << parsePlaylistLockup(lm);
+            return;
+        }
         for (int i = 0; i < 3; ++i)
             if (node.contains(kinds[i])) { out << parsePlaylistRenderer(node.at(kinds[i])); return; }
         for (auto it = node.begin(); it != node.end(); ++it) collectPlaylists(it.value(), out, depth + 1);

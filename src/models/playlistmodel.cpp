@@ -57,13 +57,13 @@ PlaylistRequest* PlaylistModel::request() {
     return m_request;
 }
 
-void PlaylistModel::list(const QString &resourceId) {
+void PlaylistModel::list(const QString &resourceId, const QString &params) {
     if (!request()) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
     m_resourceId = resourceId;
     m_canPage = true;
     clear();
     setStatus(ServiceRequest::Loading);
-    m_request->list(resourceId, QString());
+    m_request->list(resourceId, QString(), params);
 }
 
 void PlaylistModel::search(const QString &query) {
