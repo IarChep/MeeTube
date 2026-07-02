@@ -136,3 +136,67 @@ renderer never aborts the walk, matching today's tolerant behavior.
   and RSS drops from O(document DOM) to O(document text).
 - `.minified` opt is NOT used (fixtures are pretty-printed; robustness first).
 - Benchmark tool reports parse+serialize time host + on-device, plus binary size delta.
+
+---
+
+## Results (2026-07-03, migration complete)
+
+Commits: `6f5c61f` (deps+C++23) → `ec9ceaf` (bench baseline) → `832187f` (Reply.body)
+→ `7bab413` (parsers) → `bbca06b` (bodies/context/transport/OAuth, nlohmann removed)
+→ `901b332` (docs).
+
+**Parity.** Full-fixture golden dump: non-CTX sections **byte-identical** to the
+nlohmann baseline; context JSON semantically identical for all 5 clients (key
+order only). 6/6 host suites green. Live simulator smoke against real YouTube:
+home browse fully populated (thumbnails/avatars/counts/dates).
+
+**Throughput, parse paths** (bench_json; host = GCC 16 -O2 x86_64, ARM = qemu-arm
+comparator of the armv7hf Release build — same ISA as the N9, not cycle-accurate):
+
+| case                          | nlohmann host | Glaze host | nlohmann ARM | Glaze ARM |
+|-------------------------------|--------------:|-----------:|-------------:|----------:|
+| next_lockup 44K parseVideoList|   147 MB/s    | 532 MB/s   |  8.9 MB/s    | 21.8 MB/s |
+| synth browse ~1M parseVideoList|  155 MB/s    | 537 MB/s   | 11.0 MB/s    | 51.1 MB/s |
+| tiles_history 3K              |   135 MB/s   | 674 MB/s   |  6.7 MB/s    |  7.5 MB/s |
+| comments 1K                   |    90 MB/s   | (<1 ms)    |  3.6 MB/s    |  4.5 MB/s |
+| channel header 1.5K           |   141 MB/s   | (<1 ms)    |  5.6 MB/s    |  7.0 MB/s |
+
+Big payloads (the ones that hurt on device): **2.5–4.6× faster on ARM, 3.5–5×
+on host**; small payloads are at parity or better (fixed per-call overhead
+dominates, absolute times trivial). Memory: no DOM at all — peak RSS during a
+1 MB browse parse drops by the entire DOM (~4-8× document size on 32-bit), and
+the 64-entry response cache now holds text instead of DOM trees.
+
+The first Glaze cut used a lazy-view walk and was 3-4× SLOWER than the DOM on
+ARM (O(depth) re-scanning); the single-pass structural scanner (jsonscan.h)
+replaced it — measured before/after with the same harness.
+
+**Costs.** Stripped armv7 app binary: 1.79 MB → 2.36 MB (+585 KB, +32%) —
+Glaze template instantiation. Compile time: rendererparser.cpp (all renderer
+structs) ~61 s at -O2; the other five Glaze TUs 4–8 s each.
+
+**Pending (device unreachable — ssh N9-2 refused during the run):** on-device
+bench_json numbers and a VideoPage-on-device smoke. Deploy loop is documented
+in the memory notes; `build-n9/bench_json bench /tmp/fixtures 20` after scp.
+
+## Follow-up opportunities (later optimization/threading steps — not acted on)
+
+1. **Single-pass parseVideoList**: the collectors and findContinuationToken
+   each scan the document once; a combined visitor halves the remaining scan
+   cost (safe: tokens never live inside renderer subtrees).
+2. **Player response parsed 4×**: isPlayable/parseStreams/parseVideoDetails/
+   parseCaptions each read PlayerRoot; an internal struct-returning entry point
+   would parse /player once per request chain.
+3. **Drop transport-level validate_json** once parsers are trusted on malformed
+   input — saves a full scan per response (kept now for exact error parity).
+4. **Threading step**: the whole Glaze layer (ytjson/jsonscan/renderer structs,
+   bodies, context) is Qt-free, and Reply.body is an immutable shared_ptr —
+   parsers can move to a worker thread wholesale; only the CT::(QString)
+   conversion needs to move or marshal.
+5. **Compile time**: split rendererparser.cpp (61 s) into per-domain TUs
+   (videos/playlists/channel/accounts) for parallel builds.
+6. **sentinel-mode reads**: parsers take string_view with null_terminated=false;
+   switching the whole-document entry points to null-terminated buffers
+   (Reply.body is a std::string) unlocks Glaze's faster sentinel scanning.
+7. **N9 device numbers**: rerun bench_json on the phone when reachable; qemu
+   under-rates the DOM's cache/malloc pain, so the real gap is likely larger.
