@@ -27,6 +27,11 @@ public:
     TransportReply *get(const QString &url, QObject *owner = 0);
     TransportReply *postForm(const QString &url, const QMap<QString, QString> &fields, QObject *owner = 0);
 
+Q_SIGNALS:
+    // Fired exactly once, when the server-issued visitorData is first captured —
+    // the engine persists it so the next launch reuses the same anonymous identity.
+    void visitorDataCaptured(const QString &visitorData);
+
 private Q_SLOTS:
     // Capture the server-issued responseContext.visitorData from the first reply that
     // carries one and reuse it on subsequent requests — stabilizes the anonymous

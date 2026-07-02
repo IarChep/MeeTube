@@ -163,8 +163,11 @@ void InnertubeClient::captureVisitorData()
     if (!r.ok || !r.json.is_object() || !r.json.contains("responseContext"))
         return;
     const nlohmann::json &rc = r.json["responseContext"];
-    if (rc.is_object() && rc.contains("visitorData") && rc["visitorData"].is_string())
+    if (rc.is_object() && rc.contains("visitorData") && rc["visitorData"].is_string()) {
         m_session.visitorData = QString::fromStdString(rc["visitorData"].get<std::string>());
+        if (!m_session.visitorData.isEmpty())
+            emit visitorDataCaptured(m_session.visitorData);
+    }
 }
 
 } // namespace yt

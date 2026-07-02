@@ -25,6 +25,16 @@ Innertube::Innertube(QObject *parent)
       m_video(0), m_channel(0), m_playlist(0), m_accountApi(0) {
     if (!self) self = this;
     connect(&m_manager, SIGNAL(bearerChanged()), this, SLOT(applyBearer()));
+    // One stable anonymous identity across launches: seed the session with the
+    // persisted visitorData (capture is skipped when non-empty) and store the
+    // server-issued one the first time it ever arrives.
+    m_client.session().visitorData = m_store.visitorData();
+    connect(&m_client, SIGNAL(visitorDataCaptured(QString)),
+            this, SLOT(persistVisitorData(QString)));
+}
+
+void Innertube::persistVisitorData(const QString &visitorData) {
+    m_store.setVisitorData(visitorData);
 }
 
 VideoApi* Innertube::videoApi() {

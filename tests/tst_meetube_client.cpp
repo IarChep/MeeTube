@@ -152,17 +152,44 @@ private slots:
     }
 
     // P1.4: the client captures responseContext.visitorData from the first reply and
-    // keeps it in the session for subsequent requests.
+    // keeps it in the session for subsequent requests. The capture is announced via
+    // visitorDataCaptured() exactly once (the engine persists it), and a session
+    // seeded with a stored value is never overwritten.
     void visitorDataCaptured() {
         LoopbackServer srv(LoopbackServer::Respond, "{\"responseContext\":{\"visitorData\":\"VD_XYZ\"}}");
         InnertubeClient client;
         QObject owner;
+        QSignalSpy capSpy(&client, SIGNAL(visitorDataCaptured(QString)));
         TransportReply *rep = client.get(srv.url(), &owner);
         QSignalSpy spy(rep, SIGNAL(finished()));
         QElapsedTimer et; et.start();
         while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
         QCOMPARE(spy.count(), 1);
         QCOMPARE(client.session().visitorData, QString("VD_XYZ"));
+        QCOMPARE(capSpy.count(), 1);
+        QCOMPARE(capSpy.at(0).at(0).toString(), QString("VD_XYZ"));
+
+        // A second reply carrying a visitorData must not re-capture or re-announce.
+        TransportReply *rep2 = client.get(srv.url(), &owner);
+        QSignalSpy spy2(rep2, SIGNAL(finished()));
+        et.restart();
+        while (spy2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(capSpy.count(), 1);
+    }
+
+    // A persisted visitorData seeded into the session wins over the server's.
+    void visitorDataSeededNotOverwritten() {
+        LoopbackServer srv(LoopbackServer::Respond, "{\"responseContext\":{\"visitorData\":\"VD_SERVER\"}}");
+        InnertubeClient client;
+        client.session().visitorData = "VD_STORED";
+        QObject owner;
+        QSignalSpy capSpy(&client, SIGNAL(visitorDataCaptured(QString)));
+        TransportReply *rep = client.get(srv.url(), &owner);
+        QSignalSpy spy(rep, SIGNAL(finished()));
+        QElapsedTimer et; et.start();
+        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(client.session().visitorData, QString("VD_STORED"));
+        QCOMPARE(capSpy.count(), 0);
     }
 };
 QTEST_MAIN(TestClient)

@@ -84,6 +84,9 @@ private Q_SLOTS:
     // Copy the account manager's current bearer into the session so authed browse/
     // next calls carry it (player stays anonymous via the ContextBuilder guard).
     void applyBearer();
+    // Persist the server-issued visitorData so the next launch reuses the same
+    // anonymous identity (seeded back into the session in the constructor).
+    void persistVisitorData(const QString &visitorData);
 
 private:
     explicit Innertube(QObject *parent = 0);

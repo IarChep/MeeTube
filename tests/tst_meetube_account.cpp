@@ -69,6 +69,14 @@ private slots:
         QCOMPARE(out.thumbnailUrl, QString("https://t/a.jpg"));
     }
 
+    // The anonymous session id must survive restarts — a fresh visitorData on every
+    // launch is the cheapest "new bot" signal YouTube sees.
+    void storeVisitorDataPersists() {
+        { AccountStore s1(iniPath()); QVERIFY(s1.visitorData().isEmpty()); s1.setVisitorData("VD_PERSISTED"); }
+        AccountStore s2(iniPath());           // fresh instance, same file
+        QCOMPARE(s2.visitorData(), QString("VD_PERSISTED"));
+    }
+
     void storePersistsAcrossInstances() {
         { AccountStore s1(iniPath()); CT::Account a; a.id = "x"; a.username = "U"; s1.save(a, "RT"); }
         AccountStore s2(iniPath());           // fresh instance, same file
