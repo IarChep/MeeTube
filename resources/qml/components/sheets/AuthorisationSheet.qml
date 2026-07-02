@@ -74,43 +74,66 @@ Sheet {
             }
         }
 
-        // --- phase: wait (code + QR, manager polls in C++)
+        // --- phase: wait (code + QR, manager polls in C++). Brand-red accents +
+        // Nokia Pure Light, left-aligned copy — the code and the QR stay centered.
         Column {
             visible: sheet.phase === "wait"
             anchors {
                 top: parent.top; topMargin: UI.PADDING_XXLARGE
-                left: parent.left
-                right: parent.right
+                left: parent.left; leftMargin: UI.DEFAULT_MARGIN
+                right: parent.right; rightMargin: UI.DEFAULT_MARGIN
             }
             spacing: UI.PADDING_XLARGE
 
             Text {
-                anchors.horizontalCenter: parent.horizontalCenter
+                width: parent.width
                 text: "Sign in with YouTube"
-                color: UI.COLOR_INVERTED_FOREGROUND
+                color: UI.COLOR_BRAND_RED
                 font.pixelSize: UI.FONT_XLARGE
-                font.family: UI.FONT_FAMILY
-                font.bold: true
+                font.family: UI.FONT_FAMILY_LIGHT
+                elide: Text.ElideRight
             }
+
+            Rectangle { width: parent.width; height: 1; color: UI.COLOR_DIVIDER }
+
             Text {
-                width: parent.width - UI.DEFAULT_MARGIN * 2
-                anchors.horizontalCenter: parent.horizontalCenter
-                horizontalAlignment: Text.AlignHCenter
-                text: "On your phone or computer, open youtube.com/activate and enter this code:"
-                color: UI.COLOR_INVERTED_SECONDARY_FOREGROUND
-                font.pixelSize: UI.FONT_SMALL
-                font.family: UI.FONT_FAMILY
+                width: parent.width
+                textFormat: Text.StyledText
+                text: "On your phone or computer, open <b>youtube.com/activate</b> and enter this code:"
+                color: UI.COLOR_INVERTED_FOREGROUND
+                font.pixelSize: UI.FONT_LARGE
+                font.family: UI.FONT_FAMILY_LIGHT
                 wrapMode: Text.WordWrap
             }
             Text {
+                width: parent.width
+                text: "This sheet closes automatically once you're signed in."
+                color: UI.COLOR_INVERTED_FOREGROUND
+                font.pixelSize: UI.FONT_LARGE
+                font.family: UI.FONT_FAMILY_LIGHT
+                wrapMode: Text.WordWrap
+            }
+
+            Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: sheet.userCode
-                color: UI.COLOR_INVERTED_FOREGROUND
+                color: UI.COLOR_BRAND_RED
                 // 1.4x XLARGE: a 12-char XXX-XXX-XXXX code must fit the 480px screen.
                 font.pixelSize: UI.FONT_XLARGE * 1.4
                 font.family: UI.FONT_FAMILY
                 font.bold: true
                 font.letterSpacing: 2
+            }
+
+            Rectangle { width: parent.width; height: 1; color: UI.COLOR_DIVIDER }
+
+            Text {
+                width: parent.width
+                text: "You can also scan this QR code to open the sign-in page:"
+                color: UI.COLOR_INVERTED_FOREGROUND
+                font.pixelSize: UI.FONT_LARGE
+                font.family: UI.FONT_FAMILY_LIGHT
+                wrapMode: Text.WordWrap
             }
             Image {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -120,22 +143,6 @@ Sheet {
                 source: sheet.verificationUrl !== ""
                         ? "image://qr/" + encodeURIComponent(sheet.verificationUrl)
                         : ""
-            }
-            Row {
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: UI.PADDING_LARGE
-
-                BusyIndicator {
-                    anchors.verticalCenter: parent.verticalCenter
-                    running: sheet.phase === "wait"
-                }
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: "Waiting for confirmation…"
-                    color: UI.COLOR_INVERTED_SECONDARY_FOREGROUND
-                    font.pixelSize: UI.FONT_SMALL
-                    font.family: UI.FONT_FAMILY
-                }
             }
         }
 
