@@ -32,6 +32,9 @@ class ChannelDetails : public QObject {
     Q_PROPERTY(QString avatarUrl       READ avatarUrl       NOTIFY loaded)
     Q_PROPERTY(QString subscriberCount READ subscriberCount NOTIFY loaded)
     Q_PROPERTY(QString channelId       READ channelId       NOTIFY loaded)
+    Q_PROPERTY(QString bannerUrl       READ bannerUrl       NOTIFY loaded)
+    Q_PROPERTY(QString handle          READ handle          NOTIFY loaded)
+    Q_PROPERTY(QString videoCount      READ videoCount      NOTIFY loaded)
     Q_PROPERTY(bool    subscribed      READ subscribed      NOTIFY loaded)
     Q_PROPERTY(int     status          READ status          NOTIFY statusChanged)
     Q_PROPERTY(QString errorString     READ errorString     NOTIFY statusChanged)
@@ -44,6 +47,9 @@ public:
     QString avatarUrl()       const { return m_user.thumbnailUrl; }
     QString subscriberCount() const { return m_user.subscriberCount; }
     QString channelId()       const { return m_user.id; }
+    QString bannerUrl()       const { return m_user.bannerUrl; }
+    QString handle()          const { return m_user.handle; }
+    QString videoCount()      const { return m_user.videoCount; }
     bool    subscribed()      const { return m_user.subscribed; }
     int     status()          const { return m_status; }
     QString errorString()     const { return m_error; }
