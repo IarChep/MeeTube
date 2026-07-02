@@ -47,6 +47,12 @@ public:
     void setActiveId(const QString &id);
     bool isEmpty() const;
 
+    // Server-issued anonymous session id (responseContext.visitorData), persisted so
+    // every launch presents the SAME returning identity instead of a fresh one — a
+    // brand-new visitorData per start is the cheapest "new bot" signal.
+    QString visitorData() const;
+    void setVisitorData(const QString &visitorData);
+
 Q_SIGNALS:
     void accountsChanged();
 

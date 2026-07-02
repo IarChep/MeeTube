@@ -106,4 +106,11 @@ void AccountStore::setActiveId(const QString &id) {
 
 bool AccountStore::isEmpty() const { return accounts().isEmpty(); }
 
+QString AccountStore::visitorData() const { return m_s->value("session/visitorData").toString(); }
+
+void AccountStore::setVisitorData(const QString &visitorData) {
+    m_s->setValue("session/visitorData", visitorData);
+    m_s->sync();
+}
+
 }
