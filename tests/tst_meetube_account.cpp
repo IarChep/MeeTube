@@ -6,6 +6,7 @@
 #include "innertube/accountstore.h"
 #include "innertube/accountmanager.h"
 #include "innertube/catalog.h"
+#include "requests/accountrequest.h"
 
 using namespace yt;
 
@@ -21,6 +22,7 @@ protected:
 class TestAccount : public QObject { Q_OBJECT
     QString iniPath() const { return QDir::tempPath() + "/meetube_test_accounts.ini"; }
 private slots:
+    void initTestCase() { qRegisterMetaType<CT::Account>("CT::Account"); }
     void init() { QFile::remove(iniPath()); }
     void cleanup() { QFile::remove(iniPath()); }
 
@@ -60,6 +62,23 @@ private slots:
         { AccountStore s1(iniPath()); CT::Account a; a.id = "x"; a.username = "U"; s1.save(a, "RT"); }
         AccountStore s2(iniPath());           // fresh instance, same file
         QCOMPARE(s2.refreshToken("x"), QString("RT"));
+    }
+
+    // ---- AccountRequest (accounts_list identity fetch) ----
+    void accountRequestFetchesIdentity() {
+        FakeTransport t;
+        t.queue("account/accounts_list", loadFixture("accounts_list.json"));
+        AccountRequest req(&t);
+        QSignalSpy readySpy(&req, SIGNAL(ready(CT::Account)));
+        QSignalSpy failSpy(&req, SIGNAL(failed(QString)));
+        req.list();
+        t.flush();
+        QCOMPARE(failSpy.count(), 0);
+        QCOMPARE(readySpy.count(), 1);
+        const CT::Account a = readySpy.at(0).at(0).value<CT::Account>();
+        QCOMPARE(a.username, QString("Ivan Petrov"));
+        QCOMPARE(a.channelId, QString("UCabc123def"));
+        QVERIFY(t.sent.at(0).contains("accountReadMask"));   // read mask in the body
     }
 
     // ---- AccountManager device-code flow ----
