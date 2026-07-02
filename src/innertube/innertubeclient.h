@@ -2,6 +2,8 @@
 #define YT_INNERTUBECLIENT_H
 #include <QObject>
 #include <QNetworkAccessManager>
+#include <QHash>
+#include <QList>
 #include "itransport.h"
 #include "session.h"
 
@@ -23,6 +25,14 @@ public:
     // started after the call.
     void setTimeoutMs(int ms) { m_timeoutMs = ms; }
 
+    // Base URL for youtubei calls — overridable so tests can point post() at a
+    // loopback server. Defaults to https://www.youtube.com/youtubei/v1/.
+    void setBaseUrl(const QString &url) { m_baseUrl = url; }
+
+    // Drop every cached response. Called when the bearer or the locale changes —
+    // personalized/localized payloads must not leak across sessions.
+    void clearCache();
+
     TransportReply *post(const QString &endpoint, ClientId client, const nlohmann::json &body, QObject *owner = 0);
     TransportReply *get(const QString &url, QObject *owner = 0);
     TransportReply *postForm(const QString &url, const QMap<QString, QString> &fields, QObject *owner = 0);
@@ -37,11 +47,20 @@ private Q_SLOTS:
     // carries one and reuse it on subsequent requests — stabilizes the anonymous
     // session and reduces bot-wall flags (research §6.2). Connected to every reply.
     void captureVisitorData();
+    // Store a finished cacheable reply's payload (connected per-request by post()).
+    void cacheResponse();
 
 private:
+    struct CacheEntry { nlohmann::json json; qint64 expiresAtMs; };
     QNetworkAccessManager m_nam;
     Session m_session;
     int m_timeoutMs;
+    QString m_baseUrl;
+    // TTL response cache, keyed by md5(endpoint|client|payload) — the payload dump
+    // covers browseId/continuation and the context (hl/gl/visitorData). The bearer
+    // travels in a header, hence clearCache() on bearer change. FIFO-bounded.
+    QHash<QByteArray, CacheEntry> m_cache;
+    QList<QByteArray> m_cacheOrder;
 };
 
 }
