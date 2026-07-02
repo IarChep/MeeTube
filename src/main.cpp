@@ -3,6 +3,10 @@
 #include <QTextCodec>
 #include <QSslConfiguration>
 #include <QSslCertificate>
+#include <QDir>
+#include <QPluginLoader>
+#include <QImageReader>
+#include <QDebug>
 
 #include "qmlapplicationviewer/qmlapplicationviewer.h"
 #include <QtDeclarative/qdeclarative.h>
@@ -45,6 +49,24 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
 
 #ifdef WEBP_PLUGIN_DIR
     app->addLibraryPath(QLatin1String(WEBP_PLUGIN_DIR));
+    // Startup diagnostic: probe the WebP plugin EXPLICITLY and log why it fails.
+    // Qt's QFactoryLoader swallows loader errors (a missing DT_NEEDED like
+    // libsharpyuv.so.0 only surfaces under QT_DEBUG_PLUGINS=1), and the symptom —
+    // "Unsupported image format" on every thumbnail — points nowhere near the cause.
+    {
+        const QString pluginPath =
+            QLatin1String(WEBP_PLUGIN_DIR) + QLatin1String("/imageformats/libqwebp.so");
+        if (QFile::exists(pluginPath)) {
+            QPluginLoader probe(pluginPath);
+            if (probe.load())
+                qDebug() << "meetube: qwebp plugin loaded OK from" << pluginPath;
+            else
+                qWarning() << "meetube: qwebp plugin FAILED to load:" << probe.errorString();
+        } else {
+            qWarning() << "meetube: qwebp plugin missing at" << pluginPath;
+        }
+        qDebug() << "meetube: supported image formats:" << QImageReader::supportedImageFormats();
+    }
 #endif
 
     registerMeeTubeMetaTypes();
