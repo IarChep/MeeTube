@@ -93,6 +93,14 @@ private slots:
         QCOMPARE(u.username, QString("Cool Channel"));
         QCOMPARE(u.subscriberCount, QString("1.2M subscribers"));
         QCOMPARE(u.thumbnailUrl, QString("https://a/l.jpg"));
+
+        // c4 banner (added by mutation — the inline initializer is deep enough already).
+        resp["header"]["c4TabbedHeaderRenderer"]["banner"] = nlohmann::json{
+            {"thumbnails", nlohmann::json::array({
+                nlohmann::json{{"url", "http://b/c4small.jpg"}},
+                nlohmann::json{{"url", "http://b/c4big.jpg"}} })} };
+        CT::User u2 = parseChannel(resp);
+        QCOMPARE(u2.bannerUrl, QString("http://b/c4big.jpg"));
     }
 
     // 2024+ WEB channel header: pageHeaderRenderer.content.pageHeaderViewModel with the
@@ -106,6 +114,9 @@ private slots:
         QCOMPARE(u.subscriberCount, QString("2.66M subscribers"));   // matched by "subscriber", not index
         QCOMPARE(u.thumbnailUrl, QString("http://a/s160.jpg"));      // last source = largest
         QCOMPARE(u.id, QString("UCabc"));                            // from channelMetadata fallback
+        QCOMPARE(u.handle, QString("@GoogleDevelopers"));            // metadata part with '@'
+        QCOMPARE(u.videoCount, QString("6K videos"));                // part containing "video"
+        QCOMPARE(u.bannerUrl, QString("http://b/banner1600.jpg"));   // last source = largest
     }
     // QML integration: /next watch page → primary details (title/desc/views/likes +
     // channel) and the related list.
