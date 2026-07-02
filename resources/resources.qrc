@@ -7,6 +7,7 @@
         <file>qml/pages/MainPage.qml</file>
         <file>qml/pages/VideoPage.qml</file>
         <file>qml/pages/FeedPage.qml</file>
+        <file>qml/pages/PlaylistsPage.qml</file>
 
         <!-- components -->
         <file>qml/components/Avatar.qml</file>
@@ -17,12 +18,15 @@
         <!-- components: delegates -->
         <file>qml/components/delegates/VideoDelegate.qml</file>
         <file>qml/components/delegates/RelatedDelegate.qml</file>
+        <file>qml/components/delegates/HistoryCardDelegate.qml</file>
+        <file>qml/components/delegates/PlaylistDelegate.qml</file>
 
         <!-- components: ui (loading / empty / pagination / sections) -->
         <file>qml/components/ui/BusyOverlay.qml</file>
         <file>qml/components/ui/EmptyState.qml</file>
         <file>qml/components/ui/ListFooter.qml</file>
         <file>qml/components/ui/SectionHeader.qml</file>
+        <file>qml/components/ui/NavRow.qml</file>
 
         <!-- components: sheets -->
         <file>qml/components/sheets/CommentsSheet.qml</file>
