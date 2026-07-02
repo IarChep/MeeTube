@@ -17,3 +17,7 @@
 [submodule "deps/qrcodegen"]
 	path = deps/qrcodegen
 	url = https://github.com/nayuki/QR-Code-generator.git
+[submodule "deps/glaze"]
+	path = deps/glaze
+	url = https://github.com/stephenberry/glaze.git
+	branch = v7.8.4
