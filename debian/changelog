@@ -1,0 +1,9 @@
+meetube (0.1.0) unstable; urgency=low
+
+  * First packaged release for the Nokia N9 (MeeGo Harmattan).
+  * Home feed with categories, video page (comments, related, like/subscribe),
+    sign-in (OAuth device code + QR), account page, channel page and search entry.
+  * Self-contained: bundles OpenSSL 1.0.2, libpng12, libjpeg (IJG v6b), libwebp,
+    a WebP Qt image plugin and a Mozilla CA bundle under /opt/meetube.
+
+ -- IarChep <yarchepel@gmail.com>  Thu, 02 Jul 2026 16:00:00 +0000
