@@ -132,6 +132,60 @@ CT::Video parseLockupViewModel(const nlohmann::json &lm) {
 // pathological/looping payload on a low-memory device.
 static const int kMaxDepth = 100;
 
+// tileRenderer — the TV UI card. Self-contained leaf (like lockupViewModel); only
+// TILE_CONTENT_TYPE_VIDEO becomes a CT::Video. metadata.tileMetadataRenderer carries
+// title + lines (line 0 = channel, line 1 = views [+ date]); the duration rides in a
+// thumbnailOverlayTimeStatusRenderer.
+CT::Video parseTileRenderer(const nlohmann::json &t) {
+    CT::Video v;
+    v.id = jstr(t, "contentId");
+    if (t.contains("metadata") && t.at("metadata").contains("tileMetadataRenderer")) {
+        const nlohmann::json &md = t.at("metadata").at("tileMetadataRenderer");
+        if (md.contains("title")) v.title = parseText(md.at("title"));
+        if (md.contains("lines") && md.at("lines").is_array()) {
+            const nlohmann::json &lines = md.at("lines");
+            for (size_t li = 0; li < lines.size(); ++li) {
+                if (!lines[li].contains("lineRenderer")
+                    || !lines[li].at("lineRenderer").contains("items")) continue;
+                const nlohmann::json &items = lines[li].at("lineRenderer").at("items");
+                for (size_t ii = 0; ii < items.size(); ++ii) {
+                    if (!items[ii].contains("lineItemRenderer")
+                        || !items[ii].at("lineItemRenderer").contains("text")) continue;
+                    const QString text = parseText(items[ii].at("lineItemRenderer").at("text"));
+                    if (text.isEmpty()) continue;
+                    if (li == 0 && v.username.isEmpty()) v.username = text;
+                    else if (v.viewText.isEmpty() && text.contains(QLatin1String("view"))) v.viewText = text;
+                    else if (v.date.isEmpty() && li > 0) v.date = text;
+                }
+            }
+        }
+    }
+    if (t.contains("header") && t.at("header").contains("tileHeaderRenderer")) {
+        const nlohmann::json &h = t.at("header").at("tileHeaderRenderer");
+        if (h.contains("thumbnail") && h.at("thumbnail").contains("thumbnails")
+            && h.at("thumbnail").at("thumbnails").is_array()
+            && !h.at("thumbnail").at("thumbnails").empty()) {
+            const nlohmann::json &ths = h.at("thumbnail").at("thumbnails");
+            v.thumbnailUrl = jstr(ths[ths.size() - 1], "url");   // last = largest
+            v.largeThumbnailUrl = v.thumbnailUrl;
+        }
+        if (h.contains("thumbnailOverlays") && h.at("thumbnailOverlays").is_array())
+            for (size_t i = 0; i < h.at("thumbnailOverlays").size(); ++i) {
+                const nlohmann::json &ov = h.at("thumbnailOverlays")[i];
+                if (ov.contains("thumbnailOverlayTimeStatusRenderer")
+                    && ov.at("thumbnailOverlayTimeStatusRenderer").contains("text"))
+                    v.duration = parseText(ov.at("thumbnailOverlayTimeStatusRenderer").at("text"));
+            }
+    }
+    if (v.thumbnailUrl.isEmpty() && !v.id.isEmpty()) {
+        v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
+        v.largeThumbnailUrl = v.thumbnailUrl;
+    }
+    v.url = "https://www.youtube.com/watch?v=" + v.id;
+    v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
+    return v;
+}
+
 // Recursively collect any video-bearing renderer objects in order. playlistVideoRenderer
 // lets a VLxxxx browse (a playlist's contents) populate a VideoModel directly.
 static void collect(const nlohmann::json &node, QList<CT::Video> &out, int depth = 0) {
@@ -145,6 +199,13 @@ static void collect(const nlohmann::json &node, QList<CT::Video> &out, int depth
             const nlohmann::json &lm = node.at("lockupViewModel");
             if (jstr(lm, "contentType") == QLatin1String("LOCKUP_CONTENT_TYPE_VIDEO"))
                 out << parseLockupViewModel(lm);
+            return;
+        }
+        // tileRenderer is likewise a self-contained leaf (TVHTML5 feeds).
+        if (node.contains("tileRenderer")) {
+            const nlohmann::json &t = node.at("tileRenderer");
+            if (jstr(t, "contentType") == QLatin1String("TILE_CONTENT_TYPE_VIDEO"))
+                out << parseTileRenderer(t);
             return;
         }
         for (int i = 0; i < 4; ++i)

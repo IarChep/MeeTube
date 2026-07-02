@@ -26,13 +26,24 @@ static std::string sortParam(const QString &order) {
     return std::string();   // relevance
 }
 
+// The personalized feeds only work on the TV client: the OAuth bearer is minted with
+// the TV device-code credentials, and WEB browse/accounts_list reject it with 400
+// INVALID_ARGUMENT (device-verified). The TV responses carry tileRenderer items,
+// which parseVideoList handles.
+static bool isAuthedFeed(const QString &resourceId) {
+    return resourceId == QLatin1String("FEhistory")
+        || resourceId == QLatin1String("FEsubscriptions")
+        || resourceId == QLatin1String("FElibrary");
+}
+
 void VideoRequest::browseFeed(const QString &resourceId, const QString &page) {
     setStatus(Loading);
     m_mode = ModeBrowse;
     nlohmann::json body;
     if (!page.isEmpty()) body["continuation"] = page.toStdString();
     else                 body["browseId"] = resourceId.toStdString();
-    connect(m_t->post("browse", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    const ClientId cid = isAuthedFeed(resourceId) ? ClientId::TVHTML5 : ClientId::WEB;
+    connect(m_t->post("browse", cid, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void VideoRequest::searchVideos(const QString &query, const QString &order) {
