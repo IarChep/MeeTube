@@ -85,7 +85,7 @@ PageStackWindow {
         if (innertube.auth().signedIn)
             pageStack.push(Qt.resolvedUrl("pages/AccountPage.qml"));
         else
-            authSheet.open();
+            authSheet.openWithSignIn();
     }
 
     MainPage {
