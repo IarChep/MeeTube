@@ -11,7 +11,10 @@ project(MeeTube LANGUAGES CXX)
 # ---------------------------------------------------------------------------
 option(BUILD_N9 "Cross-build for the Nokia N9 (device) rather than the host Simulator" OFF)
 
-set(CMAKE_CXX_STANDARD 20)
+# C++23 for Glaze (compile-time reflection). Qt 4.7 headers verified clean at
+# -std=c++23 on both toolchains (cross GCC 14.1 + device sysroot, host GCC 16 +
+# Simulator Qt) — only the long-standing -Wregister noise, same as at C++20.
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Build every object position-independent. The N9 device app is linked -pie

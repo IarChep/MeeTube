@@ -257,3 +257,13 @@ endif()
 add_library(qrcodegen STATIC ${CMAKE_SOURCE_DIR}/deps/qrcodegen/cpp/qrcodegen.cpp)
 set_target_properties(qrcodegen PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_include_directories(qrcodegen PUBLIC ${CMAKE_SOURCE_DIR}/deps/qrcodegen/cpp)
+
+# ---------------------------------------------------------------------------
+# Glaze — header-only JSON engine (both targets), submodule pinned at v7.8.4.
+#
+# Replaces nlohmann/json in meetube-core. Requires C++23 (set globally in the
+# root — Qt 4.7 headers verified clean at -std=c++23 on both toolchains).
+# SYSTEM include: Glaze's headers are not this project's warning surface.
+# ---------------------------------------------------------------------------
+add_library(glaze INTERFACE)
+target_include_directories(glaze SYSTEM INTERFACE ${CMAKE_SOURCE_DIR}/deps/glaze/include)
