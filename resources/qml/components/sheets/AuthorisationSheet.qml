@@ -17,9 +17,13 @@ Sheet {
     rejectButtonText: "Cancel"
     onRejected: innertube.auth().cancel()
 
-    onStatusChanged: {
-        if (status === DialogStatus.Opening)
-            sheet.begin();
+    // Explicit entry point (main.qml's openAccount): open the sheet AND start the
+    // device-code flow. Deliberately NOT driven by onStatusChanged — the Sheet's
+    // internal state machine brushes past DialogStatus.Opening (0) during a cold
+    // start, which would fire a stray signIn().
+    function openWithSignIn() {
+        open();
+        begin();
     }
 
     function begin() {
@@ -102,10 +106,11 @@ Sheet {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: sheet.userCode
                 color: UI.COLOR_INVERTED_FOREGROUND
-                font.pixelSize: UI.FONT_XLARGE * 2
+                // 1.4x XLARGE: a 12-char XXX-XXX-XXXX code must fit the 480px screen.
+                font.pixelSize: UI.FONT_XLARGE * 1.4
                 font.family: UI.FONT_FAMILY
                 font.bold: true
-                font.letterSpacing: 4
+                font.letterSpacing: 2
             }
             Image {
                 anchors.horizontalCenter: parent.horizontalCenter
