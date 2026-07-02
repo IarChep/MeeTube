@@ -5,22 +5,30 @@ using namespace yt;
 
 class TestContext : public QObject { Q_OBJECT
 private slots:
+    // contextJson emits minified deterministic JSON — assert on substrings.
     void iosContext() {
         Session s; s.visitorData = "VD";
-        nlohmann::json c = ContextBuilder::context(ClientId::IOS, s);
-        QCOMPARE(QString::fromStdString(c["client"]["clientName"].get<std::string>()), QString("IOS"));
-        QCOMPARE(QString::fromStdString(c["client"]["clientVersion"].get<std::string>()), QString("20.49.6"));
-        QCOMPARE(QString::fromStdString(c["client"]["hl"].get<std::string>()), QString("en"));
-        QCOMPARE(QString::fromStdString(c["client"]["visitorData"].get<std::string>()), QString("VD"));
+        const QString c = QString::fromStdString(ContextBuilder::contextJson(ClientId::IOS, s));
+        QVERIFY(c.contains("\"clientName\":\"IOS\""));
+        QVERIFY(c.contains("\"clientVersion\":\"20.49.6\""));
+        QVERIFY(c.contains("\"hl\":\"en\""));
+        QVERIFY(c.contains("\"visitorData\":\"VD\""));
         // user + request sub-contexts (minimum-viable shape)
-        QCOMPARE(c["user"]["lockedSafetyMode"].get<bool>(), false);
-        QVERIFY(c["request"]["useSsl"].get<bool>());
+        QVERIFY(c.contains("\"user\":{\"lockedSafetyMode\":false}"));
+        QVERIFY(c.contains("\"useSsl\":true"));
+        QVERIFY(c.contains("\"internalExperimentFlags\":[]"));
+        // IOS device identity present
+        QVERIFY(c.contains("\"deviceMake\":\"Apple\""));
     }
     void webContextHasUserRequest() {
         Session s;
-        nlohmann::json c = ContextBuilder::context(ClientId::WEB, s);
-        QVERIFY(c.contains("user") && c.contains("request"));
-        QCOMPARE(QString::fromStdString(c["client"]["clientVersion"].get<std::string>()), QString("2.20260626.01.00"));
+        const QString c = QString::fromStdString(ContextBuilder::contextJson(ClientId::WEB, s));
+        QVERIFY(c.contains("\"user\":") && c.contains("\"request\":"));
+        QVERIFY(c.contains("\"clientVersion\":\"2.20260626.01.00\""));
+        // no visitorData key when the session has none (skip_null_members)
+        QVERIFY(!c.contains("\"visitorData\""));
+        // no android/ios extras on WEB
+        QVERIFY(!c.contains("\"deviceMake\"") && !c.contains("\"androidSdkVersion\""));
     }
     void headersHaveConsentCookie() {
         Session s;

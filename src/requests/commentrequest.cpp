@@ -17,6 +17,7 @@
 #include "commentrequest.h"
 #include "parsers/rendererparser.h"
 #include "parsers/continuation.h"
+#include "bodies.h"
 
 namespace yt {
 
@@ -25,14 +26,14 @@ void CommentRequest::list(const QString &videoId, const QString &page) {
     if (!page.isEmpty()) { fetchPage(page); return; }
     // Step 1: POST /next by videoId to discover the comments-section continuation token.
     m_mode = ModeDiscover;
-    nlohmann::json body{ {"videoId", videoId.toStdString()} };
-    connect(m_t->post("next", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("next", ClientId::WEB, bodies::nextVideo(videoId), this),
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void CommentRequest::fetchPage(const QString &token) {
     m_mode = ModePage;
-    nlohmann::json body{ {"continuation", token.toStdString()} };
-    connect(m_t->post("next", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("next", ClientId::WEB, bodies::nextContinuation(token), this),
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void CommentRequest::onFinished() {

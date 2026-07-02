@@ -17,10 +17,31 @@
 #include "accountmanager.h"
 #include "accountstore.h"
 #include "catalog.h"
-#include "parsers/jsonutil.h"
+#include "parsers/ytjson.h"
 #include <QTimer>
 
 namespace yt {
+
+// OAuth device-code endpoint responses (fixed schemas; unknown keys skipped).
+namespace oj {
+struct DeviceCode {
+    std::optional<std::string> device_code;
+    std::optional<std::string> user_code;
+    std::optional<std::string> verification_url;
+    std::optional<std::string> verification_uri;
+    std::optional<gj::FlexInt> interval;
+};
+struct Token {
+    std::optional<std::string> access_token;
+    std::optional<std::string> refresh_token;
+    std::optional<std::string> error;
+};
+} // namespace oj
+
+static QString qstr(const std::optional<std::string> &s)
+{
+    return s ? QString::fromUtf8(s->data(), (int)s->size()) : QString();
+}
 
 AccountManager::AccountManager(ITransport *t, AccountStore *store, QObject *parent)
     : QObject(parent), m_t(t), m_store(store), m_interval(5) {}
@@ -43,11 +64,13 @@ void AccountManager::onDeviceCode() {
     const Reply r = rep->result();
     rep->deleteLater();
     if (!r.ok) { emit authFailed(r.error); return; }
-    m_deviceCode = jstr(r.json, "device_code");
-    const QString userCode = jstr(r.json, "user_code");
-    QString verifUrl = jstr(r.json, "verification_url");
-    if (verifUrl.isEmpty()) verifUrl = jstr(r.json, "verification_uri");
-    m_interval = (int) jint(r.json, "interval");
+    oj::DeviceCode dc{};
+    gj::readJson(dc, *r.body);
+    m_deviceCode = qstr(dc.device_code);
+    const QString userCode = qstr(dc.user_code);
+    QString verifUrl = qstr(dc.verification_url);
+    if (verifUrl.isEmpty()) verifUrl = qstr(dc.verification_uri);
+    m_interval = (int) gj::toInt64(dc.interval);
     if (m_interval <= 0) m_interval = 5;
     if (m_deviceCode.isEmpty() || userCode.isEmpty()) {
         emit authFailed(QString::fromLatin1("device code request failed"));
@@ -78,9 +101,11 @@ void AccountManager::onToken() {
     const Reply r = rep->result();
     rep->deleteLater();
     if (m_deviceCode.isEmpty()) return;     // canceled mid-flight
-    const QString access  = jstr(r.json, "access_token");
-    const QString refresh = jstr(r.json, "refresh_token");
-    const QString err     = jstr(r.json, "error");
+    oj::Token tok{};
+    gj::readJson(tok, *r.body);
+    const QString access  = qstr(tok.access_token);
+    const QString refresh = qstr(tok.refresh_token);
+    const QString err     = qstr(tok.error);
     if (!access.isEmpty()) {
         m_bearer = access;
         // Persist only the refresh_token. The real account id/name comes from
@@ -133,7 +158,9 @@ void AccountManager::onRefresh() {
     if (!rep) return;
     const Reply r = rep->result();
     rep->deleteLater();
-    const QString access = jstr(r.json, "access_token");
+    oj::Token tok{};
+    gj::readJson(tok, *r.body);
+    const QString access = qstr(tok.access_token);
     if (!access.isEmpty()) { m_bearer = access; emit bearerChanged(); }
 }
 

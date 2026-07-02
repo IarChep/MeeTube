@@ -16,13 +16,14 @@
 
 #include "subtitlesrequest.h"
 #include "parsers/playerparser.h"
+#include "bodies.h"
 
 namespace yt {
 
 void SubtitlesRequest::get(const QString &videoId) {
     setStatus(Loading);
-    nlohmann::json body{ {"videoId", videoId.toStdString()}, {"contentCheckOk", true}, {"racyCheckOk", true} };
-    connect(m_t->post("player", ClientId::IOS, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("player", ClientId::IOS, bodies::player(videoId), this),
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void SubtitlesRequest::onFinished() {

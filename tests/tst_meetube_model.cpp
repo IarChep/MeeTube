@@ -92,28 +92,24 @@ private slots:
     // the documented stable tab params ride in the body.
     void listPassesTabParams() {
         TestVideoModel m;
-        m.m_fake.queue("browse", loadFixture("browse_feed.json"));
+        m.m_fake.queue("browse", loadFixtureRaw("browse_feed.json"));
         m.list("UCchannel", "EgZ2aWRlb3PyBgQKAjoA");
         QCOMPARE(m.m_fake.sent.size(), 1);
-        QVERIFY(m.m_fake.sent.at(0).contains("params"));
-        QCOMPARE(QString::fromStdString(m.m_fake.sent.at(0)["params"].get<std::string>()),
-                 QString("EgZ2aWRlb3PyBgQKAjoA"));
+        QVERIFY(m.m_fake.sent.at(0).contains("\"params\":\"EgZ2aWRlb3PyBgQKAjoA\""));
         // plain list() keeps the body params-free
         TestVideoModel m2;
-        m2.m_fake.queue("browse", loadFixture("browse_feed.json"));
+        m2.m_fake.queue("browse", loadFixtureRaw("browse_feed.json"));
         m2.list("FEnews_destination");
-        QVERIFY(!m2.m_fake.sent.at(0).contains("params"));
+        QVERIFY(!m2.m_fake.sent.at(0).contains("\"params\":"));
     }
 
     // Same for a channel's playlists: the Playlists-tab params must ride along.
     void playlistListPassesTabParams() {
         TestPlaylistModel m;
-        m.m_fake.queue("browse", nlohmann::json::object());   // body assertion only
+        m.m_fake.queue("browse", "{}");   // body assertion only
         m.list("UCchannel", "EglwbGF5bGlzdHPyBgQKAkIA");
         QCOMPARE(m.m_fake.sent.size(), 1);
-        QVERIFY(m.m_fake.sent.at(0).contains("params"));
-        QCOMPARE(QString::fromStdString(m.m_fake.sent.at(0)["params"].get<std::string>()),
-                 QString("EglwbGF5bGlzdHPyBgQKAkIA"));
+        QVERIFY(m.m_fake.sent.at(0).contains("\"params\":\"EglwbGF5bGlzdHPyBgQKAkIA\""));
     }
 
     void initTestCase() {
@@ -129,7 +125,7 @@ private slots:
     void listPopulatesModel() {
         TestVideoModel model;
         // VideoRequest::list posts to the "browse" endpoint.
-        model.m_fake.queue("browse", loadFixture("browse_feed.json"));
+        model.m_fake.queue("browse", loadFixtureRaw("browse_feed.json"));
 
         model.list("FEnews_destination");
         model.m_fake.flush();   // deliver the queued reply (the request connected first)
@@ -142,33 +138,30 @@ private slots:
         QCOMPARE(model.data(1, QByteArray("title")).toString(), QString("Feed Two"));
         QCOMPARE(model.status(), (int)ServiceRequest::Ready);
         // browse body carried the browseId (no continuation on first page).
-        QCOMPARE(QString::fromStdString(model.m_fake.sent.at(0).value("browseId", std::string())),
-                 QString("FEnews_destination"));
+        QVERIFY(model.m_fake.sent.at(0).contains("\"browseId\":\"FEnews_destination\""));
         QVERIFY(model.canFetchMore());   // fixture has a "FEEDNEXT" continuation token
     }
 
     void fetchMorePages() {
         TestVideoModel model;
-        model.m_fake.queue("browse", loadFixture("browse_feed.json"));
+        model.m_fake.queue("browse", loadFixtureRaw("browse_feed.json"));
         model.list("FEnews_destination");
         model.m_fake.flush();
         QCOMPARE(model.rowCount(), 2);
 
         // Second page: re-queue the same fixture; fetchMore() must POST a
         // continuation token and append (not reset) the rows.
-        model.m_fake.queue("browse", loadFixture("browse_feed.json"));
+        model.m_fake.queue("browse", loadFixtureRaw("browse_feed.json"));
         model.fetchMore();
         model.m_fake.flush();
         QCOMPARE(model.rowCount(), 4);
-        QVERIFY(model.m_fake.sent.at(1).contains("continuation"));
-        QCOMPARE(QString::fromStdString(model.m_fake.sent.at(1).value("continuation", std::string())),
-                 QString("FEEDNEXT"));
+        QVERIFY(model.m_fake.sent.at(1).contains("\"continuation\":\"FEEDNEXT\""));
     }
 
     void commentModelPopulates() {
         TestCommentModel model;
-        model.m_fake.queue("next", loadFixture("next_for_comments.json"));  // discover token
-        model.m_fake.queue("next", loadFixture("comments_page.json"));      // the comments
+        model.m_fake.queue("next", loadFixtureRaw("next_for_comments.json"));  // discover token
+        model.m_fake.queue("next", loadFixtureRaw("comments_page.json"));      // the comments
         model.list("aaa11111111");
         model.m_fake.flush();
         QCOMPARE(model.rowCount(), 2);
@@ -179,8 +172,8 @@ private slots:
 
     void playlistModelPopulates() {
         TestPlaylistModel model;
-        model.m_fake.queue("browse", nlohmann::json{ {"contents", nlohmann::json::array({
-            nlohmann::json{{"playlistRenderer", {{"playlistId", "PL9"}, {"title", {{"simpleText", "Mix"}}}}}} })}});
+        model.m_fake.queue("browse",
+            "{\"contents\":[{\"playlistRenderer\":{\"playlistId\":\"PL9\",\"title\":{\"simpleText\":\"Mix\"}}}]}");
         model.list("UCchan");
         model.m_fake.flush();
         QCOMPARE(model.rowCount(), 1);
@@ -191,20 +184,20 @@ private slots:
     // ChannelModel: channel search results (single-channel headers are ChannelDetails).
     void channelModelSearch() {
         TestChannelModel model;
-        model.m_fake.queue("search", nlohmann::json{ {"contents", nlohmann::json::array({
-            nlohmann::json{{"channelRenderer", {{"channelId", "UCx"}, {"title", {{"simpleText", "Chan"}}}}}} })}});
+        model.m_fake.queue("search",
+            "{\"contents\":[{\"channelRenderer\":{\"channelId\":\"UCx\",\"title\":{\"simpleText\":\"Chan\"}}}]}");
         model.search("chan");
         model.m_fake.flush();
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("UCx"));
-        QVERIFY(model.m_fake.sent.at(0).contains("params"));   // channels filter
+        QVERIFY(model.m_fake.sent.at(0).contains("\"params\":"));   // channels filter
         QCOMPARE(model.status(), (int)ServiceRequest::Ready);
     }
 
     // VideoDetails: scalar props from /next + the nested related VideoModel.
     void videoDetailsLoads() {
         TestVideoDetails d;
-        d.m_fake.queue("next", loadFixture("watch_next.json"));
+        d.m_fake.queue("next", loadFixtureRaw("watch_next.json"));
         d.load("vid42");
         d.m_fake.flush();
         QCOMPARE(d.description(), QString("Hello description"));
@@ -219,7 +212,7 @@ private slots:
     // StreamSet: projects the stream list into hlsUrl.
     void streamSetLoads() {
         TestStreamSet s;
-        s.m_fake.queue("player", loadFixture("player_ios.json"));
+        s.m_fake.queue("player", loadFixtureRaw("player_ios.json"));
         s.load("aaa11111111");
         s.m_fake.flush();
         QVERIFY(!s.hlsUrl().isEmpty());
@@ -229,9 +222,9 @@ private slots:
     // ChannelDetails: single channel header via UserRequest.
     void channelDetailsLoads() {
         TestChannelDetails c;
-        c.m_fake.queue("browse", nlohmann::json{ {"header", {{"c4TabbedHeaderRenderer", {
-            {"title", "Chan"}, {"channelId", "UCabc"},
-            {"subscriberCountText", {{"simpleText", "10K subscribers"}}} }}}} });
+        c.m_fake.queue("browse",
+            "{\"header\":{\"c4TabbedHeaderRenderer\":{\"title\":\"Chan\",\"channelId\":\"UCabc\","
+            "\"subscriberCountText\":{\"simpleText\":\"10K subscribers\"}}}}");
         c.loadById("UCabc");
         c.m_fake.flush();
         QCOMPARE(c.name(), QString("Chan"));

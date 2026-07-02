@@ -13,6 +13,7 @@ add_library(meetube-core STATIC
     innertube/itransport.cpp
     innertube/innertubeclient.cpp
     requests/servicerequest.cpp
+    requests/bodies.cpp
     requests/videorequest.cpp
     requests/streamsrequest.cpp
     requests/commentrequest.cpp
@@ -57,10 +58,7 @@ target_include_directories(meetube-core PUBLIC
 
 target_link_libraries(meetube-core PUBLIC
     Qt4::QtCore
-    Qt4::QtNetwork
-    # transitional: nlohmann still rides the itransport.h Reply during the
-    # Glaze migration; it goes away with Reply.json.
-    nlohmann_json::nlohmann_json)
+    Qt4::QtNetwork)
 
 # Glaze is an implementation detail of the parser/transport .cpps — the public
 # headers expose only std::string_view / std::string, so the link stays PRIVATE

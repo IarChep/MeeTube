@@ -1,5 +1,5 @@
-[requires]
-nlohmann_json/3.12.0
+# No package requirements: Glaze is a vendored submodule (deps/glaze).
+# Conan remains for the toolchain + CMake generators.
 
 [generators]
 CMakeDeps

@@ -16,14 +16,9 @@
 
 #include "streamsrequest.h"
 #include "parsers/playerparser.h"
+#include "bodies.h"
 
 namespace yt {
-
-static nlohmann::json playerBody(const QString &videoId) {
-    return nlohmann::json{
-        {"videoId", videoId.toStdString()},
-        {"contentCheckOk", true}, {"racyCheckOk", true} };
-}
 
 void StreamsRequest::get(const QString &videoId) {
     setStatus(Loading);
@@ -34,7 +29,7 @@ void StreamsRequest::get(const QString &videoId) {
 // Post /player as `client`; onFinished() decides whether to fall back to ANDROID.
 void StreamsRequest::tryClient(ClientId client) {
     m_client = client;
-    connect(m_t->post("player", client, playerBody(m_videoId), this),
+    connect(m_t->post("player", client, bodies::player(m_videoId), this),
             SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
