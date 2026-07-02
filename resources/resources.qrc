@@ -8,6 +8,7 @@
         <file>qml/pages/VideoPage.qml</file>
         <file>qml/pages/FeedPage.qml</file>
         <file>qml/pages/PlaylistsPage.qml</file>
+        <file>qml/pages/AccountPage.qml</file>
 
         <!-- components -->
         <file>qml/components/Avatar.qml</file>
