@@ -934,6 +934,17 @@ CT::Account parseAccountsList(std::string_view response)
     return out;
 }
 
+QString parseResolvedBrowseId(std::string_view response)
+{
+    const std::string_view ep = scan::topLevelValue(response, "endpoint");
+    if (ep.empty() || ep.front() != '{') return QString();
+    const std::string_view be = scan::topLevelValue(ep, "browseEndpoint");
+    if (be.empty() || be.front() != '{') return QString();
+    rj::BrowseEP b{};
+    readJson(b, be);
+    return qstr(b.browseId);
+}
+
 // ---------------------------------------------------------------------------
 // Direct single-renderer entry points (tests + callers holding the inner object).
 // ---------------------------------------------------------------------------

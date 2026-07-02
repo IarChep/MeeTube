@@ -32,5 +32,7 @@ CT::Account parseAccountsList(std::string_view response);
 // Watch page (/next): the primary video's details (title/description/views/likes +
 // channel name/avatar/id) and the related-videos list, in one response.
 void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Video> *related);
+// navigation/resolve_url response → endpoint.browseEndpoint.browseId ("" when absent).
+QString parseResolvedBrowseId(std::string_view response);
 }
 #endif

@@ -61,7 +61,7 @@ private slots:
     // stays Canceled.
     void canceledGuardSuppressesDelivery() {
         FakeTransport t;
-        t.queue("browse", loadFixture("browse_feed.json"));
+        t.queue("browse", loadFixtureRaw("browse_feed.json"));
 
         VideoRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
@@ -84,7 +84,7 @@ private slots:
     // Control: without a cancel, flush() delivers normally.
     void asyncDeliversWhenNotCanceled() {
         FakeTransport t;
-        t.queue("browse", loadFixture("browse_feed.json"));
+        t.queue("browse", loadFixtureRaw("browse_feed.json"));
         VideoRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
         req.browseFeed("FEwhat_to_watch", QString());
@@ -187,7 +187,7 @@ private slots:
         InnertubeClient client;
         client.setBaseUrl(srv.url());
         QObject owner;
-        nlohmann::json body{ {"browseId", "FEtest"} };
+        const std::string body = "{\"browseId\":\"FEtest\"}";
 
         TransportReply *r1 = client.post("browse", ClientId::WEB, body, &owner);
         QSignalSpy s1(r1, SIGNAL(finished()));
@@ -204,11 +204,11 @@ private slots:
         while (s2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
         QCOMPARE(s2.count(), 1);
         QVERIFY(r2->result().ok);
-        QCOMPARE((int) r2->result().json.value("marker", 0), 1);
+        QVERIFY(QString::fromUtf8(r2->result().body->c_str()).contains("\"marker\":1"));
         QCOMPARE(srv.connections(), 1);          // served from the cache
 
         // A different body misses the cache.
-        nlohmann::json body2{ {"browseId", "FEother"} };
+        const std::string body2 = "{\"browseId\":\"FEother\"}";
         TransportReply *r3 = client.post("browse", ClientId::WEB, body2, &owner);
         QSignalSpy s3(r3, SIGNAL(finished()));
         et.restart();
@@ -216,7 +216,7 @@ private slots:
         QCOMPARE(srv.connections(), 2);
 
         // Writes are never cached: two identical like/like posts -> two hits.
-        nlohmann::json likeBody{ {"target", { {"videoId", "vid"} }} };
+        const std::string likeBody = "{\"target\":{\"videoId\":\"vid\"}}";
         for (int i = 0; i < 2; ++i) {
             TransportReply *r = client.post("like/like", ClientId::TVHTML5, likeBody, &owner);
             QSignalSpy s(r, SIGNAL(finished()));

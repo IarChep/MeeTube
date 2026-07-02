@@ -33,7 +33,7 @@ public:
     // personalized/localized payloads must not leak across sessions.
     void clearCache();
 
-    TransportReply *post(const QString &endpoint, ClientId client, const nlohmann::json &body, QObject *owner = 0);
+    TransportReply *post(const QString &endpoint, ClientId client, const std::string &bodyJson, QObject *owner = 0);
     TransportReply *get(const QString &url, QObject *owner = 0);
     TransportReply *postForm(const QString &url, const QMap<QString, QString> &fields, QObject *owner = 0);
 
@@ -52,15 +52,14 @@ private Q_SLOTS:
 
 private:
     struct CacheEntry {
-        nlohmann::json json;                    // transitional — being replaced by `body`
-        std::shared_ptr<const std::string> body;
+        std::shared_ptr<const std::string> body;   // aliased by CachedReply — no copies
         qint64 expiresAtMs;
     };
     QNetworkAccessManager m_nam;
     Session m_session;
     int m_timeoutMs;
     QString m_baseUrl;
-    // TTL response cache, keyed by md5(endpoint|client|payload) — the payload dump
+    // TTL response cache, keyed by md5(endpoint|client|payload) — the payload
     // covers browseId/continuation and the context (hl/gl/visitorData). The bearer
     // travels in a header, hence clearCache() on bearer change. FIFO-bounded.
     QHash<QByteArray, CacheEntry> m_cache;

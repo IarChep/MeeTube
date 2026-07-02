@@ -16,6 +16,7 @@
 
 #include "videorequest.h"
 #include "parsers/rendererparser.h"
+#include "bodies.h"
 
 namespace yt {
 
@@ -39,32 +40,24 @@ static bool isAuthedFeed(const QString &resourceId) {
 void VideoRequest::browseFeed(const QString &resourceId, const QString &page, const QString &params) {
     setStatus(Loading);
     m_mode = ModeBrowse;
-    nlohmann::json body;
-    if (!page.isEmpty()) body["continuation"] = page.toStdString();
-    else {
-        body["browseId"] = resourceId.toStdString();
-        // Tab selector (e.g. a channel's Videos tab) — continuations re-encode it.
-        if (!params.isEmpty()) body["params"] = params.toStdString();
-    }
     const ClientId cid = isAuthedFeed(resourceId) ? ClientId::TVHTML5 : ClientId::WEB;
-    connect(m_t->post("browse", cid, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("browse", cid, bodies::browse(resourceId, params, page), this),
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void VideoRequest::searchVideos(const QString &query, const QString &order) {
     setStatus(Loading);
     m_mode = ModeSearch;
-    nlohmann::json body; body["query"] = query.toStdString();
-    const std::string p = sortParam(order);
-    if (!p.empty()) body["params"] = p;
-    connect(m_t->post("search", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("search", ClientId::WEB, bodies::search(query, sortParam(order)), this),
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void VideoRequest::loadWatch(const QString &videoId) {
     setStatus(Loading);
     m_mode = ModeWatch;
     m_videoId = videoId;
-    nlohmann::json body{ {"videoId", videoId.toStdString()} };
-    connect(m_t->post("next", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("next", ClientId::WEB, bodies::nextVideo(videoId), this),
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void VideoRequest::onFinished() {

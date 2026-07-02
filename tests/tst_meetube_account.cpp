@@ -86,7 +86,7 @@ private slots:
     // ---- AccountRequest (accounts_list identity fetch) ----
     void accountRequestFetchesIdentity() {
         FakeTransport t;
-        t.queue("account/accounts_list", loadFixture("accounts_list.json"));
+        t.queue("account/accounts_list", loadFixtureRaw("accounts_list.json"));
         AccountRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(ready(CT::Account)));
         QSignalSpy failSpy(&req, SIGNAL(failed(QString)));
@@ -106,7 +106,7 @@ private slots:
         AccountStore store(iniPath());
         CT::Account placeholder; placeholder.id = "default"; placeholder.username = "YouTube";
         store.save(placeholder, "RT");
-        t.queue("account/accounts_list", loadFixture("accounts_list.json"));
+        t.queue("account/accounts_list", loadFixtureRaw("accounts_list.json"));
         TestAccountDetails d(&t, &store);
         QCOMPARE(d.username(), QString("YouTube"));    // seeded from the store cache
         QSignalSpy loadedSpy(&d, SIGNAL(loaded()));
@@ -136,11 +136,11 @@ private slots:
     void deviceCodeFlowSucceeds() {
         FakeTransport t;
         AccountStore store(iniPath());
-        t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl), nlohmann::json{
-            {"device_code", "DC"}, {"user_code", "ABCD-EFGH"},
-            {"verification_url", "https://youtube.com/activate"}, {"interval", 5}});
-        t.queue(QString::fromLatin1(Catalog::kTokenUrl), nlohmann::json{
-            {"access_token", "AT"}, {"refresh_token", "RT"}});
+        t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
+                "{\"device_code\":\"DC\",\"user_code\":\"ABCD-EFGH\","
+                "\"verification_url\":\"https://youtube.com/activate\",\"interval\":5}");
+        t.queue(QString::fromLatin1(Catalog::kTokenUrl),
+                "{\"access_token\":\"AT\",\"refresh_token\":\"RT\"}");
 
         TestAccountManager mgr(&t, &store);
         QSignalSpy codeSpy(&mgr, SIGNAL(userCodeReady(QString,QString)));
@@ -166,11 +166,11 @@ private slots:
     void deviceCodePollsWhilePending() {
         FakeTransport t;
         AccountStore store(iniPath());
-        t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl), nlohmann::json{
-            {"device_code", "DC"}, {"user_code", "WXYZ"}, {"interval", 5}});
-        t.queue(QString::fromLatin1(Catalog::kTokenUrl), nlohmann::json{{"error", "authorization_pending"}});
-        t.queue(QString::fromLatin1(Catalog::kTokenUrl), nlohmann::json{
-            {"access_token", "AT2"}, {"refresh_token", "RT2"}});
+        t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
+                "{\"device_code\":\"DC\",\"user_code\":\"WXYZ\",\"interval\":5}");
+        t.queue(QString::fromLatin1(Catalog::kTokenUrl), "{\"error\":\"authorization_pending\"}");
+        t.queue(QString::fromLatin1(Catalog::kTokenUrl),
+                "{\"access_token\":\"AT2\",\"refresh_token\":\"RT2\"}");
 
         TestAccountManager mgr(&t, &store);
         QSignalSpy authSpy(&mgr, SIGNAL(authenticated()));
@@ -187,10 +187,10 @@ private slots:
     void signedInPropertyNotifies() {
         FakeTransport t;
         AccountStore store(iniPath());
-        t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl), nlohmann::json{
-            {"device_code", "DC"}, {"user_code", "ABCD"}, {"interval", 5}});
-        t.queue(QString::fromLatin1(Catalog::kTokenUrl), nlohmann::json{
-            {"access_token", "AT"}, {"refresh_token", "RT"}});
+        t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
+                "{\"device_code\":\"DC\",\"user_code\":\"ABCD\",\"interval\":5}");
+        t.queue(QString::fromLatin1(Catalog::kTokenUrl),
+                "{\"access_token\":\"AT\",\"refresh_token\":\"RT\"}");
         TestAccountManager mgr(&t, &store);
         QSignalSpy sSpy(&mgr, SIGNAL(signedInChanged()));
         QVERIFY(!mgr.property("signedIn").toBool());
@@ -206,9 +206,9 @@ private slots:
     void deviceCodeDenied() {
         FakeTransport t;
         AccountStore store(iniPath());
-        t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl), nlohmann::json{
-            {"device_code", "DC"}, {"user_code", "WXYZ"}, {"interval", 5}});
-        t.queue(QString::fromLatin1(Catalog::kTokenUrl), nlohmann::json{{"error", "access_denied"}});
+        t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
+                "{\"device_code\":\"DC\",\"user_code\":\"WXYZ\",\"interval\":5}");
+        t.queue(QString::fromLatin1(Catalog::kTokenUrl), "{\"error\":\"access_denied\"}");
         TestAccountManager mgr(&t, &store);
         QSignalSpy authSpy(&mgr, SIGNAL(authenticated()));
         QSignalSpy failSpy(&mgr, SIGNAL(authFailed(QString)));

@@ -16,25 +16,20 @@
 
 #include "playlistrequest.h"
 #include "parsers/rendererparser.h"
+#include "bodies.h"
 
 namespace yt {
 
 void PlaylistRequest::list(const QString &resourceId, const QString &page, const QString &params) {
     setStatus(Loading);
-    nlohmann::json body;
-    if (!page.isEmpty()) body["continuation"] = page.toStdString();
-    else {
-        body["browseId"] = resourceId.toStdString();
-        // Tab selector (a channel's Playlists tab) — continuations re-encode it.
-        if (!params.isEmpty()) body["params"] = params.toStdString();
-    }
-    connect(m_t->post("browse", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("browse", ClientId::WEB, bodies::browse(resourceId, params, page), this),
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void PlaylistRequest::search(const QString &query) {
     setStatus(Loading);
-    nlohmann::json body{ {"query", query.toStdString()}, {"params", "EgIQAw=="} };  // playlists filter
-    connect(m_t->post("search", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("search", ClientId::WEB, bodies::search(query, "EgIQAw=="), this),   // playlists filter
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void PlaylistRequest::onFinished() {

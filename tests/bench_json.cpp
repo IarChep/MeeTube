@@ -152,7 +152,7 @@ static int runDump(const QString &dir) {
     const char *names[] = { "WEB", "TVHTML5", "IOS", "ANDROID", "ANDROID_VR" };
     for (int i = 0; i < 5; ++i)
         out << "CTX " << names[i] << ' '
-            << QString::fromStdString(ContextBuilder::context(ids[i], s).dump()) << '\n';
+            << QString::fromStdString(ContextBuilder::contextJson(ids[i], s)) << '\n';
     return 0;
 }
 
@@ -204,7 +204,7 @@ static int runBench(const QString &dir, int iters) {
         qint64 sink = 0;
         QElapsedTimer t; t.start();
         for (int k = 0; k < iters * 10; ++k)
-            sink += (qint64)ContextBuilder::context(ClientId::WEB, s).dump().size();
+            sink += (qint64)ContextBuilder::contextJson(ClientId::WEB, s).size();
         printf("%-36s %10d %12lld %10s   (sink %lld)\n",
                "context WEB        build+dump", iters * 10, (long long)t.elapsed(), "-", (long long)sink);
     }

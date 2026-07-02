@@ -16,13 +16,13 @@
 
 #include "accountrequest.h"
 #include "parsers/rendererparser.h"
+#include "bodies.h"
 
 namespace yt {
 
 void AccountRequest::list() {
     setStatus(Loading);
-    nlohmann::json body{ {"accountReadMask", nlohmann::json{ {"returnOwner", true} }} };
-    connect(m_t->post("account/accounts_list", ClientId::TVHTML5, body, this),
+    connect(m_t->post("account/accounts_list", ClientId::TVHTML5, bodies::accountsList(), this),
             SIGNAL(finished()), this, SLOT(onFinished()));
 }
 

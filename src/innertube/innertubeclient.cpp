@@ -1,5 +1,7 @@
 #include "innertubeclient.h"
 #include "contextbuilder.h"
+#include "parsers/ytjson.h"
+#include "parsers/jsonscan.h"
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QTimer>
@@ -15,7 +17,8 @@ namespace yt {
 static const int kRequestTimeoutMs = 20000;
 
 // Response-cache bound: enough for a browsing session (home + a few feeds + pages),
-// small enough to be irrelevant on the N9's RAM.
+// small enough to be irrelevant on the N9's RAM. Entries are raw body strings,
+// not DOM trees — a full cache is a few MB of text at worst.
 static const int kMaxCacheEntries = 64;
 
 // Per-endpoint cache TTLs (seconds) — mirrors the reference WP client's knobs
@@ -30,6 +33,11 @@ static int cacheTtlSecs(const QString &endpoint)
         || endpoint == QLatin1String("navigation/resolve_url")) return 180;
     return 0;
 }
+
+// Top-level InnerTube error envelope: {"error": {"code":.., "message": ".."}}.
+struct ErrEnvelope {
+    std::optional<std::string> message;
+};
 
 // Build a Reply from a finished QNetworkReply. `timedOut` is set by the watchdog
 // path so a timeout is reported distinctly from a transport error / user cancel.
@@ -49,20 +57,24 @@ static Reply makeReply(QNetworkReply *r, bool timedOut)
         out.error = r->errorString();
         return out;
     }
-    out.json = nlohmann::json::parse(body.constData(), body.constData() + body.size(), nullptr, false);
-    if (out.json.is_discarded()) {
+    if (glz::validate_json(*out.body)) {         // error_ctx is truthy on failure
         out.ok = false;
         out.error = QString::fromLatin1("invalid JSON response");
         return out;
     }
-    if (out.json.is_object() && out.json.contains("error")) {
-        const nlohmann::json &err = out.json["error"];
+    // A top-level "error" of ANY type marks the reply failed; the message is
+    // used only when it is actually an object with a string message. The body
+    // stays populated — OAuth polling reads its error code from a !ok reply.
+    const std::string_view errv = gj::scan::topLevelValue(*out.body, "error");
+    if (!errv.empty()) {
         out.ok = false;
-        // B3: error.message may be absent or a non-string — value() with a string
-        // default only returns the value when it is actually a string, else default.
-        out.error = err.is_object()
-            ? QString::fromStdString(err.value("message", std::string("InnerTube error")))
-            : QString::fromLatin1("InnerTube error");
+        out.error = QString::fromLatin1("InnerTube error");
+        if (errv.front() == '{') {
+            ErrEnvelope e{};
+            gj::readJson(e, errv);
+            if (e.message)
+                out.error = QString::fromUtf8(e.message->data(), (int) e.message->size());
+        }
         return out;
     }
     out.ok = true;
@@ -136,11 +148,10 @@ private:
 class CachedReply : public TransportReply {
     Q_OBJECT
 public:
-    CachedReply(const nlohmann::json &json, const std::shared_ptr<const std::string> &body,
-                QObject *owner) : TransportReply(owner)
+    CachedReply(const std::shared_ptr<const std::string> &body, QObject *owner)
+        : TransportReply(owner)
     {
         m_result.ok = true;
-        m_result.json = json;
         if (body) m_result.body = body;         // aliases the cache entry — no copy
         QTimer::singleShot(0, this, SLOT(fire()));
     }
@@ -161,11 +172,21 @@ void InnertubeClient::clearCache()
     m_cacheOrder.clear();
 }
 
-TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, const nlohmann::json &body, QObject *owner)
+TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, const std::string &bodyJson, QObject *owner)
 {
-    nlohmann::json payload = body;
-    payload["context"] = ContextBuilder::context(client, m_session);
-    const std::string s = payload.dump();
+    // Splice the context into the body: every bodies.h builder emits a JSON
+    // object, so the payload is {"context":<ctx>[, <body members>]}.
+    const std::string ctx = ContextBuilder::contextJson(client, m_session);
+    std::string payload;
+    payload.reserve(ctx.size() + bodyJson.size() + 16);
+    payload += "{\"context\":";
+    payload += ctx;
+    if (bodyJson.size() > 2) {                   // not the empty object "{}"
+        payload += ',';
+        payload.append(bodyJson, 1, std::string::npos);   // drop the body's '{'
+    } else {
+        payload += '}';
+    }
 
     // Cache lookup: the key covers the endpoint, the client and the whole payload
     // (browseId/continuation + context incl. hl/gl/visitorData).
@@ -177,11 +198,11 @@ TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, 
         h.addData("|", 1);
         h.addData(QByteArray::number((int) client));
         h.addData("|", 1);
-        h.addData(s.data(), (int) s.size());
+        h.addData(payload.data(), (int) payload.size());
         key = h.result();
         QHash<QByteArray, CacheEntry>::const_iterator it = m_cache.constFind(key);
         if (it != m_cache.constEnd() && it->expiresAtMs > QDateTime::currentMSecsSinceEpoch())
-            return new CachedReply(it->json, it->body, owner ? owner : this);
+            return new CachedReply(it->body, owner ? owner : this);
     }
 
     QNetworkRequest req(QUrl(m_baseUrl + endpoint + "?prettyPrint=false"));
@@ -189,7 +210,7 @@ TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, 
     for (int i = 0; i < hs.size(); ++i)
         req.setRawHeader(hs[i].first, hs[i].second);
 
-    QNetworkReply *reply = m_nam.post(req, QByteArray(s.data(), (int)s.size()));
+    QNetworkReply *reply = m_nam.post(req, QByteArray(payload.data(), (int) payload.size()));
     TransportReply *rep = new NamReply(reply, m_timeoutMs, owner ? owner : this);
     connect(rep, SIGNAL(finished()), this, SLOT(captureVisitorData()));
     if (ttl > 0) {
@@ -209,8 +230,7 @@ void InnertubeClient::cacheResponse()
     const QByteArray key = rep->property("cacheKey").toByteArray();
     if (key.isEmpty()) return;
     CacheEntry e;
-    e.json = r.json;
-    e.body = r.body;                            // shared — the entry aliases the reply's payload
+    e.body = r.body;                        // shared — the entry aliases the reply's payload
     e.expiresAtMs = QDateTime::currentMSecsSinceEpoch() + rep->property("cacheTtlMs").toInt();
     if (!m_cache.contains(key)) m_cacheOrder << key;
     m_cache.insert(key, e);
@@ -248,14 +268,20 @@ void InnertubeClient::captureVisitorData()
     if (!rep)
         return;
     const Reply r = rep->result();
-    if (!r.ok || !r.json.is_object() || !r.json.contains("responseContext"))
+    if (!r.ok)
         return;
-    const nlohmann::json &rc = r.json["responseContext"];
-    if (rc.is_object() && rc.contains("visitorData") && rc["visitorData"].is_string()) {
-        m_session.visitorData = QString::fromStdString(rc["visitorData"].get<std::string>());
-        if (!m_session.visitorData.isEmpty())
-            emit visitorDataCaptured(m_session.visitorData);
-    }
+    const std::string_view rc = gj::scan::topLevelValue(*r.body, "responseContext");
+    if (rc.empty() || rc.front() != '{')
+        return;
+    const std::string_view vdv = gj::scan::topLevelValue(rc, "visitorData");
+    if (vdv.empty() || vdv.front() != '"')
+        return;
+    std::string vd;
+    if (glz::read<gj::kIn>(vd, vdv))            // non-string / malformed — skip
+        return;
+    m_session.visitorData = QString::fromUtf8(vd.data(), (int) vd.size());
+    if (!m_session.visitorData.isEmpty())
+        emit visitorDataCaptured(m_session.visitorData);
 }
 
 } // namespace yt

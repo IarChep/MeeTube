@@ -54,8 +54,6 @@ find_package(Qt4 4.7.4 COMPONENTS
 find_package(X11 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
-# consumed from Task 3 onward (parsers / engine); provided by conan (conanfile.txt)
-find_package(nlohmann_json REQUIRED)
 enable_testing()
 
 include(ExternalProject)

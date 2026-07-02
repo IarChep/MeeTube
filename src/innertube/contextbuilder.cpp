@@ -1,30 +1,63 @@
 #include "contextbuilder.h"
 #include "catalog.h"
+#include "parsers/ytjson.h"
 namespace yt {
-nlohmann::json ContextBuilder::context(ClientId id, const Session &s) {
+
+// The context block, typed (Glaze reflection; nullopt fields are omitted).
+namespace cj {
+
+struct Client {
+    std::string clientName;
+    std::string clientVersion;
+    std::string hl;
+    std::string gl;
+    std::optional<std::string> deviceMake;
+    std::optional<std::string> deviceModel;
+    std::optional<std::string> osName;
+    std::optional<std::string> osVersion;
+    std::optional<int> androidSdkVersion;
+    std::optional<std::string> platform;
+    std::optional<std::string> visitorData;
+};
+struct User {
+    bool lockedSafetyMode = false;
+};
+struct Request {
+    bool useSsl = true;
+    std::vector<int> internalExperimentFlags;   // always the empty array
+};
+struct Context {
+    Client client;
+    User user;
+    Request request;
+};
+
+} // namespace cj
+
+std::string ContextBuilder::contextJson(ClientId id, const Session &s) {
     const ClientInfo &ci = clientInfo(id);
-    nlohmann::json client = {
-        {"clientName", ci.name}, {"clientVersion", ci.version},
-        {"hl", s.hl.toStdString()}, {"gl", s.gl.toStdString()}
-    };
+    cj::Context ctx;
+    ctx.client.clientName = ci.name;
+    ctx.client.clientVersion = ci.version;
+    ctx.client.hl = s.hl.toStdString();
+    ctx.client.gl = s.gl.toStdString();
     if (id == ClientId::IOS) {
-        client["deviceMake"] = "Apple"; client["deviceModel"] = "iPhone16,2";
-        client["osName"] = "iOS"; client["osVersion"] = "18.0";
+        ctx.client.deviceMake = "Apple"; ctx.client.deviceModel = "iPhone16,2";
+        ctx.client.osName = "iOS"; ctx.client.osVersion = "18.0";
     } else if (id == ClientId::ANDROID) {
-        client["androidSdkVersion"] = 34; client["osName"] = "Android"; client["osVersion"] = "14";
-        client["platform"] = "MOBILE";
+        ctx.client.androidSdkVersion = 34; ctx.client.osName = "Android"; ctx.client.osVersion = "14";
+        ctx.client.platform = "MOBILE";
     } else if (id == ClientId::ANDROID_VR) {
-        client["androidSdkVersion"] = 32; client["osName"] = "Android"; client["osVersion"] = "12L";
-        client["deviceMake"] = "Oculus"; client["deviceModel"] = "Quest 3"; client["platform"] = "MOBILE";
+        ctx.client.androidSdkVersion = 32; ctx.client.osName = "Android"; ctx.client.osVersion = "12L";
+        ctx.client.deviceMake = "Oculus"; ctx.client.deviceModel = "Quest 3"; ctx.client.platform = "MOBILE";
     }
-    if (!s.visitorData.isEmpty()) client["visitorData"] = s.visitorData.toStdString();
-    nlohmann::json ctx = { {"client", client} };
-    // Minimum-viable shape real clients send; harmless when unneeded, but several
-    // endpoints behave better with it present (see docs/INNERTUBE_API.md §5).
-    ctx["user"] = nlohmann::json{ {"lockedSafetyMode", false} };
-    ctx["request"] = nlohmann::json{ {"useSsl", true}, {"internalExperimentFlags", nlohmann::json::array()} };
-    return ctx;
+    if (!s.visitorData.isEmpty()) ctx.client.visitorData = s.visitorData.toStdString();
+    // user + request: minimum-viable shape real clients send; harmless when
+    // unneeded, but several endpoints behave better with it present (see
+    // docs/INNERTUBE_API.md §5).
+    return glz::write_json(ctx).value_or(std::string("{}"));
 }
+
 QList<QPair<QByteArray, QByteArray> > ContextBuilder::headers(ClientId id, const Session &s) {
     const ClientInfo &ci = clientInfo(id);
     QList<QPair<QByteArray, QByteArray> > h;

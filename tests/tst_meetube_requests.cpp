@@ -23,7 +23,7 @@ private slots:
 
     void streamsFromIos() {
         FakeTransport t;
-        t.queue("player", loadFixture("player_ios.json"));
+        t.queue("player", loadFixtureRaw("player_ios.json"));
         StreamsRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Stream>)));
         req.get("aaa11111111");
@@ -38,12 +38,10 @@ private slots:
     void streamsFromAndroidFallback() {
         FakeTransport t;
         // IOS reply: playable but no streams → triggers fallback to ANDROID
-        t.queue("player", nlohmann::json{
-            {"playabilityStatus", {{"status", "OK"}}},
-            {"streamingData", {{"formats", nlohmann::json::array()}}}
-        });
+        t.queue("player",
+                "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{\"formats\":[]}}");
         // ANDROID reply: good fixture with real streams
-        t.queue("player", loadFixture("player_ios.json"));
+        t.queue("player", loadFixtureRaw("player_ios.json"));
         StreamsRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Stream>)));
         req.get("vid");
@@ -57,7 +55,7 @@ private slots:
     }
 
     void videoBrowseFeed() {
-        FakeTransport t; t.queue("browse", loadFixture("browse_feed.json"));
+        FakeTransport t; t.queue("browse", loadFixtureRaw("browse_feed.json"));
         VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
         req.browseFeed("FEwhat_to_watch", QString());
@@ -67,33 +65,33 @@ private slots:
         QCOMPARE(got.size(), 2);
         QCOMPARE(got[0].id, QString("ccc33333333"));
         QCOMPARE(spy.at(0).at(1).toString(), QString("FEEDNEXT"));
-        QCOMPARE(QString::fromStdString(t.sent.at(0).value("browseId", std::string())), QString("FEwhat_to_watch"));
+        QVERIFY(t.sent.at(0).contains("\"browseId\":\"FEwhat_to_watch\""));
     }
     void videoSearchVideos() {
-        FakeTransport t; t.queue("search", loadFixture("search_videos.json"));
+        FakeTransport t; t.queue("search", loadFixtureRaw("search_videos.json"));
         VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
         req.searchVideos("cats", "date");
         t.flush();
         QCOMPARE(spy.count(), 1);
-        QCOMPARE(QString::fromStdString(t.sent.at(0).value("query", std::string())), QString("cats"));
-        QVERIFY(t.sent.at(0).contains("params"));   // date sort param attached
+        QVERIFY(t.sent.at(0).contains("\"query\":\"cats\""));
+        QVERIFY(t.sent.at(0).contains("\"params\":"));   // date sort param attached
     }
 
     void videoBrowseContinuation() {
-        FakeTransport t; t.queue("browse", loadFixture("browse_feed.json"));
+        FakeTransport t; t.queue("browse", loadFixtureRaw("browse_feed.json"));
         VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
         req.browseFeed("FEwhat_to_watch", "SOMETOKEN");
         t.flush();
         QCOMPARE(spy.count(), 1);
-        QVERIFY(t.sent.at(0).contains("continuation"));
-        QVERIFY(!t.sent.at(0).contains("browseId"));
+        QVERIFY(t.sent.at(0).contains("\"continuation\":"));
+        QVERIFY(!t.sent.at(0).contains("\"browseId\":"));
     }
 
     // The merged watch call: one /next → primary details + related, via watchReady().
     void videoLoadWatch() {
-        FakeTransport t; t.queue("next", loadFixture("watch_next.json"));
+        FakeTransport t; t.queue("next", loadFixtureRaw("watch_next.json"));
         VideoRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(watchReady(CT::Video,QList<CT::Video>)));
         req.loadWatch("vid42");
@@ -104,14 +102,13 @@ private slots:
         QCOMPARE(primary.id, QString("vid42"));            // carried, /next doesn't echo it
         QCOMPARE(primary.description, QString("Hello description"));
         QVERIFY(related.size() >= 1);
-        QCOMPARE(QString::fromStdString(t.sent.at(0).value("videoId", std::string())), QString("vid42"));
+        QVERIFY(t.sent.at(0).contains("\"videoId\":\"vid42\""));
     }
 
     void bothClientsFail() {
         FakeTransport t;
-        nlohmann::json nonPlayable{
-            {"playabilityStatus", {{"status", "LOGIN_REQUIRED"}, {"reason", "Sign in"}}}
-        };
+        const std::string nonPlayable =
+            "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in\"}}";
         t.queue("player", nonPlayable);
         t.queue("player", nonPlayable);
         StreamsRequest req(&t);
@@ -128,8 +125,8 @@ private slots:
 
     void commentsTwoStep() {
         FakeTransport t;
-        t.queue("next", loadFixture("next_for_comments.json"));   // discovers token
-        t.queue("next", loadFixture("comments_page.json"));       // returns comments
+        t.queue("next", loadFixtureRaw("next_for_comments.json"));   // discovers token
+        t.queue("next", loadFixtureRaw("comments_page.json"));       // returns comments
         CommentRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
         req.list("aaa11111111", QString());
@@ -138,13 +135,13 @@ private slots:
         QList<CT::Comment> got = qvariant_cast<QList<CT::Comment> >(spy.at(0).at(0));
         QCOMPARE(got.size(), 2);
         QCOMPARE(spy.at(0).at(1).toString(), QString("MORE_COMMENTS"));
-        QCOMPARE(QString::fromStdString(t.sent.at(0).value("videoId", std::string())), QString("aaa11111111"));
-        QCOMPARE(QString::fromStdString(t.sent.at(1).value("continuation", std::string())), QString("COMMENTS_TOKEN"));
+        QVERIFY(t.sent.at(0).contains("\"videoId\":\"aaa11111111\""));
+        QVERIFY(t.sent.at(1).contains("\"continuation\":\"COMMENTS_TOKEN\""));
     }
 
     void commentsDisabled() {
         FakeTransport t;
-        t.queue("next", nlohmann::json::object());   // {} : no engagementPanels => comments disabled
+        t.queue("next", "{}");   // {} : no engagementPanels => comments disabled
         CommentRequest req(&t);
         QSignalSpy readySpy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
         QSignalSpy failSpy(&req, SIGNAL(failed(QString)));
@@ -159,13 +156,13 @@ private slots:
 
     void commentsDirectContinuation() {
         FakeTransport t;
-        t.queue("next", loadFixture("comments_page.json"));
+        t.queue("next", loadFixtureRaw("comments_page.json"));
         CommentRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Comment>,QString)));
         req.list(QString(), QString("EXISTING_TOKEN"));
         t.flush();
         QCOMPARE(t.sent.size(), 1);          // only ONE POST, no discovery step
-        QCOMPARE(QString::fromStdString(t.sent.at(0).value("continuation", std::string())), QString("EXISTING_TOKEN"));
+        QVERIFY(t.sent.at(0).contains("\"continuation\":\"EXISTING_TOKEN\""));
         QCOMPARE(spy.count(), 1);
     }
 
@@ -174,10 +171,9 @@ private slots:
     // (so the UI can choose a system-handoff) rather than a generic "no streams".
     void streamsAllCiphered() {
         FakeTransport t;
-        nlohmann::json ciphered{
-            {"playabilityStatus", {{"status", "OK"}}},
-            {"streamingData", {{"formats", nlohmann::json::array({
-                nlohmann::json{{"itag", 18}, {"signatureCipher", "s=xx"}} })}}}};
+        const std::string ciphered =
+            "{\"playabilityStatus\":{\"status\":\"OK\"},"
+            "\"streamingData\":{\"formats\":[{\"itag\":18,\"signatureCipher\":\"s=xx\"}]}}";
         t.queue("player", ciphered);
         t.queue("player", ciphered);
         StreamsRequest req(&t);
@@ -194,8 +190,8 @@ private slots:
     // P2.1: playlist search → CT::Playlist list, playlists filter attached.
     void playlistSearch() {
         FakeTransport t;
-        t.queue("search", nlohmann::json{ {"contents", nlohmann::json::array({
-            nlohmann::json{{"playlistRenderer", {{"playlistId", "PL1"}, {"title", {{"simpleText", "L"}}}}}} })}});
+        t.queue("search",
+                "{\"contents\":[{\"playlistRenderer\":{\"playlistId\":\"PL1\",\"title\":{\"simpleText\":\"L\"}}}]}");
         PlaylistRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::Playlist>,QString)));
         req.search("foo");
@@ -204,16 +200,16 @@ private slots:
         QList<CT::Playlist> got = qvariant_cast<QList<CT::Playlist> >(spy.at(0).at(0));
         QCOMPARE(got.size(), 1);
         QCOMPARE(got[0].id, QString("PL1"));
-        QVERIFY(t.sent.at(0).contains("params"));
+        QVERIFY(t.sent.at(0).contains("\"params\":"));
     }
 
     // P2.2: resolve an @handle then browse the channel — one logical op, two POSTs.
     void userResolveThenBrowse() {
         FakeTransport t;
         t.queue("navigation/resolve_url",
-                nlohmann::json{ {"endpoint", {{"browseEndpoint", {{"browseId", "UCabc"}}}}} });
-        t.queue("browse", nlohmann::json{ {"header", {{"c4TabbedHeaderRenderer", {
-            {"title", "Chan"}, {"channelId", "UCabc"} }}}} });
+                "{\"endpoint\":{\"browseEndpoint\":{\"browseId\":\"UCabc\"}}}");
+        t.queue("browse",
+                "{\"header\":{\"c4TabbedHeaderRenderer\":{\"title\":\"Chan\",\"channelId\":\"UCabc\"}}}");
         UserRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(ready(QList<CT::User>,QString)));
         req.resolve("https://youtube.com/@chan");
@@ -228,7 +224,7 @@ private slots:
     // P4.2: subscribe posts subscription/subscribe with channelIds → done(true).
     void subscribeAction() {
         FakeTransport t;
-        t.queue("subscription/subscribe", nlohmann::json::object());
+        t.queue("subscription/subscribe", "{}");
         ActionRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(done(bool)));
         req.subscribe("UCabc");
@@ -241,15 +237,14 @@ private slots:
     // P4.2: like posts like/like with target.videoId → done(true).
     void likeAction() {
         FakeTransport t;
-        t.queue("like/like", nlohmann::json::object());
+        t.queue("like/like", "{}");
         ActionRequest req(&t);
         QSignalSpy spy(&req, SIGNAL(done(bool)));
         req.like("vid1");
         t.flush();
         QCOMPARE(spy.count(), 1);
         QVERIFY(spy.at(0).at(0).toBool());
-        QVERIFY(t.sent.at(0).contains("target"));
-        QCOMPARE(QString::fromStdString(t.sent.at(0)["target"].value("videoId", std::string())), QString("vid1"));
+        QVERIFY(t.sent.at(0).contains("\"target\":{\"videoId\":\"vid1\"}"));
     }
 };
 QTEST_MAIN(TestRequests)

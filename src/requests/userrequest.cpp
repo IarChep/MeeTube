@@ -16,7 +16,7 @@
 
 #include "userrequest.h"
 #include "parsers/rendererparser.h"
-#include "parsers/jsonutil.h"
+#include "bodies.h"
 
 namespace yt {
 
@@ -27,23 +27,22 @@ void UserRequest::get(const QString &channelId) {
 
 void UserRequest::browseChannel(const QString &browseId) {
     m_mode = ModeChannel;
-    nlohmann::json body{ {"browseId", browseId.toStdString()} };
-    connect(m_t->post("browse", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("browse", ClientId::WEB, bodies::browse(browseId, QString(), QString()), this),
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void UserRequest::resolve(const QString &url) {
     setStatus(Loading);
     m_mode = ModeResolve;
-    nlohmann::json body{ {"url", url.toStdString()} };
-    connect(m_t->post("navigation/resolve_url", ClientId::WEB, body, this),
+    connect(m_t->post("navigation/resolve_url", ClientId::WEB, bodies::resolveUrl(url), this),
             SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void UserRequest::search(const QString &query) {
     setStatus(Loading);
     m_mode = ModeSearch;
-    nlohmann::json body{ {"query", query.toStdString()}, {"params", "EgIQAg=="} };  // channels filter
-    connect(m_t->post("search", ClientId::WEB, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
+    connect(m_t->post("search", ClientId::WEB, bodies::search(query, "EgIQAg=="), this),   // channels filter
+            SIGNAL(finished()), this, SLOT(onFinished()));
 }
 
 void UserRequest::onFinished() {
@@ -54,9 +53,7 @@ void UserRequest::onFinished() {
     if (aborted(r)) return;
 
     if (m_mode == ModeResolve) {
-        QString browseId;
-        if (r.json.contains("endpoint") && r.json.at("endpoint").contains("browseEndpoint"))
-            browseId = jstr(r.json.at("endpoint").at("browseEndpoint"), "browseId");
+        const QString browseId = parseResolvedBrowseId(*r.body);
         if (browseId.isEmpty()) { fail(QString::fromLatin1("could not resolve channel")); return; }
         browseChannel(browseId);   // chain to the channel browse
         return;
