@@ -108,27 +108,15 @@ Page {
 
     ToolBarLayout {
         id: mainTools
+        // Search (opens the search page) on the left, account on the right. The
+        // category picker moved off the toolbar — it opens from the header tap.
         ToolIcon {
-            iconId: "toolbar-view-menu"
-            onClicked: mainMenu.open()
+            iconId: "toolbar-search"
+            onClicked: pageStack.push(Qt.resolvedUrl("SearchPage.qml"))
         }
         ToolIcon {
             iconId: "toolbar-contact"
             onClicked: appWindow.openAccount()
-        }
-    }
-
-    Menu {
-        id: mainMenu
-        MenuLayout {
-            MenuItem {
-                text: "Category"
-                onClicked: appWindow.openCategoryDialog()
-            }
-            MenuItem {
-                text: "Quit"
-                onClicked: Qt.quit()
-            }
         }
     }
 }
