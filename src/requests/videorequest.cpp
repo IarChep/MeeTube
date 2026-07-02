@@ -75,13 +75,13 @@ void VideoRequest::onFinished() {
     if (aborted(r)) return;
     if (m_mode == ModeWatch) {
         CT::Video primary; QList<CT::Video> related;
-        parseWatchPage(r.json, &primary, &related);
+        parseWatchPage(*r.body, &primary, &related);
         primary.id = m_videoId;                    // /next does not echo the id; carry it
         primary.commentsId = m_videoId; primary.subtitlesId = m_videoId; primary.relatedVideosId = m_videoId;
         setStatus(Ready);
         emit watchReady(primary, related);
     } else {
-        QString token; QList<CT::Video> v = parseVideoList(r.json, &token);
+        QString token; QList<CT::Video> v = parseVideoList(*r.body, &token);
         setStatus(Ready);
         emit videosReady(v, token);
     }

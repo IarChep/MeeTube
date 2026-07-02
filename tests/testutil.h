@@ -16,6 +16,14 @@ inline nlohmann::json loadFixture(const char *name) {
     return nlohmann::json::parse(b.constData(), b.constData() + b.size(), nullptr, false);
 }
 
+// Same fixture as raw bytes — what the (Glaze-backed) parsers take.
+inline std::string loadFixtureRaw(const char *name) {
+    QFile f(QString(MT_TEST_DATA_DIR) + "/fixtures/" + name);
+    if (!f.open(QIODevice::ReadOnly)) return std::string();
+    const QByteArray b = f.readAll();
+    return std::string(b.constData(), (size_t)b.size());
+}
+
 // A TransportReply whose finished() is fired on demand by FakeTransport::flush().
 // Deliberately NOT a Q_OBJECT: it only emits the finished() signal inherited from
 // yt::TransportReply, so this header needs no moc.

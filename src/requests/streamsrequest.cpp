@@ -48,9 +48,9 @@ void StreamsRequest::onFinished() {
     const bool isLast = (m_client == ClientId::ANDROID);
     if (r.ok) {
         QString reason;
-        if (isPlayable(r.json, &reason)) {
+        if (isPlayable(*r.body, &reason)) {
             bool cipheredOnly = false;
-            QList<CT::Stream> s = parseStreams(r.json, &cipheredOnly);
+            QList<CT::Stream> s = parseStreams(*r.body, &cipheredOnly);
             if (!s.isEmpty()) { deliver(s); return; }
             // Distinguish "every format needs signature decipher (unsupported)" from a
             // plain empty response, so the UI can fall through to a system-handoff.

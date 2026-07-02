@@ -43,16 +43,14 @@ void CommentRequest::onFinished() {
     if (aborted(r)) return;
     if (m_mode == ModeDiscover) {
         // Find the comments-section panel's continuation token.
-        QString token;
-        if (r.json.contains("engagementPanels"))
-            token = findContinuationToken(r.json.at("engagementPanels"));
+        const QString token = findContinuationTokenUnder(*r.body, "engagementPanels");
         // No panel/token == comments disabled: deliver an empty, successful page
         // (the model distinguishes this from a failure by status Ready + count 0).
         if (token.isEmpty()) { deliver(QList<CT::Comment>(), QString()); return; }
         fetchPage(token);
     } else {
         QString next;
-        QList<CT::Comment> c = parseComments(r.json, &next);
+        QList<CT::Comment> c = parseComments(*r.body, &next);
         deliver(c, next);
     }
 }

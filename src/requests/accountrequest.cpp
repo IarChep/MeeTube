@@ -34,7 +34,7 @@ void AccountRequest::onFinished() {
     const Reply r = rep->result();
     rep->deleteLater();
     if (aborted(r)) return;
-    const CT::Account a = parseAccountsList(r.json);
+    const CT::Account a = parseAccountsList(*r.body);
     if (a.username.isEmpty() && a.channelId.isEmpty()) {
         fail(QString::fromLatin1("account unavailable"));
         return;

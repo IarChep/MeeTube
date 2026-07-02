@@ -1,126 +1,406 @@
 #include "rendererparser.h"
-#include "jsonutil.h"
 #include "continuation.h"
+#include "ytjson.h"
+#include "jsonscan.h"
 #include <QRegExp>
+#include <vector>
+
 namespace yt {
 
-QString parseText(const nlohmann::json &field) {
-    if (!field.is_object()) return QString();
-    if (field.contains("simpleText") && field.at("simpleText").is_string())
-        return QString::fromStdString(field.at("simpleText").get<std::string>());
-    if (field.contains("runs") && field.at("runs").is_array()) {
-        QString out;
-        for (const auto &run : field.at("runs"))
-            out += jstr(run, "text");
-        return out;
-    }
-    return QString();
+using namespace gj;
+
+// ---------------------------------------------------------------------------
+// Typed partial views of the renderer shapes (Glaze reflection — field names
+// are the JSON keys; unknown keys are skipped by gj::kIn). All plain std types:
+// this block stays Qt-free.
+// ---------------------------------------------------------------------------
+namespace rj {
+
+// -- videoRenderer / compactVideoRenderer / gridVideoRenderer / playlistVideoRenderer
+struct ChanThumbWithLink {
+    std::optional<ThumbSet> thumbnail;
+};
+struct ChanThumbSupported {
+    std::optional<ChanThumbWithLink> channelThumbnailWithLinkRenderer;
+};
+struct VideoR {
+    std::optional<std::string> videoId;
+    std::optional<Text> title;
+    std::optional<Text> ownerText;
+    std::optional<Text> longBylineText;
+    std::optional<Text> shortBylineText;
+    std::optional<Text> lengthText;
+    std::optional<Text> viewCountText;
+    std::optional<Text> publishedTimeText;
+    std::optional<ThumbSet> thumbnail;
+    std::optional<ChanThumbSupported> channelThumbnailSupportedRenderers;
+};
+
+// -- lockupViewModel (video + playlist shapes share one struct; contentType picks)
+struct BadgeVM {
+    std::optional<std::string> text;
+};
+struct BadgeW {
+    std::optional<BadgeVM> thumbnailBadgeViewModel;
+};
+struct BottomOverlay {
+    std::optional<std::vector<BadgeW>> badges;
+};
+struct OverlayBadgeVM {
+    std::optional<std::vector<BadgeW>> thumbnailBadges;
+};
+struct OverlayW {
+    std::optional<BottomOverlay> thumbnailBottomOverlayViewModel;
+    std::optional<OverlayBadgeVM> thumbnailOverlayBadgeViewModel;
+};
+struct ThumbVM {
+    std::optional<Sources> image;
+    std::optional<std::vector<OverlayW>> overlays;
+};
+struct PrimThumbW {
+    std::optional<ThumbVM> thumbnailViewModel;
+};
+struct CollectionThumb {
+    std::optional<PrimThumbW> primaryThumbnail;
+};
+struct ContentImage {
+    std::optional<ThumbVM> thumbnailViewModel;              // video lockups
+    std::optional<CollectionThumb> collectionThumbnailViewModel;   // playlist lockups
+};
+struct BrowseEP {
+    std::optional<std::string> browseId;
+};
+struct ITCommand {
+    std::optional<BrowseEP> browseEndpoint;
+};
+struct OnTap {
+    std::optional<ITCommand> innertubeCommand;
+};
+struct CmdCtx {
+    std::optional<OnTap> onTap;
+};
+struct RendererCtx {
+    std::optional<CmdCtx> commandContext;
+};
+struct AvatarVM {
+    std::optional<Sources> image;
+};
+struct AvatarW {
+    std::optional<AvatarVM> avatarViewModel;
+};
+struct DecoratedAvatar {
+    std::optional<AvatarW> avatar;
+    std::optional<RendererCtx> rendererContext;
+};
+struct ImageW {
+    std::optional<DecoratedAvatar> decoratedAvatarViewModel;
+};
+struct MetaPart {
+    std::optional<ContentText> text;
+};
+struct MetaRow {
+    std::optional<std::vector<MetaPart>> metadataParts;
+};
+struct ContentMetaVM {
+    std::optional<std::vector<MetaRow>> metadataRows;
+};
+struct MetaW {
+    std::optional<ContentMetaVM> contentMetadataViewModel;
+};
+struct LockupMetaVM {
+    std::optional<ContentText> title;
+    std::optional<ImageW> image;
+    std::optional<MetaW> metadata;
+};
+struct LockupMetaW {
+    std::optional<LockupMetaVM> lockupMetadataViewModel;
+};
+struct Lockup {
+    std::optional<std::string> contentId;
+    std::optional<std::string> contentType;
+    std::optional<ContentImage> contentImage;
+    std::optional<LockupMetaW> metadata;
+};
+
+// -- tileRenderer (TVHTML5)
+struct LineItem {
+    std::optional<Text> text;
+};
+struct LineItemW {
+    std::optional<LineItem> lineItemRenderer;
+};
+struct LineR {
+    std::optional<std::vector<LineItemW>> items;
+};
+struct LineW {
+    std::optional<LineR> lineRenderer;
+};
+struct TileMeta {
+    std::optional<Text> title;
+    std::optional<std::vector<LineW>> lines;
+};
+struct TileMetaW {
+    std::optional<TileMeta> tileMetadataRenderer;
+};
+struct TimeStatus {
+    std::optional<Text> text;
+};
+struct TileOverlay {
+    std::optional<TimeStatus> thumbnailOverlayTimeStatusRenderer;
+};
+struct TileHeader {
+    std::optional<ThumbSet> thumbnail;
+    std::optional<std::vector<TileOverlay>> thumbnailOverlays;
+};
+struct TileHeaderW {
+    std::optional<TileHeader> tileHeaderRenderer;
+};
+struct Tile {
+    std::optional<std::string> contentId;
+    std::optional<std::string> contentType;
+    std::optional<TileMetaW> metadata;
+    std::optional<TileHeaderW> header;
+};
+
+// -- playlistRenderer / gridPlaylistRenderer / compactPlaylistRenderer
+struct PlaylistR {
+    std::optional<std::string> playlistId;
+    // Some shapes carry a plain string title, others a text object.
+    std::optional<std::variant<std::string, Text>> title;
+    std::optional<ThumbSet> thumbnail;
+    std::optional<std::vector<ThumbSet>> thumbnails;
+    std::optional<Text> shortBylineText;
+    std::optional<Text> longBylineText;
+    // jstr() was string-strict here: a numeric videoCount falls through to the
+    // text variants below, so only the string alternative is consumed.
+    std::optional<FlexInt> videoCount;
+    std::optional<Text> videoCountText;
+    std::optional<Text> videoCountShortText;
+};
+
+// -- channelRenderer / gridChannelRenderer
+struct UserR {
+    std::optional<std::string> channelId;
+    std::optional<Text> title;
+    std::optional<ThumbSet> thumbnail;
+    std::optional<Text> subscriberCountText;
+    std::optional<Text> descriptionSnippet;
+};
+
+// -- channel page header(s) + metadata
+struct DynamicTextVM {
+    std::optional<ContentText> text;
+};
+struct TitleW {
+    std::optional<DynamicTextVM> dynamicTextViewModel;
+};
+struct ImageBannerVM {
+    std::optional<Sources> image;
+};
+struct BannerW {
+    std::optional<ImageBannerVM> imageBannerViewModel;
+};
+struct PageHeaderVM {
+    std::optional<TitleW> title;
+    std::optional<ImageW> image;
+    std::optional<BannerW> banner;
+    std::optional<MetaW> metadata;
+};
+struct PageHeaderContent {
+    std::optional<PageHeaderVM> pageHeaderViewModel;
+};
+struct PageHeader {
+    std::optional<PageHeaderContent> content;
+};
+struct C4Header {
+    std::optional<std::variant<std::string, Text>> title;   // c4 uses a plain string title
+    std::optional<std::string> channelId;
+    std::optional<ThumbSet> avatar;
+    std::optional<ThumbSet> banner;
+    std::optional<Text> subscriberCountText;
+};
+struct HeaderW {
+    std::optional<C4Header> c4TabbedHeaderRenderer;
+    std::optional<PageHeader> pageHeaderRenderer;
+};
+struct ChannelMeta {
+    std::optional<std::string> externalId;
+    std::optional<std::string> title;
+    std::optional<std::string> description;
+    std::optional<ThumbSet> avatar;
+};
+struct ChannelMetaW {
+    std::optional<ChannelMeta> channelMetadataRenderer;
+};
+struct ChannelRoot {
+    std::optional<HeaderW> header;
+    std::optional<ChannelMetaW> metadata;
+};
+
+// -- commentEntityPayload
+struct CommentProps {
+    std::optional<ContentText> content;
+    std::optional<std::string> publishedTime;
+};
+struct CommentAuthor {
+    std::optional<std::string> displayName;
+};
+struct CommentAvatar {
+    std::optional<Sources> image;
+};
+struct CommentPayload {
+    std::optional<CommentProps> properties;
+    std::optional<CommentAuthor> author;
+    std::optional<CommentAvatar> avatar;
+};
+
+// -- accountItem (accounts_list)
+struct OfflineTok {
+    std::optional<std::string> clientCacheKey;
+};
+struct SupTok {
+    std::optional<OfflineTok> offlineCacheKeyToken;
+};
+struct SelectEP {
+    std::optional<std::vector<SupTok>> supportedTokens;
+};
+struct ServiceEP {
+    std::optional<SelectEP> selectActiveIdentityEndpoint;
+};
+struct AccountItem {
+    std::optional<Text> accountName;
+    std::optional<Text> channelHandle;
+    std::optional<ThumbSet> accountPhoto;
+    std::optional<bool> isSelected;
+    std::optional<ServiceEP> serviceEndpoint;
+};
+
+// -- watch page pieces (extracted from findRenderer() subtrees)
+struct PrimaryInfo {
+    std::optional<Text> title;
+};
+struct ViewCountR {
+    std::optional<Text> viewCount;
+};
+struct ToggleButton {
+    std::optional<Text> defaultText;
+};
+struct ButtonVM {
+    std::optional<std::string> title;
+};
+struct OwnerR {
+    std::optional<Text> title;
+    std::optional<ThumbSet> thumbnail;
+    std::optional<ITCommand> navigationEndpoint;   // {browseEndpoint:{browseId}}
+};
+
+} // namespace rj
+
+// ---------------------------------------------------------------------------
+// std::string → QString (UTF-8, unescaped by Glaze — same as fromStdString).
+// ---------------------------------------------------------------------------
+static QString qstr(const std::string &s) { return QString::fromUtf8(s.data(), (int)s.size()); }
+static QString qstr(const std::optional<std::string> &s) { return s ? qstr(*s) : QString(); }
+
+QString parseText(std::string_view field)
+{
+    Text t{};
+    readJson(t, field);
+    return qstr(textOf(t));
 }
 
-static QString lastThumb(const nlohmann::json &r) {
-    if (r.contains("thumbnail") && r.at("thumbnail").contains("thumbnails")
-        && r.at("thumbnail").at("thumbnails").is_array() && !r.at("thumbnail").at("thumbnails").empty())
-        return jstr(r.at("thumbnail").at("thumbnails").back(), "url");
-    return QString();
+// "digits only" → number (view counts arrive as "1,234 views").
+static qint64 digitsOf(const QString &s)
+{
+    return QString(s).remove(QRegExp("[^0-9]")).toLongLong();
 }
 
-CT::Video parseVideoRenderer(const nlohmann::json &r) {
+// ---------------------------------------------------------------------------
+// struct → CT conversions (the only Qt-aware part of the parse).
+// ---------------------------------------------------------------------------
+static CT::Video fromVideoRenderer(const rj::VideoR &r)
+{
     CT::Video v;
-    v.id = jstr(r, "videoId");
-    v.title = parseText(r.contains("title") ? r.at("title") : nlohmann::json::object());
-    v.username = parseText(r.contains("ownerText") ? r.at("ownerText") :
-                 (r.contains("longBylineText") ? r.at("longBylineText") : nlohmann::json::object()));
-    v.duration = parseText(r.contains("lengthText") ? r.at("lengthText") : nlohmann::json::object());
-    v.thumbnailUrl = lastThumb(r);              // native (WebP); decoded by the qwebp plugin
+    v.id = qstr(r.videoId);
+    v.title = qstr(textOf(r.title));
+    // Presence-based fallback (not value-based): mirrors the old ternary on contains().
+    if (r.ownerText)            v.username = qstr(textOf(*r.ownerText));
+    else if (r.longBylineText)  v.username = qstr(textOf(*r.longBylineText));
+    v.duration = qstr(textOf(r.lengthText));
+    v.thumbnailUrl = qstr(lastThumbUrl(r.thumbnail));   // native (WebP); decoded by the qwebp plugin
     if (v.thumbnailUrl.isEmpty() && !v.id.isEmpty())
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
     v.largeThumbnailUrl = v.thumbnailUrl;
     // Channel avatar: videoRenderer.channelThumbnailSupportedRenderers
     //   .channelThumbnailWithLinkRenderer.thumbnail.thumbnails[].url
-    if (r.contains("channelThumbnailSupportedRenderers")) {
-        const nlohmann::json &cts = r.at("channelThumbnailSupportedRenderers");
-        if (cts.contains("channelThumbnailWithLinkRenderer"))
-            v.avatarUrl = lastThumb(cts.at("channelThumbnailWithLinkRenderer"));
-    }
-    if (r.contains("viewCountText")) {
-        const QString vc = parseText(r.at("viewCountText"));
-        v.viewCount = QString(vc).remove(QRegExp("[^0-9]")).toLongLong();
-    }
-    if (r.contains("publishedTimeText"))        // "2 days ago" — shown on the delegate
-        v.date = parseText(r.at("publishedTimeText"));
+    if (r.channelThumbnailSupportedRenderers
+        && r.channelThumbnailSupportedRenderers->channelThumbnailWithLinkRenderer)
+        v.avatarUrl = qstr(lastThumbUrl(
+            r.channelThumbnailSupportedRenderers->channelThumbnailWithLinkRenderer->thumbnail));
+    if (r.viewCountText)
+        v.viewCount = digitsOf(qstr(textOf(*r.viewCountText)));
+    if (r.publishedTimeText)                    // "2 days ago" — shown on the delegate
+        v.date = qstr(textOf(*r.publishedTimeText));
     v.commentsId = v.id;
     v.subtitlesId = v.id;
     v.relatedVideosId = v.id;
     return v;
 }
 
-// Largest url from a viewModel image ("sources" ordered small→large, so back()).
-static QString lastSourceUrl(const nlohmann::json &img) {
-    if (img.is_object() && img.contains("sources") && img.at("sources").is_array()
-        && !img.at("sources").empty())
-        return jstr(img.at("sources").back(), "url");
-    return QString();
-}
-
-CT::Video parseLockupViewModel(const nlohmann::json &lm) {
+static CT::Video fromLockupVideo(const rj::Lockup &lm)
+{
     CT::Video v;
-    v.id = jstr(lm, "contentId");
+    v.id = qstr(lm.contentId);
     // Thumbnail + the duration badge overlay.
-    if (lm.contains("contentImage") && lm.at("contentImage").contains("thumbnailViewModel")) {
-        const nlohmann::json &tvm = lm.at("contentImage").at("thumbnailViewModel");
-        if (tvm.contains("image")) v.thumbnailUrl = lastSourceUrl(tvm.at("image"));
-        if (tvm.contains("overlays") && tvm.at("overlays").is_array()) {
-            for (const auto &ov : tvm.at("overlays")) {
-                if (!ov.contains("thumbnailBottomOverlayViewModel")) continue;
-                const nlohmann::json &bo = ov.at("thumbnailBottomOverlayViewModel");
-                if (!bo.contains("badges") || !bo.at("badges").is_array()) continue;
-                for (const auto &b : bo.at("badges")) {
-                    if (!b.contains("thumbnailBadgeViewModel")) continue;
-                    const QString t = jstr(b.at("thumbnailBadgeViewModel"), "text");
+    if (lm.contentImage && lm.contentImage->thumbnailViewModel) {
+        const rj::ThumbVM &tvm = *lm.contentImage->thumbnailViewModel;
+        v.thumbnailUrl = qstr(lastSourceUrl(tvm.image));
+        if (tvm.overlays)
+            for (const rj::OverlayW &ov : *tvm.overlays) {
+                if (!ov.thumbnailBottomOverlayViewModel) continue;
+                const rj::BottomOverlay &bo = *ov.thumbnailBottomOverlayViewModel;
+                if (!bo.badges) continue;
+                for (const rj::BadgeW &b : *bo.badges) {
+                    if (!b.thumbnailBadgeViewModel) continue;
+                    const QString t = qstr(b.thumbnailBadgeViewModel->text);
                     // Only the time-shaped badge ("4:56"/"1:02:03") is the duration.
                     if (v.duration.isEmpty() && QRegExp("(\\d+:)?\\d?\\d:\\d\\d").exactMatch(t))
                         v.duration = t;
                 }
             }
-        }
     }
     if (v.thumbnailUrl.isEmpty() && !v.id.isEmpty())
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
     v.largeThumbnailUrl = v.thumbnailUrl;
-    if (lm.contains("metadata") && lm.at("metadata").contains("lockupMetadataViewModel")) {
-        const nlohmann::json &md = lm.at("metadata").at("lockupMetadataViewModel");
-        if (md.contains("title")) v.title = jstr(md.at("title"), "content");
+    if (lm.metadata && lm.metadata->lockupMetadataViewModel) {
+        const rj::LockupMetaVM &md = *lm.metadata->lockupMetadataViewModel;
+        if (md.title) v.title = qstr(contentOf(md.title));
         // Channel avatar + id from the decorated avatar's onTap browseEndpoint.
-        if (md.contains("image") && md.at("image").contains("decoratedAvatarViewModel")) {
-            const nlohmann::json &dav = md.at("image").at("decoratedAvatarViewModel");
-            if (dav.contains("avatar") && dav.at("avatar").contains("avatarViewModel")
-                && dav.at("avatar").at("avatarViewModel").contains("image"))
-                v.avatarUrl = lastSourceUrl(dav.at("avatar").at("avatarViewModel").at("image"));
-            if (dav.contains("rendererContext")
-                && dav.at("rendererContext").contains("commandContext")) {
-                const nlohmann::json &cc = dav.at("rendererContext").at("commandContext");
-                if (cc.contains("onTap") && cc.at("onTap").contains("innertubeCommand")
-                    && cc.at("onTap").at("innertubeCommand").contains("browseEndpoint"))
-                    v.userId = jstr(cc.at("onTap").at("innertubeCommand").at("browseEndpoint"), "browseId");
+        if (md.image && md.image->decoratedAvatarViewModel) {
+            const rj::DecoratedAvatar &dav = *md.image->decoratedAvatarViewModel;
+            if (dav.avatar && dav.avatar->avatarViewModel)
+                v.avatarUrl = qstr(lastSourceUrl(dav.avatar->avatarViewModel->image));
+            if (dav.rendererContext && dav.rendererContext->commandContext) {
+                const rj::CmdCtx &cc = *dav.rendererContext->commandContext;
+                if (cc.onTap && cc.onTap->innertubeCommand && cc.onTap->innertubeCommand->browseEndpoint)
+                    v.userId = qstr(cc.onTap->innertubeCommand->browseEndpoint->browseId);
             }
         }
         // metadataRows: row 0 = channel name; a later row = "N views" + "date ago".
-        if (md.contains("metadata") && md.at("metadata").contains("contentMetadataViewModel")) {
-            const nlohmann::json &cmv = md.at("metadata").at("contentMetadataViewModel");
-            if (cmv.contains("metadataRows") && cmv.at("metadataRows").is_array()) {
-                int ri = 0;
-                for (const auto &row : cmv.at("metadataRows")) {
-                    if (row.contains("metadataParts") && row.at("metadataParts").is_array()) {
-                        for (const auto &p : row.at("metadataParts")) {
-                            const QString txt = p.contains("text") ? jstr(p.at("text"), "content") : QString();
-                            if (txt.isEmpty()) continue;
-                            if (v.username.isEmpty() && ri == 0)                       v.username = txt;
-                            else if (v.viewText.isEmpty() && txt.contains("view", Qt::CaseInsensitive)) v.viewText = txt;
-                            else if (v.date.isEmpty() && txt.contains("ago"))          v.date = txt;
-                        }
+        if (md.metadata && md.metadata->contentMetadataViewModel
+            && md.metadata->contentMetadataViewModel->metadataRows) {
+            int ri = 0;
+            for (const rj::MetaRow &row : *md.metadata->contentMetadataViewModel->metadataRows) {
+                if (row.metadataParts) {
+                    for (const rj::MetaPart &p : *row.metadataParts) {
+                        const QString txt = qstr(contentOf(p.text));
+                        if (txt.isEmpty()) continue;
+                        if (v.username.isEmpty() && ri == 0)                                        v.username = txt;
+                        else if (v.viewText.isEmpty() && txt.contains("view", Qt::CaseInsensitive)) v.viewText = txt;
+                        else if (v.date.isEmpty() && txt.contains("ago"))                           v.date = txt;
                     }
-                    ++ri;
                 }
+                ++ri;
             }
         }
     }
@@ -128,30 +408,24 @@ CT::Video parseLockupViewModel(const nlohmann::json &lm) {
     return v;
 }
 
-// Bound the recursive descent (see continuation.cpp): defend the stack against a
-// pathological/looping payload on a low-memory device.
-static const int kMaxDepth = 100;
-
 // tileRenderer — the TV UI card. Self-contained leaf (like lockupViewModel); only
 // TILE_CONTENT_TYPE_VIDEO becomes a CT::Video. metadata.tileMetadataRenderer carries
 // title + lines (line 0 = channel, line 1 = views [+ date]); the duration rides in a
 // thumbnailOverlayTimeStatusRenderer.
-CT::Video parseTileRenderer(const nlohmann::json &t) {
+static CT::Video fromTile(const rj::Tile &t)
+{
     CT::Video v;
-    v.id = jstr(t, "contentId");
-    if (t.contains("metadata") && t.at("metadata").contains("tileMetadataRenderer")) {
-        const nlohmann::json &md = t.at("metadata").at("tileMetadataRenderer");
-        if (md.contains("title")) v.title = parseText(md.at("title"));
-        if (md.contains("lines") && md.at("lines").is_array()) {
-            const nlohmann::json &lines = md.at("lines");
-            for (size_t li = 0; li < lines.size(); ++li) {
-                if (!lines[li].contains("lineRenderer")
-                    || !lines[li].at("lineRenderer").contains("items")) continue;
-                const nlohmann::json &items = lines[li].at("lineRenderer").at("items");
-                for (size_t ii = 0; ii < items.size(); ++ii) {
-                    if (!items[ii].contains("lineItemRenderer")
-                        || !items[ii].at("lineItemRenderer").contains("text")) continue;
-                    const QString text = parseText(items[ii].at("lineItemRenderer").at("text"));
+    v.id = qstr(t.contentId);
+    if (t.metadata && t.metadata->tileMetadataRenderer) {
+        const rj::TileMeta &md = *t.metadata->tileMetadataRenderer;
+        if (md.title) v.title = qstr(textOf(*md.title));
+        if (md.lines) {
+            for (size_t li = 0; li < md.lines->size(); ++li) {
+                const rj::LineW &line = (*md.lines)[li];
+                if (!line.lineRenderer || !line.lineRenderer->items) continue;
+                for (const rj::LineItemW &item : *line.lineRenderer->items) {
+                    if (!item.lineItemRenderer || !item.lineItemRenderer->text) continue;
+                    const QString text = qstr(textOf(*item.lineItemRenderer->text));
                     if (text.isEmpty()) continue;
                     if (li == 0 && v.username.isEmpty()) v.username = text;
                     else if (v.viewText.isEmpty() && text.contains(QLatin1String("view"))) v.viewText = text;
@@ -160,22 +434,17 @@ CT::Video parseTileRenderer(const nlohmann::json &t) {
             }
         }
     }
-    if (t.contains("header") && t.at("header").contains("tileHeaderRenderer")) {
-        const nlohmann::json &h = t.at("header").at("tileHeaderRenderer");
-        if (h.contains("thumbnail") && h.at("thumbnail").contains("thumbnails")
-            && h.at("thumbnail").at("thumbnails").is_array()
-            && !h.at("thumbnail").at("thumbnails").empty()) {
-            const nlohmann::json &ths = h.at("thumbnail").at("thumbnails");
-            v.thumbnailUrl = jstr(ths[ths.size() - 1], "url");   // last = largest
+    if (t.header && t.header->tileHeaderRenderer) {
+        const rj::TileHeader &h = *t.header->tileHeaderRenderer;
+        if (h.thumbnail && h.thumbnail->thumbnails && !h.thumbnail->thumbnails->empty()) {
+            v.thumbnailUrl = qstr(lastThumbUrl(*h.thumbnail));   // last = largest
             v.largeThumbnailUrl = v.thumbnailUrl;
         }
-        if (h.contains("thumbnailOverlays") && h.at("thumbnailOverlays").is_array())
-            for (size_t i = 0; i < h.at("thumbnailOverlays").size(); ++i) {
-                const nlohmann::json &ov = h.at("thumbnailOverlays")[i];
-                if (ov.contains("thumbnailOverlayTimeStatusRenderer")
-                    && ov.at("thumbnailOverlayTimeStatusRenderer").contains("text"))
-                    v.duration = parseText(ov.at("thumbnailOverlayTimeStatusRenderer").at("text"));
-            }
+        if (h.thumbnailOverlays)
+            for (const rj::TileOverlay &ov : *h.thumbnailOverlays)
+                if (ov.thumbnailOverlayTimeStatusRenderer
+                    && ov.thumbnailOverlayTimeStatusRenderer->text)
+                    v.duration = qstr(textOf(*ov.thumbnailOverlayTimeStatusRenderer->text));
     }
     if (v.thumbnailUrl.isEmpty() && !v.id.isEmpty()) {
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
@@ -186,108 +455,26 @@ CT::Video parseTileRenderer(const nlohmann::json &t) {
     return v;
 }
 
-// Recursively collect any video-bearing renderer objects in order. playlistVideoRenderer
-// lets a VLxxxx browse (a playlist's contents) populate a VideoModel directly.
-static void collect(const nlohmann::json &node, QList<CT::Video> &out, int depth = 0) {
-    if (depth > kMaxDepth) return;
-    static const char *kinds[] = { "videoRenderer", "compactVideoRenderer", "gridVideoRenderer",
-                                   "playlistVideoRenderer" };
-    if (node.is_object()) {
-        // lockupViewModel is a self-contained leaf (no nested video renderers); only the
-        // VIDEO content type becomes a CT::Video (playlist/other lockups are skipped).
-        if (node.contains("lockupViewModel")) {
-            const nlohmann::json &lm = node.at("lockupViewModel");
-            if (jstr(lm, "contentType") == QLatin1String("LOCKUP_CONTENT_TYPE_VIDEO"))
-                out << parseLockupViewModel(lm);
-            return;
-        }
-        // tileRenderer is likewise a self-contained leaf (TVHTML5 feeds).
-        if (node.contains("tileRenderer")) {
-            const nlohmann::json &t = node.at("tileRenderer");
-            if (jstr(t, "contentType") == QLatin1String("TILE_CONTENT_TYPE_VIDEO"))
-                out << parseTileRenderer(t);
-            return;
-        }
-        for (int i = 0; i < 4; ++i)
-            if (node.contains(kinds[i])) { out << parseVideoRenderer(node.at(kinds[i])); return; }
-        // richItemRenderer wraps content.videoRenderer — recurse into all values
-        // NOTE: video-list ORDER is preserved because the actual lists are JSON arrays (array
-        // iteration is ordered); object-key iteration here is only for structural descent, and
-        // nlohmann's default (ordered_map) does not guarantee document order for object keys.
-        for (auto it = node.begin(); it != node.end(); ++it) collect(it.value(), out, depth + 1);
-    } else if (node.is_array()) {
-        for (const auto &e : node) collect(e, out, depth + 1);
-    }
-}
-
-QList<CT::Video> parseVideoList(const nlohmann::json &response, QString *nextToken) {
-    QList<CT::Video> out;
-    collect(response, out);
-    if (nextToken) *nextToken = findContinuationToken(response);
-    return out;
-}
-
-static void collectComments(const nlohmann::json &node, QList<CT::Comment> &out, int depth = 0) {
-    if (depth > kMaxDepth) return;
-    if (node.is_object()) {
-        if (node.contains("commentEntityPayload")) {
-            const nlohmann::json &p = node.at("commentEntityPayload");
-            CT::Comment c;
-            if (p.contains("properties")) {
-                if (p.at("properties").contains("content"))
-                    c.body = jstr(p.at("properties").at("content"), "content");
-                c.date = jstr(p.at("properties"), "publishedTime");
-            }
-            if (p.contains("author")) c.username = jstr(p.at("author"), "displayName");
-            if (p.contains("avatar") && p.at("avatar").contains("image")
-                && p.at("avatar").at("image").contains("sources")
-                && p.at("avatar").at("image").at("sources").is_array()
-                && !p.at("avatar").at("image").at("sources").empty())
-                c.thumbnailUrl = jstr(p.at("avatar").at("image").at("sources").front(), "url");
-            if (!c.body.isEmpty()) out << c;
-            return;
-        }
-        for (auto it = node.begin(); it != node.end(); ++it) collectComments(it.value(), out, depth + 1);
-    } else if (node.is_array()) {
-        for (const auto &e : node) collectComments(e, out, depth + 1);
-    }
-}
-
-QList<CT::Comment> parseComments(const nlohmann::json &response, QString *nextToken) {
-    QList<CT::Comment> out;
-    collectComments(response, out);
-    if (nextToken) {
-        QString t;
-        if (response.contains("onResponseReceivedEndpoints"))
-            t = findContinuationToken(response.at("onResponseReceivedEndpoints"));
-        if (t.isEmpty()) t = findContinuationToken(response);
-        *nextToken = t;
-    }
-    return out;
-}
-
-// A bare thumbnails array → largest (last) url.
-static QString lastOf(const nlohmann::json &thumbs) {
-    if (thumbs.is_array() && !thumbs.empty()) return jstr(thumbs.back(), "url");
-    return QString();
-}
-
-CT::Playlist parsePlaylistRenderer(const nlohmann::json &r) {
+static CT::Playlist fromPlaylistRenderer(const rj::PlaylistR &r)
+{
     CT::Playlist p;
-    p.id = jstr(r, "playlistId");
-    p.title = parseText(r.contains("title") ? r.at("title") : nlohmann::json::object());
-    if (p.title.isEmpty()) p.title = jstr(r, "title");          // some shapes use a plain string
-    if (r.contains("thumbnail") && r.at("thumbnail").contains("thumbnails"))
-        p.thumbnailUrl = lastOf(r.at("thumbnail").at("thumbnails"));
-    else if (r.contains("thumbnails") && r.at("thumbnails").is_array() && !r.at("thumbnails").empty()
-             && r.at("thumbnails").front().contains("thumbnails"))
-        p.thumbnailUrl = lastOf(r.at("thumbnails").front().at("thumbnails"));
-    p.username = parseText(r.contains("shortBylineText") ? r.at("shortBylineText") :
-                 (r.contains("longBylineText") ? r.at("longBylineText") : nlohmann::json::object()));
-    QString vc = jstr(r, "videoCount");
-    if (vc.isEmpty() && r.contains("videoCountText"))      vc = parseText(r.at("videoCountText"));
-    if (vc.isEmpty() && r.contains("videoCountShortText")) vc = parseText(r.at("videoCountShortText"));
-    p.videoCount = (int) QString(vc).remove(QRegExp("[^0-9]")).toLongLong();
+    p.id = qstr(r.playlistId);
+    if (r.title) {
+        if (const gj::Text *t = std::get_if<gj::Text>(&*r.title)) p.title = qstr(textOf(*t));
+        else if (const std::string *s = std::get_if<std::string>(&*r.title)) p.title = qstr(*s);
+    }
+    if (r.thumbnail)
+        p.thumbnailUrl = qstr(lastThumbUrl(*r.thumbnail));
+    else if (r.thumbnails && !r.thumbnails->empty())
+        p.thumbnailUrl = qstr(lastThumbUrl(r.thumbnails->front()));
+    if (r.shortBylineText)     p.username = qstr(textOf(*r.shortBylineText));
+    else if (r.longBylineText) p.username = qstr(textOf(*r.longBylineText));
+    QString vc;
+    if (r.videoCount)
+        if (const std::string *s = std::get_if<std::string>(&*r.videoCount)) vc = qstr(*s);
+    if (vc.isEmpty() && r.videoCountText)      vc = qstr(textOf(*r.videoCountText));
+    if (vc.isEmpty() && r.videoCountShortText) vc = qstr(textOf(*r.videoCountShortText));
+    p.videoCount = (int)digitsOf(vc);
     p.videosId = p.id;
     return p;
 }
@@ -295,212 +482,349 @@ CT::Playlist parsePlaylistRenderer(const nlohmann::json &r) {
 // lockupViewModel with LOCKUP_CONTENT_TYPE_PLAYLIST — the 2024+ channel Playlists
 // tab ships these instead of gridPlaylistRenderer. The thumbnail hides under
 // collectionThumbnailViewModel.primaryThumbnail and "N videos" is a thumbnail badge.
-static CT::Playlist parsePlaylistLockup(const nlohmann::json &lm) {
+static CT::Playlist fromPlaylistLockup(const rj::Lockup &lm)
+{
     CT::Playlist p;
-    p.id = jstr(lm, "contentId");
-    if (lm.contains("contentImage")
-        && lm.at("contentImage").contains("collectionThumbnailViewModel")) {
-        const nlohmann::json &ct = lm.at("contentImage").at("collectionThumbnailViewModel");
-        if (ct.contains("primaryThumbnail")
-            && ct.at("primaryThumbnail").contains("thumbnailViewModel")) {
-            const nlohmann::json &tvm = ct.at("primaryThumbnail").at("thumbnailViewModel");
-            if (tvm.contains("image")) p.thumbnailUrl = lastSourceUrl(tvm.at("image"));
-            if (tvm.contains("overlays") && tvm.at("overlays").is_array())
-                for (const auto &ov : tvm.at("overlays")) {
-                    if (!ov.contains("thumbnailOverlayBadgeViewModel")) continue;
-                    const nlohmann::json &b = ov.at("thumbnailOverlayBadgeViewModel");
-                    if (!b.contains("thumbnailBadges") || !b.at("thumbnailBadges").is_array())
-                        continue;
-                    for (const auto &bb : b.at("thumbnailBadges")) {
-                        if (!bb.contains("thumbnailBadgeViewModel")) continue;
-                        const QString t = jstr(bb.at("thumbnailBadgeViewModel"), "text");
-                        if (p.videoCount == 0 && t.contains("video", Qt::CaseInsensitive))
-                            p.videoCount = (int) QString(t).remove(QRegExp("[^0-9]")).toLongLong();
-                    }
+    p.id = qstr(lm.contentId);
+    if (lm.contentImage && lm.contentImage->collectionThumbnailViewModel
+        && lm.contentImage->collectionThumbnailViewModel->primaryThumbnail
+        && lm.contentImage->collectionThumbnailViewModel->primaryThumbnail->thumbnailViewModel) {
+        const rj::ThumbVM &tvm =
+            *lm.contentImage->collectionThumbnailViewModel->primaryThumbnail->thumbnailViewModel;
+        p.thumbnailUrl = qstr(lastSourceUrl(tvm.image));
+        if (tvm.overlays)
+            for (const rj::OverlayW &ov : *tvm.overlays) {
+                if (!ov.thumbnailOverlayBadgeViewModel) continue;
+                const rj::OverlayBadgeVM &b = *ov.thumbnailOverlayBadgeViewModel;
+                if (!b.thumbnailBadges) continue;
+                for (const rj::BadgeW &bb : *b.thumbnailBadges) {
+                    if (!bb.thumbnailBadgeViewModel) continue;
+                    const QString t = qstr(bb.thumbnailBadgeViewModel->text);
+                    if (p.videoCount == 0 && t.contains("video", Qt::CaseInsensitive))
+                        p.videoCount = (int)digitsOf(t);
                 }
-        }
+            }
     }
-    if (lm.contains("metadata") && lm.at("metadata").contains("lockupMetadataViewModel")) {
-        const nlohmann::json &md = lm.at("metadata").at("lockupMetadataViewModel");
-        if (md.contains("title")) p.title = jstr(md.at("title"), "content");
-    }
+    if (lm.metadata && lm.metadata->lockupMetadataViewModel
+        && lm.metadata->lockupMetadataViewModel->title)
+        p.title = qstr(contentOf(lm.metadata->lockupMetadataViewModel->title));
     p.videosId = p.id;
     return p;
 }
 
-static void collectPlaylists(const nlohmann::json &node, QList<CT::Playlist> &out, int depth = 0) {
-    if (depth > kMaxDepth) return;
-    static const char *kinds[] = { "playlistRenderer", "gridPlaylistRenderer", "compactPlaylistRenderer" };
-    if (node.is_object()) {
-        // lockupViewModel is a self-contained leaf; only the PLAYLIST content type
-        // becomes a CT::Playlist (video/other lockups are skipped).
-        if (node.contains("lockupViewModel")) {
-            const nlohmann::json &lm = node.at("lockupViewModel");
-            if (jstr(lm, "contentType") == QLatin1String("LOCKUP_CONTENT_TYPE_PLAYLIST"))
-                out << parsePlaylistLockup(lm);
-            return;
-        }
-        for (int i = 0; i < 3; ++i)
-            if (node.contains(kinds[i])) { out << parsePlaylistRenderer(node.at(kinds[i])); return; }
-        for (auto it = node.begin(); it != node.end(); ++it) collectPlaylists(it.value(), out, depth + 1);
-    } else if (node.is_array()) {
-        for (const auto &e : node) collectPlaylists(e, out, depth + 1);
-    }
+static CT::User fromUserRenderer(const rj::UserR &r)
+{
+    CT::User u;
+    u.id = qstr(r.channelId);
+    u.username = qstr(textOf(r.title));
+    if (r.thumbnail)           u.thumbnailUrl = qstr(lastThumbUrl(*r.thumbnail));
+    if (r.subscriberCountText) u.subscriberCount = qstr(textOf(*r.subscriberCountText));
+    if (r.descriptionSnippet)  u.description = qstr(textOf(*r.descriptionSnippet));
+    u.videosId = u.id; u.playlistsId = u.id;
+    return u;
 }
 
-QList<CT::Playlist> parsePlaylistList(const nlohmann::json &response, QString *nextToken) {
-    QList<CT::Playlist> out;
-    collectPlaylists(response, out);
+static CT::Comment fromCommentPayload(const rj::CommentPayload &p)
+{
+    CT::Comment c;
+    if (p.properties) {
+        c.body = qstr(contentOf(p.properties->content));
+        c.date = qstr(p.properties->publishedTime);
+    }
+    if (p.author) c.username = qstr(p.author->displayName);
+    if (p.avatar) c.thumbnailUrl = qstr(firstSourceUrl(p.avatar->image));
+    return c;
+}
+
+// ---------------------------------------------------------------------------
+// The recursive collectors — single-pass scanner visitors. Leaf semantics
+// mirror the old walkers: a matched renderer subtree is typed-parsed and NOT
+// descended into, and no further keys of that object are considered.
+// ---------------------------------------------------------------------------
+
+// Per-open-object leaf flag shared by the collector visitors: set when a
+// renderer key was captured at this object, so its remaining members are
+// skipped (the old walkers' early `return`).
+struct CollectorBase {
+    std::vector<char> open;
+    void enter(int) { open.push_back(0); }
+    void leave(int) { open.pop_back(); }
+    bool consumed() const { return !open.empty() && open.back(); }
+    void consume() { if (!open.empty()) open.back() = 1; }
+};
+
+// Video renderer kinds (all share the VideoR shape). playlistVideoRenderer lets
+// a VLxxxx browse (a playlist's contents) populate a VideoModel directly.
+static bool isVideoKind(std::string_view key)
+{
+    return key == "videoRenderer" || key == "compactVideoRenderer"
+        || key == "gridVideoRenderer" || key == "playlistVideoRenderer";
+}
+
+struct VideoCollector : CollectorBase {
+    QList<CT::Video> *out;
+    scan::Action what(std::string_view key, int)
+    {
+        if (consumed()) return scan::Action::Skip;
+        if (key == "lockupViewModel" || key == "tileRenderer" || isVideoKind(key)) {
+            consume();
+            return scan::Action::Capture;
+        }
+        return scan::Action::Descend;
+    }
+    void capture(std::string_view key, std::string_view value, int)
+    {
+        // lockupViewModel is a self-contained leaf (no nested video renderers); only
+        // the VIDEO content type becomes a CT::Video (playlist/other lockups skipped).
+        if (key == "lockupViewModel") {
+            rj::Lockup lm{};
+            readJson(lm, value);
+            if (lm.contentType && *lm.contentType == "LOCKUP_CONTENT_TYPE_VIDEO")
+                *out << fromLockupVideo(lm);
+        }
+        // tileRenderer is likewise a self-contained leaf (TVHTML5 feeds).
+        else if (key == "tileRenderer") {
+            rj::Tile t{};
+            readJson(t, value);
+            if (t.contentType && *t.contentType == "TILE_CONTENT_TYPE_VIDEO")
+                *out << fromTile(t);
+        }
+        else {
+            rj::VideoR r{};
+            readJson(r, value);
+            *out << fromVideoRenderer(r);
+        }
+    }
+};
+
+QList<CT::Video> parseVideoList(std::string_view response, QString *nextToken)
+{
+    QList<CT::Video> out;
+    VideoCollector c;
+    c.out = &out;
+    scan::document(response, c);
     if (nextToken) *nextToken = findContinuationToken(response);
     return out;
 }
 
-CT::User parseChannel(const nlohmann::json &response) {
-    CT::User u;
-    const nlohmann::json *h = 0;
-    if (response.contains("header")) {
-        const nlohmann::json &hdr = response.at("header");
-        if (hdr.contains("c4TabbedHeaderRenderer"))   h = &hdr.at("c4TabbedHeaderRenderer");
-        else if (hdr.contains("pageHeaderRenderer"))  h = &hdr.at("pageHeaderRenderer");
+struct CommentCollector : CollectorBase {
+    QList<CT::Comment> *out;
+    scan::Action what(std::string_view key, int)
+    {
+        if (consumed()) return scan::Action::Skip;
+        if (key == "commentEntityPayload") { consume(); return scan::Action::Capture; }
+        return scan::Action::Descend;
     }
-    if (h) {
-        const nlohmann::json &hh = *h;
-        // --- Legacy c4TabbedHeaderRenderer (flat shape) ---
-        u.username = jstr(hh, "title");                          // c4 uses a plain string title
-        if (u.username.isEmpty() && hh.contains("title")) u.username = parseText(hh.at("title"));
-        u.id = jstr(hh, "channelId");
-        if (hh.contains("avatar") && hh.at("avatar").contains("thumbnails"))
-            u.thumbnailUrl = lastOf(hh.at("avatar").at("thumbnails"));
-        if (hh.contains("subscriberCountText"))
-            u.subscriberCount = parseText(hh.at("subscriberCountText"));
-        if (hh.contains("banner") && hh.at("banner").contains("thumbnails"))
-            u.bannerUrl = lastOf(hh.at("banner").at("thumbnails"));
+    void capture(std::string_view, std::string_view value, int)
+    {
+        rj::CommentPayload p{};
+        readJson(p, value);
+        const CT::Comment c = fromCommentPayload(p);
+        if (!c.body.isEmpty()) *out << c;
+    }
+};
 
-        // --- Current pageHeaderRenderer.content.pageHeaderViewModel (nested view-models):
-        // 2024+ WEB channel headers moved name/avatar/subscriberCount here, which is why
-        // only the subscriber line was empty (name/avatar fell back to channelMetadata). ---
-        if (hh.contains("content") && hh.at("content").contains("pageHeaderViewModel")) {
-            const nlohmann::json &vm = hh.at("content").at("pageHeaderViewModel");
-            if (u.username.isEmpty() && vm.contains("title")
-                && vm.at("title").contains("dynamicTextViewModel")) {
-                const nlohmann::json &dt = vm.at("title").at("dynamicTextViewModel");
-                if (dt.contains("text")) u.username = jstr(dt.at("text"), "content");
-            }
-            if (u.thumbnailUrl.isEmpty() && vm.contains("image")
-                && vm.at("image").contains("decoratedAvatarViewModel")) {
-                const nlohmann::json &dav = vm.at("image").at("decoratedAvatarViewModel");
-                if (dav.contains("avatar") && dav.at("avatar").contains("avatarViewModel")
-                    && dav.at("avatar").at("avatarViewModel").contains("image"))
-                    u.thumbnailUrl = lastSourceUrl(dav.at("avatar").at("avatarViewModel").at("image"));
-            }
-            if (u.bannerUrl.isEmpty() && vm.contains("banner")
-                && vm.at("banner").contains("imageBannerViewModel")
-                && vm.at("banner").at("imageBannerViewModel").contains("image"))
-                u.bannerUrl = lastSourceUrl(vm.at("banner").at("imageBannerViewModel").at("image"));
-            // metadata.contentMetadataViewModel.metadataRows[].metadataParts[].text.content —
-            // the rows carry the subscriber line, the @handle and "N videos" with no fixed
-            // index, so pick each by its shape (contains "subscriber" / starts with '@' /
-            // contains "video").
-            if (u.subscriberCount.isEmpty() && vm.contains("metadata")
-                && vm.at("metadata").contains("contentMetadataViewModel")) {
-                const nlohmann::json &cmv = vm.at("metadata").at("contentMetadataViewModel");
-                if (cmv.contains("metadataRows") && cmv.at("metadataRows").is_array()) {
-                    for (const auto &row : cmv.at("metadataRows")) {
-                        if (!row.contains("metadataParts") || !row.at("metadataParts").is_array())
-                            continue;
-                        for (const auto &p : row.at("metadataParts")) {
-                            if (!p.contains("text")) continue;
-                            const QString txt = jstr(p.at("text"), "content");
-                            if (u.subscriberCount.isEmpty()
-                                && txt.contains("subscriber", Qt::CaseInsensitive))
-                                u.subscriberCount = txt;
-                            else if (u.handle.isEmpty() && txt.startsWith(QLatin1Char('@')))
-                                u.handle = txt;
-                            else if (u.videoCount.isEmpty()
-                                     && txt.contains("video", Qt::CaseInsensitive))
-                                u.videoCount = txt;
-                        }
-                    }
+QList<CT::Comment> parseComments(std::string_view response, QString *nextToken)
+{
+    QList<CT::Comment> out;
+    CommentCollector c;
+    c.out = &out;
+    scan::document(response, c);
+    if (nextToken) {
+        QString t = findContinuationTokenUnder(response, "onResponseReceivedEndpoints");
+        if (t.isEmpty()) t = findContinuationToken(response);
+        *nextToken = t;
+    }
+    return out;
+}
+
+static bool isPlaylistKind(std::string_view key)
+{
+    return key == "playlistRenderer" || key == "gridPlaylistRenderer"
+        || key == "compactPlaylistRenderer";
+}
+
+struct PlaylistCollector : CollectorBase {
+    QList<CT::Playlist> *out;
+    scan::Action what(std::string_view key, int)
+    {
+        if (consumed()) return scan::Action::Skip;
+        if (key == "lockupViewModel" || isPlaylistKind(key)) {
+            consume();
+            return scan::Action::Capture;
+        }
+        return scan::Action::Descend;
+    }
+    void capture(std::string_view key, std::string_view value, int)
+    {
+        // lockupViewModel is a self-contained leaf; only the PLAYLIST content type
+        // becomes a CT::Playlist (video/other lockups are skipped).
+        if (key == "lockupViewModel") {
+            rj::Lockup lm{};
+            readJson(lm, value);
+            if (lm.contentType && *lm.contentType == "LOCKUP_CONTENT_TYPE_PLAYLIST")
+                *out << fromPlaylistLockup(lm);
+        } else {
+            rj::PlaylistR r{};
+            readJson(r, value);
+            *out << fromPlaylistRenderer(r);
+        }
+    }
+};
+
+QList<CT::Playlist> parsePlaylistList(std::string_view response, QString *nextToken)
+{
+    QList<CT::Playlist> out;
+    PlaylistCollector c;
+    c.out = &out;
+    scan::document(response, c);
+    if (nextToken) *nextToken = findContinuationToken(response);
+    return out;
+}
+
+CT::User parseChannel(std::string_view response)
+{
+    rj::ChannelRoot root{};
+    readJson(root, response);
+    CT::User u;
+    const rj::C4Header *c4 = 0;
+    const rj::PageHeader *ph = 0;
+    if (root.header) {
+        if (root.header->c4TabbedHeaderRenderer)     c4 = &*root.header->c4TabbedHeaderRenderer;
+        else if (root.header->pageHeaderRenderer)    ph = &*root.header->pageHeaderRenderer;
+    }
+    // --- Legacy c4TabbedHeaderRenderer (flat shape) ---
+    if (c4) {
+        if (c4->title) {
+            if (const std::string *s = std::get_if<std::string>(&*c4->title)) u.username = qstr(*s);
+            else if (const gj::Text *t = std::get_if<gj::Text>(&*c4->title))  u.username = qstr(textOf(*t));
+        }
+        u.id = qstr(c4->channelId);
+        if (c4->avatar)              u.thumbnailUrl = qstr(lastThumbUrl(*c4->avatar));
+        if (c4->subscriberCountText) u.subscriberCount = qstr(textOf(*c4->subscriberCountText));
+        if (c4->banner)              u.bannerUrl = qstr(lastThumbUrl(*c4->banner));
+    }
+    // --- Current pageHeaderRenderer.content.pageHeaderViewModel (nested view-models):
+    // 2024+ WEB channel headers moved name/avatar/subscriberCount here. ---
+    if (ph && ph->content && ph->content->pageHeaderViewModel) {
+        const rj::PageHeaderVM &vm = *ph->content->pageHeaderViewModel;
+        if (u.username.isEmpty() && vm.title && vm.title->dynamicTextViewModel)
+            u.username = qstr(contentOf(vm.title->dynamicTextViewModel->text));
+        if (u.thumbnailUrl.isEmpty() && vm.image && vm.image->decoratedAvatarViewModel
+            && vm.image->decoratedAvatarViewModel->avatar
+            && vm.image->decoratedAvatarViewModel->avatar->avatarViewModel)
+            u.thumbnailUrl = qstr(lastSourceUrl(
+                vm.image->decoratedAvatarViewModel->avatar->avatarViewModel->image));
+        if (u.bannerUrl.isEmpty() && vm.banner && vm.banner->imageBannerViewModel)
+            u.bannerUrl = qstr(lastSourceUrl(vm.banner->imageBannerViewModel->image));
+        // metadata.contentMetadataViewModel.metadataRows[].metadataParts[].text.content —
+        // the rows carry the subscriber line, the @handle and "N videos" with no fixed
+        // index, so pick each by its shape (contains "subscriber" / starts with '@' /
+        // contains "video").
+        if (u.subscriberCount.isEmpty() && vm.metadata
+            && vm.metadata->contentMetadataViewModel
+            && vm.metadata->contentMetadataViewModel->metadataRows) {
+            for (const rj::MetaRow &row : *vm.metadata->contentMetadataViewModel->metadataRows) {
+                if (!row.metadataParts) continue;
+                for (const rj::MetaPart &p : *row.metadataParts) {
+                    if (!p.text) continue;
+                    const QString txt = qstr(contentOf(p.text));
+                    if (u.subscriberCount.isEmpty()
+                        && txt.contains("subscriber", Qt::CaseInsensitive))
+                        u.subscriberCount = txt;
+                    else if (u.handle.isEmpty() && txt.startsWith(QLatin1Char('@')))
+                        u.handle = txt;
+                    else if (u.videoCount.isEmpty()
+                             && txt.contains("video", Qt::CaseInsensitive))
+                        u.videoCount = txt;
                 }
             }
         }
     }
     // Fill gaps from channelMetadataRenderer (id/description/avatar).
-    if (response.contains("metadata") && response.at("metadata").contains("channelMetadataRenderer")) {
-        const nlohmann::json &m = response.at("metadata").at("channelMetadataRenderer");
-        if (u.id.isEmpty())          u.id = jstr(m, "externalId");
-        if (u.username.isEmpty())    u.username = jstr(m, "title");
-        u.description = jstr(m, "description");
-        if (u.thumbnailUrl.isEmpty() && m.contains("avatar") && m.at("avatar").contains("thumbnails"))
-            u.thumbnailUrl = lastOf(m.at("avatar").at("thumbnails"));
+    if (root.metadata && root.metadata->channelMetadataRenderer) {
+        const rj::ChannelMeta &m = *root.metadata->channelMetadataRenderer;
+        if (u.id.isEmpty())       u.id = qstr(m.externalId);
+        if (u.username.isEmpty()) u.username = qstr(m.title);
+        u.description = qstr(m.description);
+        if (u.thumbnailUrl.isEmpty() && m.avatar)
+            u.thumbnailUrl = qstr(lastThumbUrl(*m.avatar));
     }
     u.videosId = u.id; u.playlistsId = u.id;
     return u;
 }
 
-CT::User parseUserRenderer(const nlohmann::json &r) {
-    CT::User u;
-    u.id = jstr(r, "channelId");
-    u.username = parseText(r.contains("title") ? r.at("title") : nlohmann::json::object());
-    if (r.contains("thumbnail") && r.at("thumbnail").contains("thumbnails"))
-        u.thumbnailUrl = lastOf(r.at("thumbnail").at("thumbnails"));
-    if (r.contains("subscriberCountText")) u.subscriberCount = parseText(r.at("subscriberCountText"));
-    if (r.contains("descriptionSnippet"))  u.description = parseText(r.at("descriptionSnippet"));
-    u.videosId = u.id; u.playlistsId = u.id;
-    return u;
-}
-
-static void collectUsers(const nlohmann::json &node, QList<CT::User> &out, int depth = 0) {
-    if (depth > kMaxDepth) return;
-    static const char *kinds[] = { "channelRenderer", "gridChannelRenderer" };
-    if (node.is_object()) {
-        for (int i = 0; i < 2; ++i)
-            if (node.contains(kinds[i])) { out << parseUserRenderer(node.at(kinds[i])); return; }
-        for (auto it = node.begin(); it != node.end(); ++it) collectUsers(it.value(), out, depth + 1);
-    } else if (node.is_array()) {
-        for (const auto &e : node) collectUsers(e, out, depth + 1);
+struct UserCollector : CollectorBase {
+    QList<CT::User> *out;
+    scan::Action what(std::string_view key, int)
+    {
+        if (consumed()) return scan::Action::Skip;
+        if (key == "channelRenderer" || key == "gridChannelRenderer") {
+            consume();
+            return scan::Action::Capture;
+        }
+        return scan::Action::Descend;
     }
-}
+    void capture(std::string_view, std::string_view value, int)
+    {
+        rj::UserR r{};
+        readJson(r, value);
+        *out << fromUserRenderer(r);
+    }
+};
 
-QList<CT::User> parseUserList(const nlohmann::json &response, QString *nextToken) {
+QList<CT::User> parseUserList(std::string_view response, QString *nextToken)
+{
     QList<CT::User> out;
-    collectUsers(response, out);
+    UserCollector c;
+    c.out = &out;
+    scan::document(response, c);
     if (nextToken) *nextToken = findContinuationToken(response);
     return out;
 }
 
-// First object (DFS) that contains `key`; returns its value, or null.
-static const nlohmann::json* findRenderer(const nlohmann::json &node, const char *key, int depth = 0) {
-    if (depth > kMaxDepth) return 0;
-    if (node.is_object()) {
-        nlohmann::json::const_iterator f = node.find(key);
-        if (f != node.end()) return &f.value();
-        for (nlohmann::json::const_iterator it = node.begin(); it != node.end(); ++it) {
-            const nlohmann::json *r = findRenderer(it.value(), key, depth + 1);
-            if (r) return r;
-        }
-    } else if (node.is_array()) {
-        for (nlohmann::json::const_iterator it = node.begin(); it != node.end(); ++it) {
-            const nlohmann::json *r = findRenderer(*it, key, depth + 1);
-            if (r) return r;
-        }
+// First occurrence (document-order DFS) of `key` anywhere in the tree → its
+// value extent. Empty when absent.
+struct KeyFinder {
+    std::string_view want;
+    std::string_view got;
+    void enter(int) {}
+    void leave(int) {}
+    scan::Action what(std::string_view key, int)
+    {
+        if (!got.empty()) return scan::Action::Skip;
+        return key == want ? scan::Action::Capture : scan::Action::Descend;
     }
-    return 0;
+    void capture(std::string_view, std::string_view v, int) { if (got.empty()) got = v; }
+};
+
+static std::string_view findExtent(std::string_view json, std::string_view key)
+{
+    KeyFinder f{key, {}};
+    scan::document(json, f);
+    return f.got;
 }
 
 // Best-effort like count (FRAGILE — YouTube reshapes this often): the legacy
 // toggleButtonRenderer.defaultText, else the modern likeButtonViewModel button title.
-static QString findLikeText(const nlohmann::json &primaryInfo) {
-    const nlohmann::json *tbr = findRenderer(primaryInfo, "toggleButtonRenderer");
-    if (tbr && tbr->contains("defaultText")) {
-        const QString t = parseText(tbr->at("defaultText"));
-        if (!t.isEmpty()) return t;
+static QString findLikeText(std::string_view primaryInfo)
+{
+    std::string_view v = findExtent(primaryInfo, "toggleButtonRenderer");
+    if (!v.empty()) {
+        rj::ToggleButton tb{};
+        readJson(tb, v);
+        if (tb.defaultText) {
+            const QString t = qstr(textOf(*tb.defaultText));
+            if (!t.isEmpty()) return t;
+        }
     }
-    const nlohmann::json *lbvm = findRenderer(primaryInfo, "likeButtonViewModel");
-    if (lbvm) {
-        const nlohmann::json *bvm = findRenderer(*lbvm, "buttonViewModel");
-        if (bvm) {
-            const QString t = jstr(*bvm, "title");
+    v = findExtent(primaryInfo, "likeButtonViewModel");
+    if (!v.empty()) {
+        const std::string_view bvm = findExtent(v, "buttonViewModel");
+        if (!bvm.empty()) {
+            rj::ButtonVM b{};
+            readJson(b, bvm);
+            const QString t = qstr(b.title);
             // Skip the bare "Like"/"Dislike" labels — only a count-ish value is useful.
             if (!t.isEmpty() && t != QLatin1String("Like") && t != QLatin1String("Dislike")) return t;
         }
@@ -508,29 +832,50 @@ static QString findLikeText(const nlohmann::json &primaryInfo) {
     return QString();
 }
 
-void parseWatchPage(const nlohmann::json &response, CT::Video *primary, QList<CT::Video> *related) {
-    if (related) *related = parseVideoList(response, 0);   // secondaryResults compactVideoRenderers
+void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Video> *related)
+{
+    if (related) *related = parseVideoList(response, 0);   // secondaryResults lockups/compactVideoRenderers
     if (!primary) return;
     CT::Video v;
-    if (const nlohmann::json *pri = findRenderer(response, "videoPrimaryInfoRenderer")) {
-        v.title = parseText(pri->contains("title") ? pri->at("title") : nlohmann::json::object());
-        if (const nlohmann::json *vcr = findRenderer(*pri, "videoViewCountRenderer"))
-            if (vcr->contains("viewCount")) v.viewText = parseText(vcr->at("viewCount"));
-        v.likeText = findLikeText(*pri);
+    const std::string_view pri = findExtent(response, "videoPrimaryInfoRenderer");
+    if (!pri.empty()) {
+        rj::PrimaryInfo info{};
+        readJson(info, pri);
+        v.title = qstr(textOf(info.title));
+        const std::string_view vcr = findExtent(pri, "videoViewCountRenderer");
+        if (!vcr.empty()) {
+            rj::ViewCountR r{};
+            readJson(r, vcr);
+            if (r.viewCount) v.viewText = qstr(textOf(*r.viewCount));
+        }
+        v.likeText = findLikeText(pri);
     }
-    if (const nlohmann::json *sec = findRenderer(response, "videoSecondaryInfoRenderer")) {
-        if (const nlohmann::json *owner = findRenderer(*sec, "videoOwnerRenderer")) {
-            v.username = parseText(owner->contains("title") ? owner->at("title") : nlohmann::json::object());
-            if (owner->contains("thumbnail") && owner->at("thumbnail").contains("thumbnails"))
-                v.avatarUrl = lastOf(owner->at("thumbnail").at("thumbnails"));
-            if (owner->contains("navigationEndpoint") && owner->at("navigationEndpoint").contains("browseEndpoint"))
-                v.userId = jstr(owner->at("navigationEndpoint").at("browseEndpoint"), "browseId");
+    const std::string_view sec = findExtent(response, "videoSecondaryInfoRenderer");
+    if (!sec.empty()) {
+        const std::string_view owner = findExtent(sec, "videoOwnerRenderer");
+        if (!owner.empty()) {
+            rj::OwnerR r{};
+            readJson(r, owner);
+            v.username = qstr(textOf(r.title));
+            if (r.thumbnail) v.avatarUrl = qstr(lastThumbUrl(*r.thumbnail));
+            if (r.navigationEndpoint && r.navigationEndpoint->browseEndpoint)
+                v.userId = qstr(r.navigationEndpoint->browseEndpoint->browseId);
         }
         // Description: modern attributedDescription.content (plain string) or legacy runs.
-        if (sec->contains("attributedDescription") && sec->at("attributedDescription").is_object())
-            v.description = jstr(sec->at("attributedDescription"), "content");
-        if (v.description.isEmpty() && sec->contains("description"))
-            v.description = parseText(sec->at("description"));
+        const std::string_view ad = scan::topLevelValue(sec, "attributedDescription");
+        if (!ad.empty() && ad.front() == '{') {
+            ContentText c{};
+            readJson(c, ad);
+            v.description = qstr(contentOf(std::optional<ContentText>(c)));
+        }
+        if (v.description.isEmpty()) {
+            const std::string_view d = scan::topLevelValue(sec, "description");
+            if (!d.empty()) {
+                Text t{};
+                readJson(t, d);
+                v.description = qstr(textOf(t));
+            }
+        }
     }
     v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     *primary = v;
@@ -538,49 +883,92 @@ void parseWatchPage(const nlohmann::json &response, CT::Video *primary, QList<CT
 
 // accountItem objects sit ~7 renderer levels deep and the wrapper chain has shifted
 // before (getMultiPageMenuAction vs openPopupAction); scan recursively instead of
-// hard-coding the path.
-static void collectAccountItems(const nlohmann::json &n, QList<const nlohmann::json *> &out) {
-    if (n.is_object()) {
-        if (n.contains("accountItem") && n["accountItem"].is_object())
-            out << &n["accountItem"];
-        for (nlohmann::json::const_iterator it = n.begin(); it != n.end(); ++it)
-            collectAccountItems(it.value(), out);
-    } else if (n.is_array()) {
-        for (size_t i = 0; i < n.size(); ++i)
-            collectAccountItems(n[i], out);
+// hard-coding the path. Captured items are re-scanned so accountItems nested
+// inside one another are still collected (old behavior); the depth cap is a
+// strict robustness improvement over the old uncapped walker.
+struct AccountItemCollector {
+    std::vector<std::string_view> *out;
+    void enter(int) {}
+    void leave(int) {}
+    scan::Action what(std::string_view key, int)
+    {
+        return key == "accountItem" ? scan::Action::Capture : scan::Action::Descend;
     }
-}
+    void capture(std::string_view, std::string_view value, int)
+    {
+        if (value.empty() || value.front() != '{') return;   // old is_object() guard
+        out->push_back(value);
+        scan::document(value, *this);                        // descend into it too
+    }
+};
 
-CT::Account parseAccountsList(const nlohmann::json &response) {
+CT::Account parseAccountsList(std::string_view response)
+{
     CT::Account out;
-    QList<const nlohmann::json *> items;
-    collectAccountItems(response, items);
-    const nlohmann::json *pick = 0;
-    for (int i = 0; i < items.size(); ++i)
-        if (items.at(i)->value("isSelected", false)) { pick = items.at(i); break; }
-    if (!pick && !items.isEmpty()) pick = items.first();
-    if (!pick) return out;
-    const nlohmann::json &it = *pick;
-    if (it.contains("accountName")) out.username = parseText(it["accountName"]);
-    if (it.contains("channelHandle")) out.handle = parseText(it["channelHandle"]);
-    if (it.contains("accountPhoto") && it["accountPhoto"].contains("thumbnails")
-        && it["accountPhoto"]["thumbnails"].is_array()
-        && !it["accountPhoto"]["thumbnails"].empty()) {
-        const nlohmann::json &ths = it["accountPhoto"]["thumbnails"];
-        out.thumbnailUrl = jstr(ths[ths.size() - 1], "url");   // last = largest
-    }
-    if (it.contains("serviceEndpoint")
-        && it["serviceEndpoint"].contains("selectActiveIdentityEndpoint")
-        && it["serviceEndpoint"]["selectActiveIdentityEndpoint"].contains("supportedTokens")) {
-        const nlohmann::json &tokens =
-            it["serviceEndpoint"]["selectActiveIdentityEndpoint"]["supportedTokens"];
-        for (size_t i = 0; i < tokens.size(); ++i) {
-            if (!tokens[i].contains("offlineCacheKeyToken")) continue;
-            const QString key = jstr(tokens[i]["offlineCacheKeyToken"], "clientCacheKey");
+    std::vector<std::string_view> views;
+    AccountItemCollector c;
+    c.out = &views;
+    scan::document(response, c);
+    if (views.empty()) return out;
+
+    std::vector<rj::AccountItem> items(views.size());
+    for (size_t i = 0; i < views.size(); ++i) readJson(items[i], views[i]);
+    const rj::AccountItem *pick = 0;
+    for (const rj::AccountItem &it : items)
+        if (it.isSelected && *it.isSelected) { pick = &it; break; }
+    if (!pick) pick = &items.front();
+
+    if (pick->accountName)   out.username = qstr(textOf(*pick->accountName));
+    if (pick->channelHandle) out.handle = qstr(textOf(*pick->channelHandle));
+    if (pick->accountPhoto)  out.thumbnailUrl = qstr(lastThumbUrl(*pick->accountPhoto));   // last = largest
+    if (pick->serviceEndpoint && pick->serviceEndpoint->selectActiveIdentityEndpoint
+        && pick->serviceEndpoint->selectActiveIdentityEndpoint->supportedTokens) {
+        for (const rj::SupTok &tok :
+             *pick->serviceEndpoint->selectActiveIdentityEndpoint->supportedTokens) {
+            if (!tok.offlineCacheKeyToken) continue;
+            const QString key = qstr(tok.offlineCacheKeyToken->clientCacheKey);
             if (!key.isEmpty())
                 out.channelId = key.startsWith("UC") ? key : "UC" + key;
         }
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// Direct single-renderer entry points (tests + callers holding the inner object).
+// ---------------------------------------------------------------------------
+CT::Video parseVideoRenderer(std::string_view r)
+{
+    rj::VideoR s{};
+    readJson(s, r);
+    return fromVideoRenderer(s);
+}
+
+CT::Video parseLockupViewModel(std::string_view lm)
+{
+    rj::Lockup s{};
+    readJson(s, lm);
+    return fromLockupVideo(s);
+}
+
+CT::Video parseTileRenderer(std::string_view t)
+{
+    rj::Tile s{};
+    readJson(s, t);
+    return fromTile(s);
+}
+
+CT::Playlist parsePlaylistRenderer(std::string_view r)
+{
+    rj::PlaylistR s{};
+    readJson(s, r);
+    return fromPlaylistRenderer(s);
+}
+
+CT::User parseUserRenderer(std::string_view r)
+{
+    rj::UserR s{};
+    readJson(s, r);
+    return fromUserRenderer(s);
 }
 }

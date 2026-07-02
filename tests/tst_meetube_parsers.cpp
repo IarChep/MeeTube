@@ -1,68 +1,64 @@
 #include <QtTest/QtTest>
 #include "parsers/continuation.h"
-#include "parsers/jsonutil.h"
+#include "parsers/ytjson.h"
 #include "parsers/rendererparser.h"
 #include "parsers/playerparser.h"
 #include "testutil.h"
+#include "parserpayloads.h"
+
+#include <string>
 
 using namespace yt;
 
 class TestParsers : public QObject { Q_OBJECT
 private slots:
-    void jintParses() {
-        nlohmann::json j1 = {{"s", "1234"}};
-        QCOMPARE((qint64)jint(j1, "s"), (qint64)1234);
+    // gj::toInt64 keeps the old jint() laxity: JSON ints, floats (truncated) and
+    // strictly-numeric strings; partial/garbage strings and absent values are 0.
+    void flexIntParses() {
+        gj::FlexInt s = std::string("1234");
+        QCOMPARE((qint64)gj::toInt64(s), (qint64)1234);
 
-        nlohmann::json j2 = {{"i", 42}};
-        QCOMPARE((qint64)jint(j2, "i"), (qint64)42);
+        gj::FlexInt i = (std::int64_t)42;
+        QCOMPARE((qint64)gj::toInt64(i), (qint64)42);
 
-        nlohmann::json j3 = {{"bad", "abc"}};
-        QCOMPARE((qint64)jint(j3, "bad"), (qint64)0);
+        gj::FlexInt bad = std::string("abc");
+        QCOMPARE((qint64)gj::toInt64(bad), (qint64)0);
 
-        nlohmann::json j4 = {{"other", 1}};
-        QCOMPARE((qint64)jint(j4, "missing"), (qint64)0);
+        gj::FlexInt partial = std::string("12a");
+        QCOMPARE((qint64)gj::toInt64(partial), (qint64)0);
+
+        std::optional<gj::FlexInt> missing;
+        QCOMPARE((qint64)gj::toInt64(missing), (qint64)0);
+
+        gj::FlexInt f = 3.9;
+        QCOMPARE((qint64)gj::toInt64(f), (qint64)3);
     }
-    void jstrBehavior() {
-        nlohmann::json j = {{"s", "hi"}, {"n", 5}};
-        QCOMPARE(jstr(j, "s"), QString("hi"));
-        QCOMPARE(jstr(j, "n"), QString());
-        QCOMPARE(jstr(j, "missing"), QString());
+    // parseText: simpleText wins, else runs concatenated, else "" (non-objects too).
+    void parseTextBehavior() {
+        QCOMPARE(parseText(payloads::kSimpleText), QString("hi"));
+        QCOMPARE(parseText(payloads::kRunsText), QString("ab"));
+        QCOMPARE(parseText(payloads::kBareString), QString());
+        QCOMPARE(parseText("5"), QString());
+        QCOMPARE(parseText("{}"), QString());
     }
     void continuationFound() {
-        nlohmann::json node = {
-          {"continuationItemRenderer", {
-            {"continuationEndpoint", {{"continuationCommand", {{"token", "CTOKEN123"}}}}}}}};
+        const std::string node = payloads::kContinuationModern;
         QCOMPARE(findContinuationToken(node), QString("CTOKEN123"));
     }
     void continuationLegacy() {
-        nlohmann::json node = {{"nextContinuationData", {{"continuation", "LEG456"}}}};
+        const std::string node = payloads::kContinuationLegacy;
         QCOMPARE(findContinuationToken(node), QString("LEG456"));
     }
-    // Defensive: a pathologically deep payload must return safely, not overflow the
-    // stack. The token is buried past the depth cap, so the walk gives up and returns
-    // empty — the point is that it returns at all.
     // P1.5: parseVideoRenderer pulls the channel avatar out of
     // channelThumbnailSupportedRenderers (largest thumbnail wins).
     void videoRendererAvatar() {
-        nlohmann::json r = {
-            {"videoId", "vid1"},
-            {"title", {{"simpleText", "T"}}},
-            {"channelThumbnailSupportedRenderers", {
-                {"channelThumbnailWithLinkRenderer", {
-                    {"thumbnail", {{"thumbnails", nlohmann::json::array({
-                        nlohmann::json{{"url", "https://small/a.jpg"}},
-                        nlohmann::json{{"url", "https://big/a.jpg"}} })}}}}}}}};
+        const std::string r = payloads::kVideoRendererAvatar;
         CT::Video v = parseVideoRenderer(r);
         QCOMPARE(v.avatarUrl, QString("https://big/a.jpg"));
     }
     // P2.1: playlistRenderer → CT::Playlist.
     void playlistRendererParses() {
-        nlohmann::json r = {
-            {"playlistId", "PL123"},
-            {"title", {{"simpleText", "My List"}}},
-            {"videoCount", "42"},
-            {"shortBylineText", {{"runs", nlohmann::json::array({ nlohmann::json{{"text", "Chan"}} })}}},
-            {"thumbnail", {{"thumbnails", nlohmann::json::array({ nlohmann::json{{"url", "https://t/p.jpg"}} })}}}};
+        const std::string r = payloads::kPlaylistRenderer;
         CT::Playlist p = parsePlaylistRenderer(r);
         QCOMPARE(p.id, QString("PL123"));
         QCOMPARE(p.title, QString("My List"));
@@ -71,9 +67,7 @@ private slots:
     }
     // P2.1: a VLxxxx browse returns playlistVideoRenderer items, now collected.
     void playlistVideosCollected() {
-        nlohmann::json resp = { {"contents", nlohmann::json::array({
-            nlohmann::json{{"playlistVideoRenderer", {{"videoId", "v1"}, {"title", {{"simpleText", "One"}}}}}},
-            nlohmann::json{{"playlistVideoRenderer", {{"videoId", "v2"}, {"title", {{"simpleText", "Two"}}}}}} })}};
+        const std::string resp = payloads::kPlaylistVideos;
         QString next;
         QList<CT::Video> v = parseVideoList(resp, &next);
         QCOMPARE(v.size(), 2);
@@ -81,34 +75,24 @@ private slots:
     }
     // P2.2: channel header (c4TabbedHeaderRenderer) → CT::User (avatar = largest).
     void channelHeaderParses() {
-        nlohmann::json resp = { {"header", {{"c4TabbedHeaderRenderer", {
-            {"title", "Cool Channel"},
-            {"channelId", "UCxyz"},
-            {"subscriberCountText", {{"simpleText", "1.2M subscribers"}}},
-            {"avatar", {{"thumbnails", nlohmann::json::array({
-                nlohmann::json{{"url", "https://a/s.jpg"}}, nlohmann::json{{"url", "https://a/l.jpg"}} })}}}
-        }}}}};
+        const std::string resp = payloads::kC4Header;
         CT::User u = parseChannel(resp);
         QCOMPARE(u.id, QString("UCxyz"));
         QCOMPARE(u.username, QString("Cool Channel"));
         QCOMPARE(u.subscriberCount, QString("1.2M subscribers"));
         QCOMPARE(u.thumbnailUrl, QString("https://a/l.jpg"));
 
-        // c4 banner (added by mutation — the inline initializer is deep enough already).
-        resp["header"]["c4TabbedHeaderRenderer"]["banner"] = nlohmann::json{
-            {"thumbnails", nlohmann::json::array({
-                nlohmann::json{{"url", "http://b/c4small.jpg"}},
-                nlohmann::json{{"url", "http://b/c4big.jpg"}} })} };
-        CT::User u2 = parseChannel(resp);
+        // c4 banner variant of the same header.
+        const std::string resp2 = payloads::kC4HeaderBanner;
+        CT::User u2 = parseChannel(resp2);
         QCOMPARE(u2.bannerUrl, QString("http://b/c4big.jpg"));
     }
 
     // 2024+ WEB channel header: pageHeaderRenderer.content.pageHeaderViewModel with the
-    // subscriber count buried in a metadataRows view-model (index not fixed). Fixture,
-    // not an inline nlohmann initializer — the deep nesting confuses the host compiler.
+    // subscriber count buried in a metadataRows view-model (index not fixed).
     void channelPageHeaderParses() {
-        nlohmann::json resp = loadFixture("channel_pageheader.json");
-        QVERIFY(!resp.is_null());
+        const std::string resp = loadFixtureRaw("channel_pageheader.json");
+        QVERIFY(!resp.empty());
         CT::User u = parseChannel(resp);
         QCOMPARE(u.username, QString("Google for Developers"));
         QCOMPARE(u.subscriberCount, QString("2.66M subscribers"));   // matched by "subscriber", not index
@@ -121,7 +105,7 @@ private slots:
     // QML integration: /next watch page → primary details (title/desc/views/likes +
     // channel) and the related list.
     void watchPageParses() {
-        const nlohmann::json next = loadFixture("watch_next.json");
+        const std::string next = loadFixtureRaw("watch_next.json");
         CT::Video primary; QList<CT::Video> related;
         parseWatchPage(next, &primary, &related);
         QCOMPARE(primary.title, QString("The Title"));
@@ -135,24 +119,22 @@ private slots:
         QCOMPARE(related.first().id, QString("rel1"));
     }
     void recursionDepthGuarded() {
-        nlohmann::json deep = nlohmann::json::object();
-        nlohmann::json *cur = &deep;
-        for (int i = 0; i < 500; ++i) {
-            (*cur)["child"] = nlohmann::json::object();
-            cur = &(*cur)["child"];
-        }
-        (*cur)["continuationCommand"] = nlohmann::json{{"token", "DEEP"}};
+        // A 500-deep nest with the token buried past the depth cap: the walks
+        // must give up and return safely, not overflow the device stack.
+        std::string deep;
+        for (int i = 0; i < 500; ++i) deep += "{\"child\":";
+        deep += "{\"continuationCommand\":{\"token\":\"DEEP\"}}";
+        for (int i = 0; i < 500; ++i) deep += "}";
         findContinuationToken(deep);                 // must not crash
         QString next;
         QList<CT::Video> v = parseVideoList(deep, &next);
         QVERIFY(v.isEmpty());                        // nothing collected, no overflow
     }
     void continuationAbsent() {
-        nlohmann::json node = {{"foo", {{"bar", 1}}}};
-        QCOMPARE(findContinuationToken(node), QString());
+        QCOMPARE(findContinuationToken(payloads::kContinuationAbsent), QString());
     }
     void videoList() {
-        nlohmann::json resp = loadFixture("search_videos.json");
+        const std::string resp = loadFixtureRaw("search_videos.json");
         QString token;
         QList<CT::Video> v = parseVideoList(resp, &token);
         QCOMPARE(v.size(), 2);
@@ -168,8 +150,8 @@ private slots:
         QCOMPARE(v[0].thumbnailUrl, QString("https://i.ytimg.com/vi/aaa11111111/hqdefault.jpg"));
     }
     void videoListBrowseFeed() {
-        nlohmann::json resp = loadFixture("browse_feed.json");
-        QVERIFY(!resp.is_null());
+        const std::string resp = loadFixtureRaw("browse_feed.json");
+        QVERIFY(!resp.empty());
         QString token;
         QList<CT::Video> v = parseVideoList(resp, &token);
         QCOMPARE(v.size(), 2);
@@ -181,8 +163,8 @@ private slots:
     // Watch-page related videos now arrive as lockupViewModel (2024+); the fixture is a
     // real slice of a /next response — 2 video lockups + 1 playlist lockup (must be skipped).
     void lockupRelatedParses() {
-        nlohmann::json resp = loadFixture("next_lockup.json");
-        QVERIFY(!resp.is_null());
+        const std::string resp = loadFixtureRaw("next_lockup.json");
+        QVERIFY(!resp.empty());
         QString token;
         QList<CT::Video> v = parseVideoList(resp, &token);
         QCOMPARE(v.size(), 2);                          // playlist lockup skipped
@@ -198,7 +180,7 @@ private slots:
     }
 
     void streams() {
-        nlohmann::json p = loadFixture("player_ios.json");
+        const std::string p = loadFixtureRaw("player_ios.json");
         QList<CT::Stream> s = parseStreams(p);
         QCOMPARE(s.size(), 3);                  // hls + itag18 + itag22; ciphered itag137 dropped
         QCOMPARE(s[0].id, QString("hls"));
@@ -208,7 +190,7 @@ private slots:
         for (int i=0;i<s.size();++i) QVERIFY(s[i].id != QString("137"));
     }
     void videoDetails() {
-        nlohmann::json p = loadFixture("player_ios.json");
+        const std::string p = loadFixtureRaw("player_ios.json");
         CT::Video v = parseVideoDetails(p);
         QCOMPARE(v.id, QString("aaa11111111"));
         QCOMPARE(v.title, QString("First Video"));
@@ -222,14 +204,14 @@ private slots:
         QVERIFY(!v.thumbnailUrl.isEmpty());
     }
     void captions() {
-        nlohmann::json p = loadFixture("player_ios.json");
+        const std::string p = loadFixtureRaw("player_ios.json");
         QList<CT::Subtitle> c = parseCaptions(p);
         QCOMPARE(c.size(), 2);
         QCOMPARE(c[0].language, QString("en"));
         QVERIFY(c[0].url.contains("timedtext"));
     }
     void comments() {
-        nlohmann::json p = loadFixture("comments_page.json");
+        const std::string p = loadFixtureRaw("comments_page.json");
         QString token; QList<CT::Comment> c = parseComments(p, &token);
         QCOMPARE(c.size(), 2);
         QCOMPARE(c[0].username, QString("Alice"));
@@ -239,8 +221,8 @@ private slots:
     // 2024+ channel Playlists tab: playlists arrive as lockupViewModel with
     // LOCKUP_CONTENT_TYPE_PLAYLIST (no gridPlaylistRenderer anywhere).
     void parsesPlaylistLockups() {
-        const nlohmann::json j = loadFixture("browse_playlists_lockup.json");
-        QVERIFY(!j.is_discarded());
+        const std::string j = loadFixtureRaw("browse_playlists_lockup.json");
+        QVERIFY(!j.empty());
         QString token;
         const QList<CT::Playlist> p = parsePlaylistList(j, &token);
         QCOMPARE(p.size(), 1);                       // the video lockup is skipped
@@ -252,21 +234,22 @@ private slots:
     }
 
     void parsesAccountsList() {
-        const nlohmann::json j = loadFixture("accounts_list.json");
-        QVERIFY(!j.is_discarded());
+        const std::string j = loadFixtureRaw("accounts_list.json");
+        QVERIFY(!j.empty());
         const CT::Account a = parseAccountsList(j);
         QCOMPARE(a.username, QString("Ivan Petrov"));
         QCOMPARE(a.handle, QString("@ivanpetrov"));
         QCOMPARE(a.thumbnailUrl, QString("https://yt3.example/big.jpg"));
         QCOMPARE(a.channelId, QString("UCabc123def"));
         // graceful on garbage
-        QVERIFY(parseAccountsList(nlohmann::json::object()).username.isEmpty());
+        QVERIFY(parseAccountsList("{}").username.isEmpty());
+        QVERIFY(parseAccountsList("not json at all").username.isEmpty());
     }
     // TVHTML5 feeds (history/subscriptions/library) deliver tileRenderer items —
     // the OAuth bearer only works on the TV client, so authed feeds arrive TV-shaped.
     void parsesTileRenderers() {
-        const nlohmann::json j = loadFixture("tiles_history.json");
-        QVERIFY(!j.is_discarded());
+        const std::string j = loadFixtureRaw("tiles_history.json");
+        QVERIFY(!j.empty());
         QString token;
         const QList<CT::Video> v = parseVideoList(j, &token);
         QCOMPARE(v.size(), 2);                       // the channel tile is skipped
@@ -282,12 +265,10 @@ private slots:
         QCOMPARE(v[1].username, QString("Channel B"));
     }
     void isPlayableStatus() {
-        nlohmann::json ok = {{"playabilityStatus", {{"status", "OK"}}}};
-        QVERIFY(yt::isPlayable(ok, 0));
+        QVERIFY(yt::isPlayable(payloads::kPlayableOk, 0));
 
-        nlohmann::json bad = {{"playabilityStatus", {{"status", "LOGIN_REQUIRED"}, {"reason", "Sign in"}}}};
         QString reason;
-        QVERIFY(!yt::isPlayable(bad, &reason));
+        QVERIFY(!yt::isPlayable(payloads::kPlayableLogin, &reason));
         QVERIFY(reason.contains("LOGIN_REQUIRED"));
     }
 };

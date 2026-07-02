@@ -16,6 +16,7 @@
 #include <QElapsedTimer>
 #include <QTextStream>
 #include <cstdio>
+#include <string>
 
 #include "parsers/rendererparser.h"
 #include "parsers/playerparser.h"
@@ -27,11 +28,12 @@ using namespace yt;
 
 // ---------------------------------------------------------------------------
 // Input adapter — the single seam that changes with the JSON engine.
-// nlohmann build: raw bytes -> nlohmann::json (what the parsers take today).
+// Glaze build: the parsers take raw bytes (string_view); "parsing" per call is
+// whatever lazy scanning/typed reads the parser itself performs.
 // ---------------------------------------------------------------------------
-typedef nlohmann::json ParserInput;
+typedef std::string ParserInput;
 static ParserInput toInput(const QByteArray &raw) {
-    return nlohmann::json::parse(raw.constData(), raw.constData() + raw.size(), nullptr, false);
+    return std::string(raw.constData(), (size_t)raw.size());
 }
 
 static QByteArray readFile(const QString &path) {

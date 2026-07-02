@@ -1,35 +1,97 @@
 #include "playerparser.h"
-#include "rendererparser.h"   // parseText
-#include "jsonutil.h"
+#include "ytjson.h"
+#include <QString>
 namespace yt {
 
-bool isPlayable(const nlohmann::json &p, QString *reason) {
-    if (p.contains("playabilityStatus")) {
-        const QString st = jstr(p.at("playabilityStatus"), "status");
-        if (!st.isEmpty() && st != "OK") { if (reason) *reason = st + ": " + jstr(p.at("playabilityStatus"), "reason"); return false; }
+using namespace gj;
+
+// The /player response is a fixed root-level schema — no tree walking needed,
+// one typed partial read per entry point (unknown keys skipped).
+namespace pj {
+
+struct PlayabilityStatus {
+    std::optional<std::string> status;
+    std::optional<std::string> reason;
+};
+struct Format {
+    std::optional<std::string> url;
+    std::optional<std::string> qualityLabel;
+    std::optional<FlexInt> itag;
+    std::optional<FlexInt> width;
+    std::optional<FlexInt> height;
+};
+struct StreamingData {
+    std::optional<std::string> hlsManifestUrl;
+    std::optional<std::vector<Format>> formats;
+};
+struct VideoDetails {
+    std::optional<std::string> videoId;
+    std::optional<std::string> title;
+    std::optional<std::string> author;
+    std::optional<std::string> channelId;
+    std::optional<std::string> shortDescription;
+    std::optional<FlexInt> viewCount;                   // arrives as a quoted string
+    std::optional<ThumbSet> thumbnail;
+};
+struct CaptionTrack {
+    std::optional<std::string> baseUrl;
+    std::optional<std::string> languageCode;
+    std::optional<Text> name;
+};
+struct TracklistR {
+    std::optional<std::vector<CaptionTrack>> captionTracks;
+};
+struct Captions {
+    std::optional<TracklistR> playerCaptionsTracklistRenderer;
+};
+struct PlayerRoot {
+    std::optional<PlayabilityStatus> playabilityStatus;
+    std::optional<StreamingData> streamingData;
+    std::optional<VideoDetails> videoDetails;
+    std::optional<Captions> captions;
+};
+
+} // namespace pj
+
+static QString qstr(const std::string &s) { return QString::fromUtf8(s.data(), (int)s.size()); }
+static QString qstr(const std::optional<std::string> &s) { return s ? qstr(*s) : QString(); }
+
+bool isPlayable(std::string_view p, QString *reason)
+{
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    if (root.playabilityStatus) {
+        const QString st = qstr(root.playabilityStatus->status);
+        if (!st.isEmpty() && st != "OK") {
+            if (reason) *reason = st + ": " + qstr(root.playabilityStatus->reason);
+            return false;
+        }
     }
     return true;
 }
 
-QList<CT::Stream> parseStreams(const nlohmann::json &p, bool *sawCipheredOnly) {
+QList<CT::Stream> parseStreams(std::string_view p, bool *sawCipheredOnly)
+{
     QList<CT::Stream> out;
     if (sawCipheredOnly) *sawCipheredOnly = false;
-    if (!p.contains("streamingData")) return out;
-    const nlohmann::json &sd = p.at("streamingData");
-    const QString hls = jstr(sd, "hlsManifestUrl");
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    if (!root.streamingData) return out;
+    const pj::StreamingData &sd = *root.streamingData;
+    const QString hls = qstr(sd.hlsManifestUrl);
     if (!hls.isEmpty()) { CT::Stream s; s.id = "hls"; s.description = "HLS (adaptive)"; s.url = hls; out << s; }
     int formatsSeen = 0;
-    if (sd.contains("formats") && sd.at("formats").is_array()) {
-        for (const auto &f : sd.at("formats")) {
+    if (sd.formats) {
+        for (const pj::Format &f : *sd.formats) {
             ++formatsSeen;
-            const QString url = jstr(f, "url");
+            const QString url = qstr(f.url);
             if (url.isEmpty()) continue;                 // skip ciphered formats (no decipher — out of scope)
             CT::Stream s;
-            s.id = QString::number(jint(f, "itag"));
-            s.description = jstr(f, "qualityLabel");
+            s.id = QString::number(toInt64(f.itag));
+            s.description = qstr(f.qualityLabel);
             s.url = url;
-            s.width = (int)jint(f, "width");
-            s.height = (int)jint(f, "height");
+            s.width = (int)toInt64(f.width);
+            s.height = (int)toInt64(f.height);
             out << s;
         }
     }
@@ -38,19 +100,20 @@ QList<CT::Stream> parseStreams(const nlohmann::json &p, bool *sawCipheredOnly) {
     return out;
 }
 
-CT::Video parseVideoDetails(const nlohmann::json &p) {
+CT::Video parseVideoDetails(std::string_view p)
+{
     CT::Video v;
-    if (!p.contains("videoDetails")) return v;
-    const nlohmann::json &d = p.at("videoDetails");
-    v.id = jstr(d, "videoId");
-    v.title = jstr(d, "title");
-    v.username = jstr(d, "author");
-    v.userId = jstr(d, "channelId");
-    v.description = jstr(d, "shortDescription");
-    v.viewCount = jint(d, "viewCount");
-    if (d.contains("thumbnail") && d.at("thumbnail").contains("thumbnails")
-        && d.at("thumbnail").at("thumbnails").is_array() && !d.at("thumbnail").at("thumbnails").empty())
-        v.thumbnailUrl = jstr(d.at("thumbnail").at("thumbnails").back(), "url");
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    if (!root.videoDetails) return v;
+    const pj::VideoDetails &d = *root.videoDetails;
+    v.id = qstr(d.videoId);
+    v.title = qstr(d.title);
+    v.username = qstr(d.author);
+    v.userId = qstr(d.channelId);
+    v.description = qstr(d.shortDescription);
+    v.viewCount = toInt64(d.viewCount);
+    if (d.thumbnail) v.thumbnailUrl = qstr(lastThumbUrl(*d.thumbnail));
     if (v.thumbnailUrl.isEmpty() && !v.id.isEmpty())
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
     v.largeThumbnailUrl = v.thumbnailUrl;
@@ -58,18 +121,19 @@ CT::Video parseVideoDetails(const nlohmann::json &p) {
     return v;
 }
 
-QList<CT::Subtitle> parseCaptions(const nlohmann::json &p) {
+QList<CT::Subtitle> parseCaptions(std::string_view p)
+{
     QList<CT::Subtitle> out;
-    if (!p.contains("captions")) return out;
-    const nlohmann::json &cap = p.at("captions");
-    if (!cap.contains("playerCaptionsTracklistRenderer")) return out;
-    const nlohmann::json &tl = cap.at("playerCaptionsTracklistRenderer");
-    if (!tl.contains("captionTracks") || !tl.at("captionTracks").is_array()) return out;
-    for (const auto &t : tl.at("captionTracks")) {
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    if (!root.captions || !root.captions->playerCaptionsTracklistRenderer) return out;
+    const pj::TracklistR &tl = *root.captions->playerCaptionsTracklistRenderer;
+    if (!tl.captionTracks) return out;
+    for (const pj::CaptionTrack &t : *tl.captionTracks) {
         CT::Subtitle s;
-        s.url = jstr(t, "baseUrl");
-        s.language = jstr(t, "languageCode");
-        s.title = parseText(t.contains("name") ? t.at("name") : nlohmann::json::object());
+        s.url = qstr(t.baseUrl);
+        s.language = qstr(t.languageCode);
+        s.title = qstr(textOf(t.name));
         s.id = s.language;
         if (!s.url.isEmpty()) out << s;
     }

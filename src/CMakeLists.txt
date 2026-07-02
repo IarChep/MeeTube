@@ -58,7 +58,14 @@ target_include_directories(meetube-core PUBLIC
 target_link_libraries(meetube-core PUBLIC
     Qt4::QtCore
     Qt4::QtNetwork
+    # transitional: nlohmann still rides the itransport.h Reply during the
+    # Glaze migration; it goes away with Reply.json.
     nlohmann_json::nlohmann_json)
+
+# Glaze is an implementation detail of the parser/transport .cpps — the public
+# headers expose only std::string_view / std::string, so the link stays PRIVATE
+# and nothing else in the app pays the template-heavy include.
+target_link_libraries(meetube-core PRIVATE glaze)
 
 # The test harness now lives in its own subproject — see tests/CMakeLists.txt,
 # wired from the root (NOT BUILD_N9, after this src/ subdir).

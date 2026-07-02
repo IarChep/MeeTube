@@ -10,7 +10,7 @@ project(MeeTubeTests CXX)
 function(mt_test name)
     add_executable(${name} ${CMAKE_SOURCE_DIR}/tests/${name}.cpp ${ARGN})
     set_target_properties(${name} PROPERTIES AUTOMOC ON)
-    target_link_libraries(${name} PRIVATE meetube-core Qt4::QtTest)
+    target_link_libraries(${name} PRIVATE meetube-core Qt4::QtTest glaze)
     target_compile_definitions(${name} PRIVATE
         MT_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests"
         MT_SRC_DIR="${CMAKE_SOURCE_DIR}/src")
