@@ -3,6 +3,7 @@ import com.nokia.meego 1.0
 import MeeTube 1.0
 import "pages"
 import "components/header"
+import "components/sheets"
 import "js/UIConstants.js" as UI
 
 // Root of the app. A PageStackWindow hosting a single global HeaderBar (ported from
@@ -78,6 +79,15 @@ PageStackWindow {
         categoryDialog.open();
     }
 
+    // Account entry point (person icon in the main toolbar): straight to the
+    // account page when signed in, otherwise the device-code sign-in sheet.
+    function openAccount() {
+        if (innertube.auth().signedIn)
+            pageStack.push(Qt.resolvedUrl("pages/AccountPage.qml"));
+        else
+            authSheet.open();
+    }
+
     MainPage {
         id: mainPage
     }
@@ -91,6 +101,10 @@ PageStackWindow {
         model: ListModel { id: categoryListModel }
 
         onAccepted: appWindow.selectCategory(selectedIndex)
+    }
+
+    AuthorisationSheet {
+        id: authSheet
     }
 
     // Populate the category list once + load the first category.

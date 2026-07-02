@@ -112,6 +112,10 @@ Page {
             iconId: "toolbar-view-menu"
             onClicked: mainMenu.open()
         }
+        ToolIcon {
+            iconId: "toolbar-contact"
+            onClicked: appWindow.openAccount()
+        }
     }
 
     Menu {
