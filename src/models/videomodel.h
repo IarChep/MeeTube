@@ -27,7 +27,9 @@ public:
     explicit VideoModel(QObject *parent = 0);
     ~VideoModel();
 
-    Q_INVOKABLE void list(const QString &resourceId);
+    // `params` selects a tab inside the browse (a channel's Videos tab); empty for
+    // plain feeds. Continuations re-encode it, so fetchMore() never needs it.
+    Q_INVOKABLE void list(const QString &resourceId, const QString &params = QString());
     Q_INVOKABLE void search(const QString &query, const QString &order);
     Q_INVOKABLE void fetchMore();
 

@@ -64,13 +64,13 @@ VideoRequest* VideoModel::request() {
     return m_request;
 }
 
-void VideoModel::list(const QString &resourceId) {
+void VideoModel::list(const QString &resourceId, const QString &params) {
     if (!request()) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
     m_resourceId = resourceId;
     m_canPage = true;
     clear();
     setStatus(ServiceRequest::Loading);
-    m_request->browseFeed(resourceId, QString());
+    m_request->browseFeed(resourceId, QString(), params);
 }
 
 void VideoModel::search(const QString &query, const QString &order) {

@@ -55,7 +55,9 @@ QObject* ChannelApi::searchChannels(const QString &query) {
 QObject* ChannelApi::videos(const QString &channelId) {
     VideoModel *m = qobject_cast<VideoModel *>(m_videos.data());
     if (!m) { m = new VideoModel(this); m_videos = m; }
-    m->list(channelId);   // a channel's default browse returns its uploads
+    // The Videos tab explicitly — the default browse lands on the shelf-shaped
+    // Home tab. Stable base64 protobuf (docs/INNERTUBE_API.md §12).
+    m->list(channelId, QLatin1String("EgZ2aWRlb3PyBgQKAjoA"));
     return m;
 }
 

@@ -31,7 +31,10 @@ public:
     explicit VideoRequest(ITransport *t, QObject *parent = 0)
         : ServiceRequest(parent), m_t(t), m_mode(ModeBrowse) {}
 public Q_SLOTS:
-    void browseFeed(const QString &resourceId, const QString &page);  // browse a category/FE feed
+    // browse a category/FE feed; `params` selects a tab (a channel's Videos tab) on
+    // the first page — continuations re-encode it.
+    void browseFeed(const QString &resourceId, const QString &page,
+                    const QString &params = QString());
     void searchVideos(const QString &query, const QString &order);    // search videos
     void loadWatch(const QString &videoId);                           // /next: details + related
     void cancel();

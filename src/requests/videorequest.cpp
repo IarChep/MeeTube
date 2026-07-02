@@ -36,12 +36,16 @@ static bool isAuthedFeed(const QString &resourceId) {
         || resourceId == QLatin1String("FElibrary");
 }
 
-void VideoRequest::browseFeed(const QString &resourceId, const QString &page) {
+void VideoRequest::browseFeed(const QString &resourceId, const QString &page, const QString &params) {
     setStatus(Loading);
     m_mode = ModeBrowse;
     nlohmann::json body;
     if (!page.isEmpty()) body["continuation"] = page.toStdString();
-    else                 body["browseId"] = resourceId.toStdString();
+    else {
+        body["browseId"] = resourceId.toStdString();
+        // Tab selector (e.g. a channel's Videos tab) — continuations re-encode it.
+        if (!params.isEmpty()) body["params"] = params.toStdString();
+    }
     const ClientId cid = isAuthedFeed(resourceId) ? ClientId::TVHTML5 : ClientId::WEB;
     connect(m_t->post("browse", cid, body, this), SIGNAL(finished()), this, SLOT(onFinished()));
 }

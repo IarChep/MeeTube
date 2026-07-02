@@ -88,6 +88,23 @@ private slots:
         QCOMPARE(api.feed("FEhistory"), history);  // same id -> same cached model
     }
 
+    // Channel uploads must browse the Videos tab, not the shelf-shaped Home tab —
+    // the documented stable tab params ride in the body.
+    void listPassesTabParams() {
+        TestVideoModel m;
+        m.m_fake.queue("browse", loadFixture("browse_feed.json"));
+        m.list("UCchannel", "EgZ2aWRlb3PyBgQKAjoA");
+        QCOMPARE(m.m_fake.sent.size(), 1);
+        QVERIFY(m.m_fake.sent.at(0).contains("params"));
+        QCOMPARE(QString::fromStdString(m.m_fake.sent.at(0)["params"].get<std::string>()),
+                 QString("EgZ2aWRlb3PyBgQKAjoA"));
+        // plain list() keeps the body params-free
+        TestVideoModel m2;
+        m2.m_fake.queue("browse", loadFixture("browse_feed.json"));
+        m2.list("FEnews_destination");
+        QVERIFY(!m2.m_fake.sent.at(0).contains("params"));
+    }
+
     void initTestCase() {
         qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
         qRegisterMetaType<QList<CT::Stream> >("QList<CT::Stream>");
