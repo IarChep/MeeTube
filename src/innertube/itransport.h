@@ -3,18 +3,28 @@
 #include <QObject>
 #include <QString>
 #include <QMap>
+#include <string>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include "clientconfig.h"
 namespace yt {
 
 // The result of one InnerTube call. `timedOut` distinguishes a watchdog abort
 // from a genuine transport error / user cancel (see TransportReply).
+//
+// `body` is the raw response bytes (UTF-8 JSON when ok). It is an immutable
+// shared payload: the response cache and every CachedReply alias the same
+// string with zero copies, and — being plain std that never re-enters Qt's
+// COW machinery — it is safe to hand across threads later. It stays populated
+// even when ok == false because the payload itself was an error envelope
+// (OAuth polling reads `error: authorization_pending` from a !ok reply).
 struct Reply {
     bool ok;
-    nlohmann::json json;
+    nlohmann::json json;                        // transitional — being replaced by `body`
+    std::shared_ptr<const std::string> body;
     QString error;
     bool timedOut;
-    Reply() : ok(false), timedOut(false) {}
+    Reply() : ok(false), body(std::make_shared<std::string>()), timedOut(false) {}
 };
 
 // A per-request handle returned by ITransport::post()/get(). It emits finished()

@@ -40,7 +40,11 @@ public:
     yt::TransportReply *post(const QString &endpoint, yt::ClientId, const nlohmann::json &body, QObject *owner = 0) {
         sent << body;
         yt::Reply r;
-        if (!m_q[endpoint].isEmpty()) { r.ok = true; r.json = m_q[endpoint].dequeue(); }
+        if (!m_q[endpoint].isEmpty()) {
+            r.ok = true;
+            r.json = m_q[endpoint].dequeue();
+            r.body = std::make_shared<const std::string>(r.json.dump());
+        }
         else { r.ok = false; r.error = "no fixture queued for " + endpoint; }
         FakeReply *rep = new FakeReply(r, owner);
         m_pending << rep;
@@ -55,7 +59,11 @@ public:
     yt::TransportReply *postForm(const QString &url, const QMap<QString, QString> &fields, QObject *owner = 0) {
         sentForm << qMakePair(url, fields);
         yt::Reply r;
-        if (!m_q[url].isEmpty()) { r.ok = true; r.json = m_q[url].dequeue(); }
+        if (!m_q[url].isEmpty()) {
+            r.ok = true;
+            r.json = m_q[url].dequeue();
+            r.body = std::make_shared<const std::string>(r.json.dump());
+        }
         else { r.ok = false; r.error = "no fixture queued for " + url; }
         FakeReply *rep = new FakeReply(r, owner);
         m_pending << rep;

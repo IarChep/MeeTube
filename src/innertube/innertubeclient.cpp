@@ -38,6 +38,7 @@ static Reply makeReply(QNetworkReply *r, bool timedOut)
     Reply out;
     out.timedOut = timedOut;
     const QByteArray body = r->readAll();
+    out.body = std::make_shared<const std::string>(body.constData(), (size_t) body.size());
     if (timedOut) {
         out.ok = false;
         out.error = QString::fromLatin1("request timed out");
@@ -135,10 +136,12 @@ private:
 class CachedReply : public TransportReply {
     Q_OBJECT
 public:
-    CachedReply(const nlohmann::json &json, QObject *owner) : TransportReply(owner)
+    CachedReply(const nlohmann::json &json, const std::shared_ptr<const std::string> &body,
+                QObject *owner) : TransportReply(owner)
     {
         m_result.ok = true;
         m_result.json = json;
+        if (body) m_result.body = body;         // aliases the cache entry — no copy
         QTimer::singleShot(0, this, SLOT(fire()));
     }
     Reply result() const { return m_result; }
@@ -178,7 +181,7 @@ TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, 
         key = h.result();
         QHash<QByteArray, CacheEntry>::const_iterator it = m_cache.constFind(key);
         if (it != m_cache.constEnd() && it->expiresAtMs > QDateTime::currentMSecsSinceEpoch())
-            return new CachedReply(it->json, owner ? owner : this);
+            return new CachedReply(it->json, it->body, owner ? owner : this);
     }
 
     QNetworkRequest req(QUrl(m_baseUrl + endpoint + "?prettyPrint=false"));
@@ -207,6 +210,7 @@ void InnertubeClient::cacheResponse()
     if (key.isEmpty()) return;
     CacheEntry e;
     e.json = r.json;
+    e.body = r.body;                            // shared — the entry aliases the reply's payload
     e.expiresAtMs = QDateTime::currentMSecsSinceEpoch() + rep->property("cacheTtlMs").toInt();
     if (!m_cache.contains(key)) m_cacheOrder << key;
     m_cache.insert(key, e);
