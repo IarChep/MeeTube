@@ -1,66 +1,11 @@
 # ---------------------------------------------------------------------------
-# meetube-core — pure value types + JSON/parser helpers; Qt4::QtNetwork linked
-# for future transport classes.
-# Built as a STATIC PIC lib so it can be linked into both the app and any
-# future MODULE plugins.
+# src/ — the MeeTube source subprojects, added in dependency order:
+#   core/             → the meetube-core STATIC lib (the backend)
+#   webp-imageformat/ → libqwebp.so image plugin (defines the `qwebp` target)
+#   app/              → the meetube GUI executable (links meetube-core + qwebp)
+# Each has its own CMakeLists.txt. deps/ (bundled third-party), tests/, and the
+# bench_json harness stay at the repo root (added around this subdir from there).
 # ---------------------------------------------------------------------------
-add_library(meetube-core STATIC
-    parsers/continuation.cpp
-    parsers/videolistparser.cpp
-    parsers/watchparser.cpp
-    parsers/playlistparser.cpp
-    parsers/channelparser.cpp
-    parsers/commentparser.cpp
-    parsers/accountparser.cpp
-    parsers/playerparser.cpp
-    innertube/clientconfig.cpp
-    innertube/contextbuilder.cpp
-    core/http.cpp
-    core/chains.cpp
-    requests/bodies.cpp
-    innertube/accountstore.cpp
-    innertube/accountmanager.cpp
-    innertube/videoapi.cpp
-    innertube/channelapi.cpp
-    innertube/playlistapi.cpp
-    innertube/videodetails.cpp
-    innertube/streamset.cpp
-    innertube/subtitleset.cpp
-    innertube/channeldetails.cpp
-    innertube/accountdetails.cpp
-    innertube/accountapi.cpp
-    innertube/innertube.cpp
-    models/servicelistmodel.cpp
-    models/videomodel.cpp
-    models/commentmodel.cpp
-    models/playlistmodel.cpp
-    models/channelmodel.cpp
-    models/accountmodel.cpp
-    models/servicemetatypes.cpp
-    threading/workerhost.cpp
-)
-# AUTOMOC: core/http.h declares a Q_OBJECT (signals/slots for the
-# QNetworkAccessManager-backed transport), as do the models, detail objects,
-# threading/workerhost.h and the Innertube engine, so the lib must be moc'd.
-set_target_properties(meetube-core PROPERTIES
-    POSITION_INDEPENDENT_CODE ON
-    AUTOMOC ON)
-
-# Two PUBLIC include roots:
-#   ${CMAKE_CURRENT_SOURCE_DIR}        → resolves "parsers/continuation.h" etc.
-#   ${CMAKE_CURRENT_SOURCE_DIR}/types  → resolves "servicedatatypes.h" (no dir prefix)
-target_include_directories(meetube-core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/types)
-
-target_link_libraries(meetube-core PUBLIC
-    Qt4::QtCore
-    Qt4::QtNetwork)
-
-# Glaze is an implementation detail of the parser/transport .cpps — the public
-# headers expose only std::string_view / std::string, so the link stays PRIVATE
-# and nothing else in the app pays the template-heavy include.
-target_link_libraries(meetube-core PRIVATE glaze)
-
-# The test harness now lives in its own subproject — see tests/CMakeLists.txt,
-# wired from the root (NOT BUILD_N9, after this src/ subdir).
+add_subdirectory(core)
+add_subdirectory(webp-imageformat)
+add_subdirectory(app)
