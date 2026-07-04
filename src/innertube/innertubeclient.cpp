@@ -210,19 +210,57 @@ private:
 
 InnertubeClient::InnertubeClient(QObject *parent)
     : QObject(parent), m_timeoutMs(kRequestTimeoutMs),
-      m_baseUrl(QLatin1String("https://www.youtube.com/youtubei/v1/")) {}
+      m_baseUrl(QLatin1String("https://www.youtube.com/youtubei/v1/"))
+{
+    // No context/headers built yet — force a rebuild on the first request.
+    invalidateSessionCaches();
+}
 
 void InnertubeClient::clearCache()
 {
     m_cache.clear();
     m_cacheOrder.clear();
+    // Bearer/locale changed (the two call sites in Innertube): the memoized
+    // context/headers embed those, so drop them too.
+    invalidateSessionCaches();
+}
+
+void InnertubeClient::invalidateSessionCaches()
+{
+    for (int i = 0; i < kClientCount; ++i) {
+        m_ctxValid[i] = false;
+        m_hdrValid[i] = false;
+    }
+}
+
+const std::string &InnertubeClient::cachedContext(ClientId id)
+{
+    const int i = (int) id;
+    if (!m_ctxValid[i]) {
+        m_ctxCache[i] = ContextBuilder::contextJson(id, m_session);
+        m_ctxValid[i] = true;
+    }
+    return m_ctxCache[i];
+}
+
+const QList<QPair<QByteArray, QByteArray> > &InnertubeClient::cachedHeaders(ClientId id)
+{
+    const int i = (int) id;
+    if (!m_hdrValid[i]) {
+        m_hdrCache[i] = ContextBuilder::headers(id, m_session);
+        m_hdrValid[i] = true;
+    }
+    return m_hdrCache[i];
 }
 
 TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, const std::string &bodyJson, QObject *owner)
 {
     // Splice the context into the body: every bodies.h builder emits a JSON
-    // object, so the payload is {"context":<ctx>[, <body members>]}.
-    const std::string ctx = ContextBuilder::contextJson(client, m_session);
+    // object, so the payload is {"context":<ctx>[, <body members>]}. The context
+    // is memoized per-client for the session generation (rebuilding it is a Glaze
+    // write + ~6 allocations, identical for every request on a feed page); the
+    // payload copies it immediately below, so the cached ref need not outlive this.
+    const std::string &ctx = cachedContext(client);
     std::string payload;
     payload.reserve(ctx.size() + bodyJson.size() + 16);
     payload += "{\"context\":";
@@ -252,7 +290,10 @@ TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, 
     }
 
     QNetworkRequest req(QUrl(m_baseUrl + endpoint + "?prettyPrint=false"));
-    const QList<QPair<QByteArray, QByteArray> > hs = ContextBuilder::headers(client, m_session);
+    // Same memoization as the context: the header list is identical per-client for
+    // the session generation. Iterated here into the request; the cached ref stays
+    // valid (the entry persists until the next invalidateSessionCaches()).
+    const QList<QPair<QByteArray, QByteArray> > &hs = cachedHeaders(client);
     for (int i = 0; i < hs.size(); ++i)
         req.setRawHeader(hs[i].first, hs[i].second);
 
@@ -321,6 +362,12 @@ void InnertubeClient::captureVisitorData()
     const Reply r = rep->result();
     if (r.ok && m_session.visitorData.isEmpty() && !r.visitorData.isEmpty()) {
         m_session.visitorData = r.visitorData;
+        // The context embeds visitorData and the headers embed X-Goog-Visitor-Id:
+        // both memoized caches now describe the old (empty-visitorData) session, so
+        // rebuild them. NOT clearCache(): the response cache is keyed by md5 over the
+        // full payload (which includes the context), so post-visitorData requests miss
+        // the stale entries naturally — preserving today's no-response-clear behavior.
+        invalidateSessionCaches();
         emit visitorDataCaptured(m_session.visitorData);
     }
 }

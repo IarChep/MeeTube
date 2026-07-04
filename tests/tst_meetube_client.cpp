@@ -3,17 +3,22 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QPointer>
+#include <QHash>
+#include <QSet>
 #include "testutil.h"
 #include "innertube/innertubeclient.h"
 #include "requests/videorequest.h"
 
 using namespace yt;
 
-// A trivial loopback HTTP server the InnertubeClient::get() path can hit over
-// plain http://127.0.0.1:<port>. It lets a test drive the real lifetime
+// A trivial loopback HTTP server the InnertubeClient::get()/post() paths can hit
+// over plain http://127.0.0.1:<port>. It lets a test drive the real lifetime
 // machinery (NamReply finish/timeout/owner-death) without touching the production
 // network code: two behaviours, picked per-connection:
-//   Respond  — send a minimal 200 + JSON body, then close (normal finish).
+//   Respond  — read the full request (parsing Content-Length so a POST body is
+//              captured intact), record the request body, then send a minimal 200
+//              + JSON body and close (normal finish). The captured bodies let a
+//              test assert on exactly what the transport put on the wire.
 //   Hang     — accept and hold the socket open, never reply (drives timeout /
 //              owner-death; the request stays in-flight until aborted).
 class LoopbackServer : public QObject {
@@ -27,26 +32,63 @@ public:
     }
     QString url() const { return QString("http://127.0.0.1:%1/").arg(m_srv.serverPort()); }
     int connections() const { return m_held.size(); }   // network hits observed
+    // Request bodies (bytes after the header terminator) seen so far, in arrival
+    // order. Used by the caching test to assert on what the transport actually sent.
+    QList<QByteArray> bodies() const { return m_bodies; }
+    QByteArray lastBody() const { return m_bodies.isEmpty() ? QByteArray() : m_bodies.last(); }
 private slots:
     void onConn() {
         QTcpSocket *s = m_srv.nextPendingConnection();
         m_held << s;                       // keep a ref so it isn't reaped
         if (m_mode == Respond) {
-            const QByteArray body = m_body;
-            QByteArray resp = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
-                              "Content-Length: " + QByteArray::number(body.size()) +
-                              "\r\nConnection: close\r\n\r\n" + body;
-            s->write(resp);
-            s->flush();
-            s->disconnectFromHost();
+            connect(s, SIGNAL(readyRead()), this, SLOT(onReadyRead()));
+            maybeServe(s);                 // handle a body already buffered on connect
         }
         // Hang: do nothing — hold the socket open, never write.
     }
+    void onReadyRead() {
+        QTcpSocket *s = qobject_cast<QTcpSocket *>(sender());
+        if (s) maybeServe(s);
+    }
 private:
+    // Accumulate the request until headers + declared body are complete, then record
+    // the body and send the canned response exactly once per socket.
+    void maybeServe(QTcpSocket *s) {
+        if (m_served.contains(s)) return;
+        m_buf[s] += s->readAll();
+        const QByteArray &buf = m_buf[s];
+        const int hdrEnd = buf.indexOf("\r\n\r\n");
+        if (hdrEnd < 0) return;                     // headers not fully arrived yet
+        const int bodyStart = hdrEnd + 4;
+        // Parse Content-Length (case-insensitive) from the header block.
+        int contentLen = 0;
+        const QByteArray header = buf.left(hdrEnd).toLower();
+        const int clPos = header.indexOf("content-length:");
+        if (clPos >= 0) {
+            int p = clPos + 15;
+            while (p < header.size() && (header[p] == ' ' || header[p] == '\t')) ++p;
+            int e = p;
+            while (e < header.size() && header[e] >= '0' && header[e] <= '9') ++e;
+            contentLen = header.mid(p, e - p).toInt();
+        }
+        if (buf.size() - bodyStart < contentLen) return;   // wait for the whole body
+        m_served.insert(s);
+        m_bodies << buf.mid(bodyStart, contentLen);
+        const QByteArray body = m_body;
+        QByteArray resp = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
+                          "Content-Length: " + QByteArray::number(body.size()) +
+                          "\r\nConnection: close\r\n\r\n" + body;
+        s->write(resp);
+        s->flush();
+        s->disconnectFromHost();
+    }
     QTcpServer m_srv;
     Mode m_mode;
     QByteArray m_body;
     QList<QTcpSocket *> m_held;
+    QHash<QTcpSocket *, QByteArray> m_buf;
+    QSet<QTcpSocket *> m_served;
+    QList<QByteArray> m_bodies;
 };
 
 class TestClient : public QObject { Q_OBJECT
@@ -309,6 +351,92 @@ private slots:
         et.restart();
         while (s4.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
         QCOMPARE(srv.connections(), 5);
+    }
+
+    // ---- part (d): per-client context/header caching + generation invalidation --
+    // The transport memoizes the serialized `context` (and header list) per client
+    // for a session generation: rebuilding it is a Glaze write + ~6 allocations,
+    // identical for every request on a feed page. A session mutation must NOT leak
+    // into an already-built cache; clearCache() (and the visitorData-capture path)
+    // bump the generation and force a rebuild. Proven against the RAW request bytes:
+    //   - `player` is TTL 0 (cacheTtlSecs), so the response cache never interferes:
+    //     every post below actually hits the wire and is captured by the loopback.
+    void contextCachedUntilInvalidated() {
+        LoopbackServer srv(LoopbackServer::Respond, "{\"ok\":true}");
+        InnertubeClient client;
+        client.setBaseUrl(srv.url());
+        QObject owner;
+        const std::string body = "{\"videoId\":\"vid\"}";
+
+        // (1) First post builds + caches the WEB context (default hl == "en").
+        TransportReply *r1 = client.post("player", ClientId::WEB, body, &owner);
+        QSignalSpy s1(r1, SIGNAL(finished()));
+        QElapsedTimer et; et.start();
+        while (s1.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(s1.count(), 1);
+        QCOMPARE(srv.bodies().size(), 1);
+        QVERIFY(srv.bodies().at(0).contains("\"hl\":\"en\""));
+
+        // (2) Mutate the session locale WITHOUT invalidating. The context is genuinely
+        //     cached, so the next payload must STILL carry the old "hl":"en" — the
+        //     mutation is not consulted until the cache is rebuilt.
+        client.session().hl = "fr";
+        TransportReply *r2 = client.post("player", ClientId::WEB, body, &owner);
+        QSignalSpy s2(r2, SIGNAL(finished()));
+        et.restart();
+        while (s2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(s2.count(), 1);
+        QCOMPARE(srv.bodies().size(), 2);          // player is TTL 0 — a real 2nd hit
+        QVERIFY(srv.bodies().at(1).contains("\"hl\":\"en\""));   // still cached
+        QVERIFY(!srv.bodies().at(1).contains("\"hl\":\"fr\""));
+
+        // (3) clearCache() now folds in invalidateSessionCaches() (the same path
+        //     Innertube::applySettings/applyBearer take): the next post rebuilds the
+        //     context from the mutated session and carries the new "hl":"fr".
+        client.clearCache();
+        TransportReply *r3 = client.post("player", ClientId::WEB, body, &owner);
+        QSignalSpy s3(r3, SIGNAL(finished()));
+        et.restart();
+        while (s3.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(s3.count(), 1);
+        QCOMPARE(srv.bodies().size(), 3);
+        QVERIFY(srv.bodies().at(2).contains("\"hl\":\"fr\""));   // rebuilt
+    }
+
+    // The visitorData-capture path invalidates the context/header caches (context
+    // embeds visitorData, headers embed X-Goog-Visitor-Id) but leaves the response
+    // cache untouched. Here: the first reply seeds visitorData; the NEXT payload must
+    // then carry that visitorData in its context — proving captureVisitorData()
+    // rebuilt the cached context. Uses `player` (TTL 0) so both posts hit the wire.
+    void visitorDataCaptureInvalidatesContextCache() {
+        LoopbackServer srv(LoopbackServer::Respond,
+                           "{\"responseContext\":{\"visitorData\":\"VD_CAP\"}}");
+        InnertubeClient client;
+        client.setBaseUrl(srv.url());
+        QObject owner;
+        const std::string body = "{\"videoId\":\"vid\"}";
+
+        // (1) First post: session has no visitorData yet, so the built context omits
+        //     it. The reply carries VD_CAP; captureVisitorData() adopts it and bumps
+        //     the cache generation.
+        TransportReply *r1 = client.post("player", ClientId::WEB, body, &owner);
+        QSignalSpy s1(r1, SIGNAL(finished()));
+        QElapsedTimer et; et.start();
+        while (s1.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(s1.count(), 1);
+        QCOMPARE(srv.bodies().size(), 1);
+        QVERIFY(!srv.bodies().at(0).contains("VD_CAP"));         // not sent yet
+        QCOMPARE(client.session().visitorData, QString("VD_CAP"));  // now captured
+
+        // (2) Next post: the context was invalidated by the capture, so it rebuilds
+        //     with the freshly captured visitorData embedded.
+        TransportReply *r2 = client.post("player", ClientId::WEB, body, &owner);
+        QSignalSpy s2(r2, SIGNAL(finished()));
+        et.restart();
+        while (s2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(s2.count(), 1);
+        QCOMPARE(srv.bodies().size(), 2);
+        QVERIFY(srv.bodies().at(1).contains("\"visitorData\":\"VD_CAP\""));  // rebuilt
     }
 
     // A persisted visitorData seeded into the session wins over the server's.

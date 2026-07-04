@@ -4,8 +4,12 @@
 #include <QNetworkAccessManager>
 #include <QHash>
 #include <QList>
+#include <QPair>
+#include <QByteArray>
+#include <string>
 #include "itransport.h"
 #include "session.h"
+#include "clientconfig.h"
 
 namespace yt {
 
@@ -55,6 +59,22 @@ private:
         std::shared_ptr<const std::string> body;   // aliased by CachedReply — no copies
         qint64 expiresAtMs;
     };
+
+    // Zero every session-derived per-client cache (context + headers) so the next
+    // request rebuilds them. Called from clearCache() (which covers the engine's
+    // applySettings/applyBearer paths) and directly from captureVisitorData() the
+    // moment a new visitorData is adopted — context embeds hl/gl/visitorData and
+    // the headers embed X-Goog-Visitor-Id + the TVHTML5 bearer, so any of those
+    // changing must rebuild both caches for all clients.
+    void invalidateSessionCaches();
+    // The serialized `context` value for `id`, built once per session generation:
+    // on a miss it calls ContextBuilder::contextJson and memoizes; the returned
+    // reference stays valid until the next invalidateSessionCaches().
+    const std::string &cachedContext(ClientId id);
+    // The request header list for `id`, same memoization discipline as
+    // cachedContext (ContextBuilder::headers on a miss).
+    const QList<QPair<QByteArray, QByteArray> > &cachedHeaders(ClientId id);
+
     QNetworkAccessManager m_nam;
     Session m_session;
     int m_timeoutMs;
@@ -64,6 +84,15 @@ private:
     // travels in a header, hence clearCache() on bearer change. FIFO-bounded.
     QHash<QByteArray, CacheEntry> m_cache;
     QList<QByteArray> m_cacheOrder;
+
+    // Session-derived per-client caches. Rebuilding the context is a Glaze write +
+    // ~6 allocations; on a feed page it is identical for every request. Invalidated
+    // on ANY session mutation (locale, visitorData, bearer) via invalidateSessionCaches().
+    static const int kClientCount = 6;                    // ClientId enum size
+    std::string m_ctxCache[kClientCount];
+    QList<QPair<QByteArray, QByteArray> > m_hdrCache[kClientCount];
+    bool m_ctxValid[kClientCount];                        // false = rebuild context
+    bool m_hdrValid[kClientCount];                        // false = rebuild headers
 };
 
 }
