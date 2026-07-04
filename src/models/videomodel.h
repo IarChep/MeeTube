@@ -50,10 +50,15 @@ protected:
     // FakeTransport-backed request without touching the network.
     virtual yt::VideoRequest* newRequest();
 
+    // Typed row storage — answers reads with a zero-alloc switch(roleIdx).
+    int itemCount() const;
+    QVariant roleData(int row, int roleIdx) const;
+    void dropItems();
+
 private:
     yt::VideoRequest* request();
-    static QVariantMap toMap(const CT::Video &v);
 
+    QList<CT::Video> m_rows;
     QPointer<yt::VideoRequest> m_request;
     QString m_resourceId;
     bool m_canPage;

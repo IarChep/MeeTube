@@ -137,6 +137,9 @@ private slots:
         QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("ccc33333333"));
         QCOMPARE(model.data(1, QByteArray("title")).toString(), QString("Feed Two"));
         QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+        // An unknown role name resolves to no role index -> invalid QVariant (the
+        // typed switch(roleIdx) has no default row payload for it).
+        QVERIFY(!model.data(0, QByteArray("nosuchrole")).isValid());
         // browse body carried the browseId (no continuation on first page).
         QVERIFY(model.m_fake.sent.at(0).contains("\"browseId\":\"FEnews_destination\""));
         QVERIFY(model.canFetchMore());   // fixture has a "FEEDNEXT" continuation token

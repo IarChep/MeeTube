@@ -18,30 +18,52 @@
 
 ServiceListModel::ServiceListModel(const QList<QByteArray> &roleNamesList, QObject *parent)
     : QAbstractListModel(parent), m_status(yt::ServiceRequest::Null) {
-    int role = Qt::UserRole + 1;
+    int role = FirstRole;
+    int roleIdx = 0;
     for (const QByteArray &name : roleNamesList) {
         m_roles.insert(role, name);
+        m_roleIndex.insert(name, roleIdx);
         ++role;
+        ++roleIdx;
     }
 #if QT_VERSION < 0x050000
     setRoleNames(m_roles);
 #endif
 }
 
-int ServiceListModel::rowCount(const QModelIndex &) const { return m_items.size(); }
-
 QVariant ServiceListModel::data(const QModelIndex &index, int role) const {
-    if (!index.isValid() || index.row() >= m_items.size()) return QVariant();
-    return m_items.at(index.row()).value(QString::fromUtf8(m_roles.value(role)));
+    if (!index.isValid() || index.row() >= itemCount()) return QVariant();
+    return roleData(index.row(), role - FirstRole);
 }
 
 QVariant ServiceListModel::data(int row, const QByteArray &role) const {
-    if (row < 0 || row >= m_items.size()) return QVariant();
-    return m_items.at(row).value(QString::fromUtf8(role));
+    int idx = m_roleIndex.value(role, -1);
+    return (row < 0 || row >= itemCount() || idx < 0) ? QVariant() : roleData(row, idx);
 }
 
 QVariantMap ServiceListModel::itemData(int row) const {
-    return (row >= 0 && row < m_items.size()) ? m_items.at(row) : QVariantMap();
+    QVariantMap map;
+    if (row < 0 || row >= itemCount()) return map;
+    for (QHash<QByteArray, int>::const_iterator it = m_roleIndex.constBegin();
+         it != m_roleIndex.constEnd(); ++it) {
+        map[QString::fromUtf8(it.key())] = roleData(row, it.value());
+    }
+    return map;
+}
+
+// --- Row storage seam: transitional defaults over m_items (removed in Task 9) ---
+
+int ServiceListModel::itemCount() const {
+    return m_items.size();   // transitional: removed once all models are typed (Task 9)
+}
+
+QVariant ServiceListModel::roleData(int row, int roleIdx) const {
+    // transitional: removed once all models are typed (Task 9)
+    return m_items.at(row).value(QString::fromUtf8(m_roles.value(FirstRole + roleIdx)));
+}
+
+void ServiceListModel::dropItems() {
+    m_items.clear();         // transitional: removed once all models are typed (Task 9)
 }
 
 bool ServiceListModel::canFetchMore() const {
@@ -49,10 +71,10 @@ bool ServiceListModel::canFetchMore() const {
 }
 
 void ServiceListModel::clear() {
-    if (m_items.isEmpty()) return;
+    if (itemCount() == 0 && nextToken().isEmpty()) return;
     beginResetModel();
-    m_items.clear();
-    m_next.clear();
+    dropItems();
+    setNext(QString());
     endResetModel();
     emit countChanged();
 }
