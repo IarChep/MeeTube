@@ -65,7 +65,7 @@ void AccountManager::onDeviceCode() {
     rep->deleteLater();
     if (!r.ok) { emit authFailed(r.error); return; }
     oj::DeviceCode dc{};
-    gj::readJson(dc, *r.body);
+    gj::readJsonDoc(dc, *r.body);
     m_deviceCode = qstr(dc.device_code);
     const QString userCode = qstr(dc.user_code);
     QString verifUrl = qstr(dc.verification_url);
@@ -102,7 +102,7 @@ void AccountManager::onToken() {
     rep->deleteLater();
     if (m_deviceCode.isEmpty()) return;     // canceled mid-flight
     oj::Token tok{};
-    gj::readJson(tok, *r.body);
+    gj::readJsonDoc(tok, *r.body);
     const QString access  = qstr(tok.access_token);
     const QString refresh = qstr(tok.refresh_token);
     const QString err     = qstr(tok.error);
@@ -159,7 +159,7 @@ void AccountManager::onRefresh() {
     const Reply r = rep->result();
     rep->deleteLater();
     oj::Token tok{};
-    gj::readJson(tok, *r.body);
+    gj::readJsonDoc(tok, *r.body);
     const QString access = qstr(tok.access_token);
     if (!access.isEmpty()) { m_bearer = access; emit bearerChanged(); }
 }

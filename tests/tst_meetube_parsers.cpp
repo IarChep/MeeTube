@@ -265,10 +265,13 @@ private slots:
         QCOMPARE(v[1].username, QString("Channel B"));
     }
     void isPlayableStatus() {
-        QVERIFY(yt::isPlayable(payloads::kPlayableOk, 0));
+        // Wrap the const char* payloads in std::string: isPlayable now has both a
+        // string_view and a (const std::string &) overload, so a bare const char*
+        // would be ambiguous. std::string picks the whole-document sentinel path.
+        QVERIFY(yt::isPlayable(std::string(payloads::kPlayableOk), 0));
 
         QString reason;
-        QVERIFY(!yt::isPlayable(payloads::kPlayableLogin, &reason));
+        QVERIFY(!yt::isPlayable(std::string(payloads::kPlayableLogin), &reason));
         QVERIFY(reason.contains("LOGIN_REQUIRED"));
     }
 };
