@@ -64,14 +64,14 @@ AccountStore* AccountModel::boundStore() {
 
 void AccountModel::reload() {
     AccountStore *s = m_store ? m_store.data() : boundStore();
-    if (!s) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
+    if (!s) { setError("not supported"); setStatus(core::Failed); return; }
     beginResetModel();
     m_rows = s->accounts();
     m_activeId = s->activeId();
     endResetModel();
     emitCountChanged();
     setNext(QString());
-    setStatus(ServiceRequest::Ready);
+    setStatus(core::Ready);
 }
 
 void AccountModel::setActive(const QString &id) {

@@ -22,25 +22,18 @@
 
 namespace yt {
 
-class InnertubeClient;
-class PlaylistRequest;
-class VideoRequest;
-
-// The `playlist` node of the API tree — innertube.playlist().
+// The `playlist` node of the API tree — innertube.playlist(). The models self-serve
+// the backend via their apiRef() seam, so this node holds no transport.
 class PlaylistApi : public QObject {
     Q_OBJECT
 public:
-    explicit PlaylistApi(InnertubeClient *client, QObject *parent = 0);
+    explicit PlaylistApi(QObject *parent = 0);
 
     Q_INVOKABLE QObject* byChannel(const QString &channelId);    // PlaylistModel* (a channel's playlists)
     Q_INVOKABLE QObject* searchPlaylists(const QString &query);  // PlaylistModel*
     Q_INVOKABLE QObject* videos(const QString &playlistId);      // VideoModel* (a playlist's videos)
 
-    PlaylistRequest* newPlaylistRequest();
-    VideoRequest*    newVideoRequest();
-
 private:
-    InnertubeClient *m_client;
     QPointer<QObject> m_list;
     QPointer<QObject> m_videos;
 };

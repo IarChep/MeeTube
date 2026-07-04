@@ -21,7 +21,7 @@
 #include <QVariantMap>
 #include <QList>
 #include <QHash>
-#include "requests/servicerequest.h"
+#include "core/status.h"
 
 // Base for the service-backed list models. Rows are answered through three
 // pure virtuals — itemCount()/roleData()/dropItems() — so every derived model

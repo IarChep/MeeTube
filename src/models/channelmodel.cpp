@@ -34,9 +34,7 @@ enum ChRole { RId, RUsername, RDescription, RThumbnailUrl, RSubscriberCount,
 ChannelModel::ChannelModel(QObject *parent)
     : ServiceListModel(channelRoles(), parent) {}
 
-ChannelModel::~ChannelModel() {
-    if (m_request) m_request->deleteLater();
-}
+ChannelModel::~ChannelModel() { if (m_job) m_job->canceled.store(true); }
 
 int ChannelModel::itemCount() const { return m_rows.size(); }
 
@@ -57,45 +55,50 @@ QVariant ChannelModel::roleData(int row, int idx) const {
     return QVariant();
 }
 
-UserRequest* ChannelModel::newRequest() {
+ApiRef ChannelModel::apiRef() const {
     Innertube *e = Innertube::instance();
-    return e ? e->channelApi()->newUserRequest() : 0;
-}
-
-UserRequest* ChannelModel::request() {
-    if (!m_request) {
-        m_request = newRequest();
-        if (m_request) {
-            connect(m_request, SIGNAL(ready(QList<CT::User>,QString)),
-                    this, SLOT(onReady(QList<CT::User>,QString)));
-            connect(m_request, SIGNAL(failed(QString)), this, SLOT(onFailed(QString)));
-        }
-    }
-    return m_request;
+    return e ? e->apiRef() : ApiRef();
 }
 
 void ChannelModel::search(const QString &query) {
-    if (!request()) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
+    cancelJob();
+    m_job = core::newJob();
     clear();
-    setStatus(ServiceRequest::Loading);
-    m_request->search(query);
+    setStatus(core::Loading);
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) { core::Outcome<core::UserPage> o; o.error = "not supported"; applyUsers(o); return; }
+    const core::JobToken job = m_job;
+    ChannelModel *self = this;
+    api.host->invoke([api, query, job, self]() {
+        core::fetchUserSearch(*api.http, query, job,
+            [api, job, self](const core::Outcome<core::UserPage> &r) {
+                api.host->invokeGui([job, self, r]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->applyUsers(r);
+                });
+            });
+    });
 }
 
-void ChannelModel::cancel() {
-    if (m_request) m_request->cancel();
-    setStatus(ServiceRequest::Canceled);
+void ChannelModel::cancelJob() {
+    if (!m_job) return;
+    m_job->canceled.store(true);
+    const ApiRef api = apiRef();
+    const core::JobToken job = m_job;
+    if (api.host && api.http)
+        api.host->invoke([api, job]() { api.http->abort(job); });
+    m_job.reset();
 }
 
-void ChannelModel::onReady(const QList<CT::User> &users, const QString &next) {
+void ChannelModel::cancel() { cancelJob(); setStatus(core::Canceled); }
+
+// RESET (channel search replaces the whole list).
+void ChannelModel::applyUsers(const core::Outcome<core::UserPage> &r) {
+    if (!r.ok) { setError(r.error); setStatus(core::Failed); return; }
     beginResetModel();
-    m_rows = users;
+    m_rows = r.value.items;
     endResetModel();
     emitCountChanged();
-    setNext(next);
-    setStatus(ServiceRequest::Ready);
-}
-
-void ChannelModel::onFailed(const QString &error) {
-    setError(error);
-    setStatus(ServiceRequest::Failed);
+    setNext(r.value.next);
+    setStatus(core::Ready);
 }

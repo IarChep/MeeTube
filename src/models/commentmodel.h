@@ -17,12 +17,13 @@
 #ifndef COMMENTMODEL_H
 #define COMMENTMODEL_H
 
-#include <QPointer>
 #include "servicelistmodel.h"
-#include "requests/commentrequest.h"
+#include "core/chains.h"
+#include "core/job.h"
+#include "innertube/apiref.h"
 
 // Comments for one video. A Ready status with count 0 means comments are disabled
-// (or there are none) — distinct from a Failed status (see CommentRequest).
+// (or there are none) — the chain reports ok with empty items, distinct from Failed.
 class CommentModel : public ServiceListModel {
     Q_OBJECT
 public:
@@ -32,16 +33,16 @@ public:
     Q_INVOKABLE void list(const QString &videoId);
     Q_INVOKABLE void fetchMore();
 
+    // The chain's delivery sink — APPENDs (ok+empty ⇒ Ready = comments disabled).
+    // Plain public method (not a slot) so the meta-object stays frozen.
+    void applyComments(const yt::core::Outcome<yt::core::CommentPage> &r);
+
 public Q_SLOTS:
     void cancel();
 
-private Q_SLOTS:
-    void onReady(const QList<CT::Comment> &comments, const QString &next);
-    void onFailed(const QString &error);
-
 protected:
-    // Test seam (see VideoModel::newRequest()).
-    virtual yt::CommentRequest* newRequest();
+    // Test seam (see VideoModel::apiRef()).
+    virtual yt::ApiRef apiRef() const;
 
     // Typed row storage — answers reads with a zero-alloc switch(roleIdx).
     int itemCount() const;
@@ -49,10 +50,10 @@ protected:
     void dropItems();
 
 private:
-    yt::CommentRequest* request();
+    void cancelJob();
 
     QList<CT::Comment> m_rows;
-    QPointer<yt::CommentRequest> m_request;
+    yt::core::JobToken m_job;
     QString m_videoId;
 };
 

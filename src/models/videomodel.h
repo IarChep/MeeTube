@@ -17,9 +17,10 @@
 #ifndef VIDEOMODEL_H
 #define VIDEOMODEL_H
 
-#include <QPointer>
 #include "servicelistmodel.h"
-#include "requests/videorequest.h"
+#include "core/chains.h"
+#include "core/job.h"
+#include "innertube/apiref.h"
 
 class VideoModel : public ServiceListModel {
     Q_OBJECT
@@ -37,18 +38,19 @@ public:
     // to fill the related-videos model from the single /next response.
     void assign(const QList<CT::Video> &videos);
 
+    // The chain's delivery sink — APPENDs the page rows. Plain public method (NOT a
+    // slot/Q_INVOKABLE, so the QML meta-object is unchanged) so the file-static
+    // dispatch helper can call it.
+    void applyList(const yt::core::Outcome<yt::core::VideoPage> &r);
+
 public Q_SLOTS:
     void cancel();
 
-private Q_SLOTS:
-    void onReady(const QList<CT::Video> &videos, const QString &next);
-    void onFailed(const QString &error);
-
 protected:
-    // Test seam: overridable factory for the underlying request. The default
-    // impl asks the Innertube engine for one; tests override this to inject a
-    // FakeTransport-backed request without touching the network.
-    virtual yt::VideoRequest* newRequest();
+    // Test seam: overridable accessor for the backend. The default impl asks the
+    // Innertube engine; tests override it to return an inline WorkerHost + FakeHttp
+    // so the chain runs synchronously with no network.
+    virtual yt::ApiRef apiRef() const;
 
     // Typed row storage — answers reads with a zero-alloc switch(roleIdx).
     int itemCount() const;
@@ -56,10 +58,10 @@ protected:
     void dropItems();
 
 private:
-    yt::VideoRequest* request();
+    void cancelJob();
 
     QList<CT::Video> m_rows;
-    QPointer<yt::VideoRequest> m_request;
+    yt::core::JobToken m_job;
     QString m_resourceId;
     bool m_canPage;
 };

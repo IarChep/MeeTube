@@ -19,58 +19,78 @@
 
 namespace yt {
 
-ChannelDetails::ChannelDetails(QObject *parent) : QObject(parent), m_status(ServiceRequest::Null) {}
+ChannelDetails::ChannelDetails(QObject *parent) : QObject(parent), m_status(core::Null) {}
 
-UserRequest* ChannelDetails::newRequest() {
+ChannelDetails::~ChannelDetails() { if (m_job) m_job->canceled.store(true); }
+
+ApiRef ChannelDetails::apiRef() const {
     Innertube *e = Innertube::instance();
-    return e ? e->channelApi()->newUserRequest() : 0;
+    return e ? e->apiRef() : ApiRef();
 }
 
-UserRequest* ChannelDetails::request() {
-    if (!m_request) {
-        m_request = newRequest();
-        if (m_request) {
-            connect(m_request, SIGNAL(ready(QList<CT::User>,QString)),
-                    this, SLOT(onReady(QList<CT::User>,QString)));
-            connect(m_request, SIGNAL(failed(QString)), this, SLOT(onFailed(QString)));
-        }
-    }
-    return m_request;
+// Shared GUI-thread delivery tail for the two channel chains — gate then applyChannel.
+static std::function<void(const core::Outcome<CT::User> &)>
+deliverChannel(const ApiRef &api, const core::JobToken &job, ChannelDetails *self) {
+    return [api, job, self](const core::Outcome<CT::User> &r) {
+        api.host->invokeGui([job, self, r]() {
+            if (!core::live(job)) return;   // MUST be first
+            self->applyChannel(r);
+        });
+    };
 }
 
 void ChannelDetails::loadById(const QString &channelId) {
+    cancelJob();
     m_user = CT::User();
-    if (!request()) { m_error = "not supported"; m_status = ServiceRequest::Failed; emit statusChanged(); return; }
-    m_status = ServiceRequest::Loading;
+    m_job = core::newJob();
+    m_status = core::Loading;
     emit statusChanged();
-    m_request->get(channelId);
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) { core::Outcome<CT::User> o; o.error = "not supported"; applyChannel(o); return; }
+    const core::JobToken job = m_job;
+    ChannelDetails *self = this;
+    api.host->invoke([api, channelId, job, self]() {
+        core::fetchChannelById(*api.http, channelId, job, deliverChannel(api, job, self));
+    });
 }
 
 void ChannelDetails::loadByUrl(const QString &handleUrl) {
+    cancelJob();
     m_user = CT::User();
-    if (!request()) { m_error = "not supported"; m_status = ServiceRequest::Failed; emit statusChanged(); return; }
-    m_status = ServiceRequest::Loading;
+    m_job = core::newJob();
+    m_status = core::Loading;
     emit statusChanged();
-    m_request->resolve(handleUrl);
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) { core::Outcome<CT::User> o; o.error = "not supported"; applyChannel(o); return; }
+    const core::JobToken job = m_job;
+    ChannelDetails *self = this;
+    api.host->invoke([api, handleUrl, job, self]() {
+        core::fetchChannelByUrl(*api.http, handleUrl, job, deliverChannel(api, job, self));
+    });
+}
+
+void ChannelDetails::cancelJob() {
+    if (!m_job) return;
+    m_job->canceled.store(true);
+    const ApiRef api = apiRef();
+    const core::JobToken job = m_job;
+    if (api.host && api.http)
+        api.host->invoke([api, job]() { api.http->abort(job); });
+    m_job.reset();
 }
 
 void ChannelDetails::cancel() {
-    if (m_request) m_request->cancel();
-    m_status = ServiceRequest::Canceled;
+    cancelJob();
+    m_status = core::Canceled;
     emit statusChanged();
 }
 
-void ChannelDetails::onReady(const QList<CT::User> &users, const QString &) {
-    if (users.isEmpty()) { m_error = "channel unavailable"; m_status = ServiceRequest::Failed; emit statusChanged(); return; }
-    m_user = users.first();
-    m_status = ServiceRequest::Ready;
+// The chain returns the single CT::User directly (empty → "channel unavailable" error).
+void ChannelDetails::applyChannel(const core::Outcome<CT::User> &r) {
+    if (!r.ok) { m_error = r.error; m_status = core::Failed; emit statusChanged(); return; }
+    m_user = r.value;
+    m_status = core::Ready;
     emit loaded();
-    emit statusChanged();
-}
-
-void ChannelDetails::onFailed(const QString &error) {
-    m_error = error;
-    m_status = ServiceRequest::Failed;
     emit statusChanged();
 }
 

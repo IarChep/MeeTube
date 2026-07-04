@@ -17,14 +17,17 @@
 #ifndef YT_STREAMSET_H
 #define YT_STREAMSET_H
 #include <QObject>
-#include <QPointer>
 #include "servicedatatypes.h"
-#include "requests/streamsrequest.h"
+#include "core/chains.h"
+#include "core/status.h"
+#include "core/job.h"
+#include "innertube/apiref.h"
 
 namespace yt {
 
 // The playable stream(s) for one video — NOT a list model (no ListView): a plain
 // object exposing the adaptive HLS manifest url and a best progressive fallback.
+// Loads via fetchPlayer (streams side of the merged player outcome).
 class StreamSet : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString hlsUrl         READ hlsUrl         NOTIFY loaded)
@@ -33,7 +36,12 @@ class StreamSet : public QObject {
     Q_PROPERTY(QString errorString    READ errorString    NOTIFY statusChanged)
 public:
     explicit StreamSet(QObject *parent = 0);
+    ~StreamSet();
     Q_INVOKABLE void load(const QString &videoId);
+
+    // The chain's delivery sink (fetchPlayer, streams side). Plain public method.
+    void applyPlayer(const yt::core::PlayerOutcome &r);
+
     QString hlsUrl()         const { return m_hls; }
     QString progressiveUrl() const { return m_progressive; }
     int     status()         const { return m_status; }
@@ -44,13 +52,10 @@ Q_SIGNALS:
     void loaded();
     void statusChanged();
 protected:
-    virtual yt::StreamsRequest* newRequest();
-private Q_SLOTS:
-    void onReady(const QList<CT::Stream> &streams);
-    void onFailed(const QString &error);
+    virtual yt::ApiRef apiRef() const;
 private:
-    yt::StreamsRequest* request();
-    QPointer<yt::StreamsRequest> m_request;
+    void cancelJob();
+    yt::core::JobToken m_job;
     QString m_hls, m_progressive, m_error;
     int m_status;
 };

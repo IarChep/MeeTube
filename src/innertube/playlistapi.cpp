@@ -15,19 +15,12 @@
  */
 
 #include "playlistapi.h"
-#include "innertube/innertubeclient.h"
 #include "models/playlistmodel.h"
 #include "models/videomodel.h"
-#include "requests/playlistrequest.h"
-#include "requests/videorequest.h"
 
 namespace yt {
 
-PlaylistApi::PlaylistApi(InnertubeClient *client, QObject *parent)
-    : QObject(parent), m_client(client) {}
-
-PlaylistRequest* PlaylistApi::newPlaylistRequest() { return new PlaylistRequest(m_client, this); }
-VideoRequest*    PlaylistApi::newVideoRequest()    { return new VideoRequest(m_client, this); }
+PlaylistApi::PlaylistApi(QObject *parent) : QObject(parent) {}
 
 QObject* PlaylistApi::byChannel(const QString &channelId) {
     PlaylistModel *m = qobject_cast<PlaylistModel *>(m_list.data());

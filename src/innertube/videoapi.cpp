@@ -15,27 +15,30 @@
  */
 
 #include "videoapi.h"
-#include "innertube/innertubeclient.h"
 #include "models/videomodel.h"
 #include "models/commentmodel.h"
-#include "requests/videorequest.h"
-#include "requests/commentrequest.h"
-#include "requests/streamsrequest.h"
-#include "requests/subtitlesrequest.h"
-#include "requests/actionrequest.h"
 #include "innertube/videodetails.h"
 #include "innertube/streamset.h"
 #include "innertube/subtitleset.h"
+#include "innertube/innertube.h"
+#include "core/chains.h"
 
 namespace yt {
 
-VideoApi::VideoApi(InnertubeClient *client, QObject *parent)
-    : QObject(parent), m_client(client) {}
+VideoApi::VideoApi(QObject *parent) : QObject(parent) {}
 
-VideoRequest*     VideoApi::newVideoRequest()     { return new VideoRequest(m_client, this); }
-CommentRequest*   VideoApi::newCommentRequest()   { return new CommentRequest(m_client, this); }
-StreamsRequest*   VideoApi::newStreamsRequest()   { return new StreamsRequest(m_client, this); }
-SubtitlesRequest* VideoApi::newSubtitlesRequest() { return new SubtitlesRequest(m_client, this); }
+// Fire a fire-and-forget action chain via the engine's transport. A fresh token +
+// empty done (QML ignores the outcome); posted on the transport thread (inline now).
+static void fireAction(core::ActionKind kind, const QString &targetId) {
+    Innertube *e = Innertube::instance();
+    if (!e) return;
+    const ApiRef api = e->apiRef();
+    if (!api.host || !api.http) return;
+    const core::JobToken job = core::newJob();
+    api.host->invoke([api, kind, targetId, job]() {
+        core::submitAction(*api.http, kind, targetId, job, [](bool) {});
+    });
+}
 
 QObject* VideoApi::feed(const QString &navId) {
     VideoModel *m = qobject_cast<VideoModel *>(m_feeds.value(navId).data());
@@ -79,25 +82,8 @@ QObject* VideoApi::subtitles(const QString &videoId) {
     return s;
 }
 
-QObject* VideoApi::like(const QString &videoId) {
-    ActionRequest *r = new ActionRequest(m_client, this);
-    connect(r, SIGNAL(done(bool)), r, SLOT(deleteLater()));
-    r->like(videoId);
-    return r;
-}
-
-QObject* VideoApi::dislike(const QString &videoId) {
-    ActionRequest *r = new ActionRequest(m_client, this);
-    connect(r, SIGNAL(done(bool)), r, SLOT(deleteLater()));
-    r->dislike(videoId);
-    return r;
-}
-
-QObject* VideoApi::removeLike(const QString &videoId) {
-    ActionRequest *r = new ActionRequest(m_client, this);
-    connect(r, SIGNAL(done(bool)), r, SLOT(deleteLater()));
-    r->removeLike(videoId);
-    return r;
-}
+void VideoApi::like(const QString &videoId)       { fireAction(core::Like, videoId); }
+void VideoApi::dislike(const QString &videoId)    { fireAction(core::Dislike, videoId); }
+void VideoApi::removeLike(const QString &videoId) { fireAction(core::RemoveLike, videoId); }
 
 }

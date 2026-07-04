@@ -22,46 +22,53 @@ Innertube *Innertube::self = 0;
 
 Innertube::Innertube(QObject *parent)
     : QObject(parent), m_client(this), m_store(QString(), this), m_manager(&m_client, &m_store, this),
+      m_http(new core::Http(this)),
       m_video(0), m_channel(0), m_playlist(0), m_accountApi(0) {
     if (!self) self = this;
     connect(&m_manager, SIGNAL(bearerChanged()), this, SLOT(applyBearer()));
-    // One stable anonymous identity across launches: seed the session with the
-    // persisted visitorData (capture is skipped when non-empty) and store the
-    // server-issued one the first time it ever arrives.
-    m_client.session().visitorData = m_store.visitorData();
-    connect(&m_client, SIGNAL(visitorDataCaptured(QString)),
-            this, SLOT(persistVisitorData(QString)));
-}
-
-void Innertube::persistVisitorData(const QString &visitorData) {
-    m_store.setVisitorData(visitorData);
+    // One stable anonymous identity across launches: seed the transport session with
+    // the persisted visitorData (capture is skipped when non-empty) and store the
+    // server-issued one the first time it ever arrives. Seeding happens before the
+    // first request, so no per-client cache exists yet to go stale.
+    m_http->session().visitorData = m_store.visitorData();
+    // Replaces the old InnertubeClient::visitorDataCaptured signal path: the sink is
+    // invoked on the transport's thread, so hop to the GUI thread before touching
+    // the store (harmless while single-threaded; correct once m_http moves in Task 14).
+    m_http->setVisitorSink([this](const QString &vd) {
+        m_host.invokeGui([this, vd]() { m_store.setVisitorData(vd); });
+    });
 }
 
 VideoApi* Innertube::videoApi() {
-    if (!m_video) m_video = new VideoApi(&m_client, this);
+    if (!m_video) m_video = new VideoApi(this);
     return m_video;
 }
 
 ChannelApi* Innertube::channelApi() {
-    if (!m_channel) m_channel = new ChannelApi(&m_client, this);
+    if (!m_channel) m_channel = new ChannelApi(this);
     return m_channel;
 }
 
 PlaylistApi* Innertube::playlistApi() {
-    if (!m_playlist) m_playlist = new PlaylistApi(&m_client, this);
+    if (!m_playlist) m_playlist = new PlaylistApi(this);
     return m_playlist;
 }
 
 AccountApi* Innertube::accountApi() {
-    if (!m_accountApi) m_accountApi = new AccountApi(&m_client, &m_store, this);
+    if (!m_accountApi) m_accountApi = new AccountApi(&m_store, this);
     return m_accountApi;
 }
 
 void Innertube::applyBearer() {
-    m_client.session().bearer = m_manager.currentBearer();
-    // Sign-in/sign-out/refresh: cached personalized payloads (authed feeds,
-    // accounts_list) belong to the previous identity — drop them all.
-    m_client.clearCache();
+    // Mutate the transport session on its own thread (inline until Task 14). Sign-in/
+    // sign-out/refresh: cached personalized payloads (authed feeds, accounts_list)
+    // belong to the previous identity — drop them all after seating the new bearer.
+    const QString bearer = m_manager.currentBearer();
+    core::Http *http = m_http;
+    m_host.invoke([http, bearer]() {
+        http->session().bearer = bearer;
+        http->clearCache();
+    });
 }
 
 QVariantList Innertube::authedFeeds() const {
@@ -84,9 +91,13 @@ QVariantList Innertube::authedFeeds() const {
 Innertube* Innertube::instance() { return self ? self : self = new Innertube; }
 
 void Innertube::applySettings(const QString &region, const QString &language) {
-    if (!region.isEmpty())   m_client.session().gl = region;
-    if (!language.isEmpty()) m_client.session().hl = language;
-    m_client.clearCache();   // localized payloads must not outlive the old locale
+    // Mutate the transport session on its own thread (inline until Task 14).
+    core::Http *http = m_http;
+    m_host.invoke([http, region, language]() {
+        if (!region.isEmpty())   http->session().gl = region;
+        if (!language.isEmpty()) http->session().hl = language;
+        http->clearCache();      // localized payloads must not outlive the old locale
+    });
 }
 
 QVariantList Innertube::navEntries() const {

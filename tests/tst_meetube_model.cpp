@@ -1,7 +1,6 @@
 #include <QtTest/QtTest>
 #include "testutil.h"
 #include "innertube/videoapi.h"
-#include "innertube/innertubeclient.h"
 #include "models/videomodel.h"
 #include "models/commentmodel.h"
 #include "models/playlistmodel.h"
@@ -9,67 +8,73 @@
 #include "innertube/videodetails.h"
 #include "innertube/streamset.h"
 #include "innertube/channeldetails.h"
-#include "requests/servicerequest.h"
-#include "requests/videorequest.h"
-#include "requests/streamsrequest.h"
-#include "requests/commentrequest.h"
-#include "requests/playlistrequest.h"
-#include "requests/userrequest.h"
+#include "core/status.h"
+#include "innertube/apiref.h"
+#include "threading/workerhost.h"
 
 using namespace yt;
 
-// Model subclasses that inject a FakeTransport-backed request through the
-// newRequest() test seam — exercises the real model code path (call -> request ->
-// direct dispatch -> ready -> append/reset) with zero network access.
+// Model/detail subclasses that inject an inline WorkerHost + FakeHttp through the
+// apiRef() test seam — exercises the real facade code path (call -> invoke -> chain
+// -> invokeGui -> live()-gate -> applyX) with zero network access. The WorkerHost is
+// NOT started (invoke/invokeGui run inline) and FakeHttp defers delivery to flush(),
+// so the whole op is synchronous once flush() drains the fake transport.
 class TestVideoModel : public VideoModel {
 public:
     explicit TestVideoModel(QObject *parent = 0) : VideoModel(parent) {}
-    FakeTransport m_fake;
+    WorkerHost m_host; FakeHttp m_fake;
 protected:
-    VideoRequest* newRequest() { return new VideoRequest(&m_fake, this); }
+    ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
+                                          const_cast<FakeHttp *>(&m_fake)); }
 };
 
 class TestCommentModel : public CommentModel {
 public:
-    FakeTransport m_fake;
+    WorkerHost m_host; FakeHttp m_fake;
 protected:
-    CommentRequest* newRequest() { return new CommentRequest(&m_fake, this); }
+    ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
+                                          const_cast<FakeHttp *>(&m_fake)); }
 };
 
 class TestPlaylistModel : public PlaylistModel {
 public:
-    FakeTransport m_fake;
+    WorkerHost m_host; FakeHttp m_fake;
 protected:
-    PlaylistRequest* newRequest() { return new PlaylistRequest(&m_fake, this); }
+    ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
+                                          const_cast<FakeHttp *>(&m_fake)); }
 };
 
 class TestChannelModel : public ChannelModel {
 public:
-    FakeTransport m_fake;
+    WorkerHost m_host; FakeHttp m_fake;
 protected:
-    UserRequest* newRequest() { return new UserRequest(&m_fake, this); }
+    ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
+                                          const_cast<FakeHttp *>(&m_fake)); }
 };
 
-// Detail objects (plain QObjects) — same newRequest() seam.
+// Detail objects (plain QObjects) — same apiRef() seam.
 class TestVideoDetails : public VideoDetails {
 public:
-    FakeTransport m_fake;
+    WorkerHost m_host; FakeHttp m_fake;
 protected:
-    VideoRequest* newRequest() { return new VideoRequest(&m_fake, this); }
+    ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
+                                          const_cast<FakeHttp *>(&m_fake)); }
 };
 
 class TestStreamSet : public StreamSet {
 public:
-    FakeTransport m_fake;
+    WorkerHost m_host; FakeHttp m_fake;
 protected:
-    StreamsRequest* newRequest() { return new StreamsRequest(&m_fake, this); }
+    ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
+                                          const_cast<FakeHttp *>(&m_fake)); }
 };
 
 class TestChannelDetails : public ChannelDetails {
 public:
-    FakeTransport m_fake;
+    WorkerHost m_host; FakeHttp m_fake;
 protected:
-    UserRequest* newRequest() { return new UserRequest(&m_fake, this); }
+    ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
+                                          const_cast<FakeHttp *>(&m_fake)); }
 };
 
 class TestModel : public QObject { Q_OBJECT
@@ -79,8 +84,7 @@ private slots:
     // the engine's real transport, but with no event loop no I/O actually runs —
     // the test only asserts identity.)
     void feedCachesPerBrowseId() {
-        InnertubeClient client;
-        VideoApi api(&client);
+        VideoApi api;
         QObject *history = api.feed("FEhistory");
         QObject *news = api.feed("FEnews_destination");
         QVERIFY(history != 0);
@@ -136,7 +140,7 @@ private slots:
         QCOMPARE(model.data(0, QByteArray("title")).toString(), QString("Feed One"));
         QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("ccc33333333"));
         QCOMPARE(model.data(1, QByteArray("title")).toString(), QString("Feed Two"));
-        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+        QCOMPARE(model.status(), (int)core::Ready);
         // An unknown role name resolves to no role index -> invalid QVariant (the
         // typed switch(roleIdx) has no default row payload for it).
         QVERIFY(!model.data(0, QByteArray("nosuchrole")).isValid());
@@ -170,7 +174,7 @@ private slots:
         QCOMPARE(model.rowCount(), 2);
         QVERIFY(!model.data(0, QByteArray("body")).toString().isEmpty());
         QVERIFY(model.canFetchMore());     // comments_page has a continuation token
-        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+        QCOMPARE(model.status(), (int)core::Ready);
     }
 
     void playlistModelPopulates() {
@@ -181,7 +185,7 @@ private slots:
         model.m_fake.flush();
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("PL9"));
-        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+        QCOMPARE(model.status(), (int)core::Ready);
     }
 
     // ChannelModel: channel search results (single-channel headers are ChannelDetails).
@@ -194,7 +198,7 @@ private slots:
         QCOMPARE(model.rowCount(), 1);
         QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("UCx"));
         QVERIFY(model.m_fake.sent.at(0).contains("\"params\":"));   // channels filter
-        QCOMPARE(model.status(), (int)ServiceRequest::Ready);
+        QCOMPARE(model.status(), (int)core::Ready);
     }
 
     // VideoDetails: scalar props from /next + the nested related VideoModel.
@@ -205,7 +209,7 @@ private slots:
         d.m_fake.flush();
         QCOMPARE(d.description(), QString("Hello description"));
         QCOMPARE(d.channelName(), QString("Creator"));
-        QCOMPARE((int)d.status(), (int)ServiceRequest::Ready);
+        QCOMPARE((int)d.status(), (int)core::Ready);
         VideoModel *rel = qobject_cast<VideoModel *>(d.related());
         QVERIFY(rel != 0);
         QCOMPARE(rel->rowCount(), 1);
@@ -219,7 +223,7 @@ private slots:
         s.load("aaa11111111");
         s.m_fake.flush();
         QVERIFY(!s.hlsUrl().isEmpty());
-        QCOMPARE((int)s.status(), (int)ServiceRequest::Ready);
+        QCOMPARE((int)s.status(), (int)core::Ready);
     }
 
     // ChannelDetails: single channel header via UserRequest.
@@ -233,7 +237,7 @@ private slots:
         QCOMPARE(c.name(), QString("Chan"));
         QCOMPARE(c.subscriberCount(), QString("10K subscribers"));
         QCOMPARE(c.channelId(), QString("UCabc"));
-        QCOMPARE((int)c.status(), (int)ServiceRequest::Ready);
+        QCOMPARE((int)c.status(), (int)core::Ready);
     }
 };
 

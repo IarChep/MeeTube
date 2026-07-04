@@ -15,16 +15,12 @@
  */
 
 #include "accountapi.h"
-#include "innertube/innertubeclient.h"
 #include "innertube/accountdetails.h"
-#include "requests/accountrequest.h"
 
 namespace yt {
 
-AccountApi::AccountApi(InnertubeClient *client, AccountStore *store, QObject *parent)
-    : QObject(parent), m_client(client), m_store(store) {}
-
-AccountRequest* AccountApi::newAccountRequest() { return new AccountRequest(m_client, this); }
+AccountApi::AccountApi(AccountStore *store, QObject *parent)
+    : QObject(parent), m_store(store) {}
 
 QObject* AccountApi::details() {
     AccountDetails *d = qobject_cast<AccountDetails *>(m_details.data());

@@ -32,9 +32,7 @@ enum CRole { RId, RBody, RDate, RUserId, RUsername, RThumbnailUrl, RCommentRoleC
 CommentModel::CommentModel(QObject *parent)
     : ServiceListModel(commentRoles(), parent) {}
 
-CommentModel::~CommentModel() {
-    if (m_request) m_request->deleteLater();
-}
+CommentModel::~CommentModel() { if (m_job) m_job->canceled.store(true); }
 
 int CommentModel::itemCount() const { return m_rows.size(); }
 
@@ -53,55 +51,68 @@ QVariant CommentModel::roleData(int row, int idx) const {
     return QVariant();
 }
 
-CommentRequest* CommentModel::newRequest() {
+ApiRef CommentModel::apiRef() const {
     Innertube *e = Innertube::instance();
-    return e ? e->videoApi()->newCommentRequest() : 0;
+    return e ? e->apiRef() : ApiRef();
 }
 
-CommentRequest* CommentModel::request() {
-    if (!m_request) {
-        m_request = newRequest();
-        if (m_request) {
-            connect(m_request, SIGNAL(ready(QList<CT::Comment>,QString)),
-                    this, SLOT(onReady(QList<CT::Comment>,QString)));
-            connect(m_request, SIGNAL(failed(QString)), this, SLOT(onFailed(QString)));
-        }
+// Kick a fetchComments chain (page="" discovers the token, else continuation) and
+// route the result to applyComments. Token protocol guards the raw `self`.
+static void runComments(const ApiRef &api, const QString &videoId, const QString &page,
+                        const core::JobToken &job, CommentModel *self) {
+    if (!api.host || !api.http) {
+        core::Outcome<core::CommentPage> out; out.error = "not supported";
+        self->applyComments(out);
+        return;
     }
-    return m_request;
+    api.host->invoke([api, videoId, page, job, self]() {
+        core::fetchComments(*api.http, videoId, page, job,
+            [api, job, self](const core::Outcome<core::CommentPage> &r) {
+                api.host->invokeGui([job, self, r]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->applyComments(r);
+                });
+            });
+    });
 }
 
 void CommentModel::list(const QString &videoId) {
-    if (!request()) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
+    cancelJob();
+    m_job = core::newJob();
     m_videoId = videoId;
     clear();
-    setStatus(ServiceRequest::Loading);
-    m_request->list(videoId, QString());
+    setStatus(core::Loading);
+    runComments(apiRef(), videoId, QString(), m_job, this);
 }
 
 void CommentModel::fetchMore() {
-    if (nextToken().isEmpty() || status() == ServiceRequest::Loading) return;
-    if (!request()) return;
-    setStatus(ServiceRequest::Loading);
-    m_request->list(m_videoId, nextToken());
+    if (nextToken().isEmpty() || status() == core::Loading) return;
+    m_job = core::newJob();
+    setStatus(core::Loading);
+    runComments(apiRef(), m_videoId, nextToken(), m_job, this);
 }
 
-void CommentModel::cancel() {
-    if (m_request) m_request->cancel();
-    setStatus(ServiceRequest::Canceled);
+void CommentModel::cancelJob() {
+    if (!m_job) return;
+    m_job->canceled.store(true);
+    const ApiRef api = apiRef();
+    const core::JobToken job = m_job;
+    if (api.host && api.http)
+        api.host->invoke([api, job]() { api.http->abort(job); });
+    m_job.reset();
 }
 
-void CommentModel::onReady(const QList<CT::Comment> &comments, const QString &next) {
-    if (!comments.isEmpty()) {
-        beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + comments.size() - 1);
-        m_rows << comments;
+void CommentModel::cancel() { cancelJob(); setStatus(core::Canceled); }
+
+// APPEND; ok with empty items ⇒ Ready (comments disabled), NOT Failed.
+void CommentModel::applyComments(const core::Outcome<core::CommentPage> &r) {
+    if (!r.ok) { setError(r.error); setStatus(core::Failed); return; }
+    if (!r.value.items.isEmpty()) {
+        beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + r.value.items.size() - 1);
+        m_rows << r.value.items;
         endInsertRows();
         emitCountChanged();
     }
-    setNext(next);
-    setStatus(ServiceRequest::Ready);
-}
-
-void CommentModel::onFailed(const QString &error) {
-    setError(error);
-    setStatus(ServiceRequest::Failed);
+    setNext(r.value.next);
+    setStatus(core::Ready);
 }

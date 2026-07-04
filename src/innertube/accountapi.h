@@ -21,23 +21,20 @@
 
 namespace yt {
 
-class InnertubeClient;
 class AccountStore;
-class AccountRequest;
 
 // The `account` node of the API tree — innertube.account(). Identity only; the
-// OAuth flow itself lives on AccountManager (innertube.auth()).
+// OAuth flow itself lives on AccountManager (innertube.auth()). AccountDetails
+// self-serves the backend via its apiRef() seam; this node only supplies the store
+// (for the cached-identity seed + write-through).
 class AccountApi : public QObject {
     Q_OBJECT
 public:
-    explicit AccountApi(InnertubeClient *client, AccountStore *store, QObject *parent = 0);
+    explicit AccountApi(AccountStore *store, QObject *parent = 0);
 
     Q_INVOKABLE QObject* details();     // AccountDetails* (cached; re-load()s per call)
 
-    AccountRequest* newAccountRequest();
-
 private:
-    InnertubeClient *m_client;
     AccountStore *m_store;
     QPointer<QObject> m_details;   // reused AccountDetails
 };
