@@ -21,51 +21,62 @@
 namespace yt {
 
 AccountDetails::AccountDetails(AccountStore *store, QObject *parent)
-    : QObject(parent), m_store(store), m_status(ServiceRequest::Null) {
+    : QObject(parent), m_store(store), m_status(core::Null) {
     if (m_store) m_account = m_store->active();   // cached identity: instant header
 }
 
-AccountRequest* AccountDetails::newRequest() {
-    Innertube *e = Innertube::instance();
-    return e ? e->accountApi()->newAccountRequest() : 0;
-}
+AccountDetails::~AccountDetails() { if (m_job) m_job->canceled.store(true); }
 
-AccountRequest* AccountDetails::request() {
-    if (!m_request) {
-        m_request = newRequest();
-        if (m_request) {
-            connect(m_request, SIGNAL(ready(CT::Account)), this, SLOT(onReady(CT::Account)));
-            connect(m_request, SIGNAL(failed(QString)), this, SLOT(onFailed(QString)));
-        }
-    }
-    return m_request;
+ApiRef AccountDetails::apiRef() const {
+    Innertube *e = Innertube::instance();
+    return e ? e->apiRef() : ApiRef();
 }
 
 void AccountDetails::load() {
-    if (!request()) { m_error = "not supported"; m_status = ServiceRequest::Failed; emit statusChanged(); return; }
-    m_status = ServiceRequest::Loading;
+    cancelJob();
+    m_job = core::newJob();
+    m_status = core::Loading;
     emit statusChanged();
-    m_request->list();
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) { core::Outcome<CT::Account> o; o.error = "not supported"; applyAccount(o); return; }
+    const core::JobToken job = m_job;
+    AccountDetails *self = this;
+    api.host->invoke([api, job, self]() {
+        core::fetchAccount(*api.http, job,
+            [api, job, self](const core::Outcome<CT::Account> &r) {
+                api.host->invokeGui([job, self, r]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->applyAccount(r);
+                });
+            });
+    });
+}
+
+void AccountDetails::cancelJob() {
+    if (!m_job) return;
+    m_job->canceled.store(true);
+    const ApiRef api = apiRef();
+    const core::JobToken job = m_job;
+    if (api.host && api.http)
+        api.host->invoke([api, job]() { api.http->abort(job); });
+    m_job.reset();
 }
 
 void AccountDetails::cancel() {
-    if (m_request) m_request->cancel();
-    m_status = ServiceRequest::Canceled;
+    cancelJob();
+    m_status = core::Canceled;
     emit statusChanged();
 }
 
-void AccountDetails::onReady(const CT::Account &account) {
-    m_account = account;
+void AccountDetails::applyAccount(const core::Outcome<CT::Account> &r) {
+    if (!r.ok) {
+        // Keep m_account — the cached header stays usable when the refresh fails.
+        m_error = r.error; m_status = core::Failed; emit statusChanged(); return;
+    }
+    m_account = r.value;
     if (m_store) m_store->updateActive(m_account);   // persist for the next launch
-    m_status = ServiceRequest::Ready;
+    m_status = core::Ready;
     emit loaded();
-    emit statusChanged();
-}
-
-void AccountDetails::onFailed(const QString &error) {
-    // Keep m_account — the cached header stays usable when the refresh fails.
-    m_error = error;
-    m_status = ServiceRequest::Failed;
     emit statusChanged();
 }
 

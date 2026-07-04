@@ -17,9 +17,11 @@
 #ifndef YT_VIDEODETAILS_H
 #define YT_VIDEODETAILS_H
 #include <QObject>
-#include <QPointer>
 #include "servicedatatypes.h"
-#include "requests/videorequest.h"
+#include "core/chains.h"
+#include "core/status.h"
+#include "core/job.h"
+#include "innertube/apiref.h"
 
 class VideoModel;
 
@@ -42,8 +44,13 @@ class VideoDetails : public QObject {
     Q_PROPERTY(QObject* related    READ related     CONSTANT)   // a VideoModel* for the Repeater
 public:
     explicit VideoDetails(QObject *parent = 0);
+    ~VideoDetails();
 
     Q_INVOKABLE void load(const QString &videoId);
+
+    // The chain's delivery sink (fetchWatch). Plain public method (not a slot) so the
+    // meta-object stays frozen.
+    void applyWatch(const yt::core::Outcome<yt::core::WatchResult> &r);
 
     QString title()       const { return m_primary.title; }
     QString description() const { return m_primary.description; }
@@ -64,16 +71,12 @@ Q_SIGNALS:
     void statusChanged();
 
 protected:
-    // Test seam (mirrors the model newRequest() pattern).
-    virtual yt::VideoRequest* newRequest();
-
-private Q_SLOTS:
-    void onWatchReady(const CT::Video &primary, const QList<CT::Video> &related);
-    void onFailed(const QString &error);
+    // Test seam (mirrors the model apiRef() pattern).
+    virtual yt::ApiRef apiRef() const;
 
 private:
-    yt::VideoRequest* request();
-    QPointer<yt::VideoRequest> m_request;
+    void cancelJob();
+    yt::core::JobToken m_job;
     VideoModel *m_related;
     CT::Video m_primary;
     int m_status;

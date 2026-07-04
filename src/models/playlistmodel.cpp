@@ -33,9 +33,7 @@ enum PRole { RId, RTitle, RDescription, RThumbnailUrl, RVideoCount, RUsername, R
 PlaylistModel::PlaylistModel(QObject *parent)
     : ServiceListModel(playlistRoles(), parent), m_canPage(false) {}
 
-PlaylistModel::~PlaylistModel() {
-    if (m_request) m_request->deleteLater();
-}
+PlaylistModel::~PlaylistModel() { if (m_job) m_job->canceled.store(true); }
 
 int PlaylistModel::itemCount() const { return m_rows.size(); }
 
@@ -55,65 +53,92 @@ QVariant PlaylistModel::roleData(int row, int idx) const {
     return QVariant();
 }
 
-PlaylistRequest* PlaylistModel::newRequest() {
+ApiRef PlaylistModel::apiRef() const {
     Innertube *e = Innertube::instance();
-    return e ? e->playlistApi()->newPlaylistRequest() : 0;
+    return e ? e->apiRef() : ApiRef();
 }
 
-PlaylistRequest* PlaylistModel::request() {
-    if (!m_request) {
-        m_request = newRequest();
-        if (m_request) {
-            connect(m_request, SIGNAL(ready(QList<CT::Playlist>,QString)),
-                    this, SLOT(onReady(QList<CT::Playlist>,QString)));
-            connect(m_request, SIGNAL(failed(QString)), this, SLOT(onFailed(QString)));
-        }
-    }
-    return m_request;
+// A chain-agnostic delivery closure for the two playlist chains — gate on the token
+// FIRST (guards the raw `self`), then applyList. Captured by value.
+static std::function<void(const core::Outcome<core::PlaylistPage> &)>
+deliverPlaylists(const ApiRef &api, const core::JobToken &job, PlaylistModel *self) {
+    return [api, job, self](const core::Outcome<core::PlaylistPage> &r) {
+        api.host->invokeGui([job, self, r]() {
+            if (!core::live(job)) return;   // MUST be first
+            self->applyList(r);
+        });
+    };
 }
 
 void PlaylistModel::list(const QString &resourceId, const QString &params) {
-    if (!request()) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
+    cancelJob();
+    m_job = core::newJob();
     m_resourceId = resourceId;
     m_canPage = true;
     clear();
-    setStatus(ServiceRequest::Loading);
-    m_request->list(resourceId, QString(), params);
+    setStatus(core::Loading);
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) { core::Outcome<core::PlaylistPage> o; o.error = "not supported"; applyList(o); return; }
+    const core::JobToken job = m_job;
+    PlaylistModel *self = this;
+    api.host->invoke([api, resourceId, params, job, self]() {
+        core::fetchPlaylists(*api.http, resourceId, QString(), params, job,
+                             deliverPlaylists(api, job, self));
+    });
 }
 
 void PlaylistModel::search(const QString &query) {
-    if (!request()) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
+    cancelJob();
+    m_job = core::newJob();
     m_resourceId.clear();
     m_canPage = false;
     clear();
-    setStatus(ServiceRequest::Loading);
-    m_request->search(query);
+    setStatus(core::Loading);
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) { core::Outcome<core::PlaylistPage> o; o.error = "not supported"; applyList(o); return; }
+    const core::JobToken job = m_job;
+    PlaylistModel *self = this;
+    api.host->invoke([api, query, job, self]() {
+        core::fetchPlaylistSearch(*api.http, query, job, deliverPlaylists(api, job, self));
+    });
 }
 
 void PlaylistModel::fetchMore() {
-    if (!m_canPage || nextToken().isEmpty() || status() == ServiceRequest::Loading) return;
-    if (!request()) return;
-    setStatus(ServiceRequest::Loading);
-    m_request->list(m_resourceId, nextToken());
+    if (!m_canPage || nextToken().isEmpty() || status() == core::Loading) return;
+    m_job = core::newJob();
+    setStatus(core::Loading);
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) { core::Outcome<core::PlaylistPage> o; o.error = "not supported"; applyList(o); return; }
+    const core::JobToken job = m_job;
+    const QString resourceId = m_resourceId;
+    const QString page = nextToken();
+    PlaylistModel *self = this;
+    api.host->invoke([api, resourceId, page, job, self]() {
+        core::fetchPlaylists(*api.http, resourceId, page, QString(), job,
+                             deliverPlaylists(api, job, self));
+    });
 }
 
-void PlaylistModel::cancel() {
-    if (m_request) m_request->cancel();
-    setStatus(ServiceRequest::Canceled);
+void PlaylistModel::cancelJob() {
+    if (!m_job) return;
+    m_job->canceled.store(true);
+    const ApiRef api = apiRef();
+    const core::JobToken job = m_job;
+    if (api.host && api.http)
+        api.host->invoke([api, job]() { api.http->abort(job); });
+    m_job.reset();
 }
 
-void PlaylistModel::onReady(const QList<CT::Playlist> &playlists, const QString &next) {
-    if (!playlists.isEmpty()) {
-        beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + playlists.size() - 1);
-        m_rows << playlists;
+void PlaylistModel::cancel() { cancelJob(); setStatus(core::Canceled); }
+
+void PlaylistModel::applyList(const core::Outcome<core::PlaylistPage> &r) {
+    if (!r.ok) { setError(r.error); setStatus(core::Failed); return; }
+    if (!r.value.items.isEmpty()) {
+        beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + r.value.items.size() - 1);
+        m_rows << r.value.items;
         endInsertRows();
         emitCountChanged();
     }
-    setNext(next);
-    setStatus(ServiceRequest::Ready);
-}
-
-void PlaylistModel::onFailed(const QString &error) {
-    setError(error);
-    setStatus(ServiceRequest::Failed);
+    setNext(r.value.next);
+    setStatus(core::Ready);
 }

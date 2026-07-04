@@ -17,14 +17,17 @@
 #ifndef YT_CHANNELDETAILS_H
 #define YT_CHANNELDETAILS_H
 #include <QObject>
-#include <QPointer>
 #include "servicedatatypes.h"
-#include "requests/userrequest.h"
+#include "core/chains.h"
+#include "core/status.h"
+#include "core/job.h"
+#include "innertube/apiref.h"
 
 namespace yt {
 
 // A single channel's header — plain detail object (NOT a list). byId()/resolve()
-// on ChannelApi return this; loads via UserRequest and takes the single result.
+// on ChannelApi return this; loads via the fetchChannel* chains (which return the
+// single CT::User directly, mapping empty results to "channel unavailable").
 class ChannelDetails : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString name            READ name            NOTIFY loaded)
@@ -40,8 +43,14 @@ class ChannelDetails : public QObject {
     Q_PROPERTY(QString errorString     READ errorString     NOTIFY statusChanged)
 public:
     explicit ChannelDetails(QObject *parent = 0);
+    ~ChannelDetails();
     Q_INVOKABLE void loadById(const QString &channelId);
     Q_INVOKABLE void loadByUrl(const QString &handleUrl);
+
+    // The chain's delivery sink (fetchChannelById/ByUrl). Plain public method (not a
+    // slot) so the meta-object stays frozen.
+    void applyChannel(const yt::core::Outcome<CT::User> &r);
+
     QString name()            const { return m_user.username; }
     QString description()     const { return m_user.description; }
     QString avatarUrl()       const { return m_user.thumbnailUrl; }
@@ -59,13 +68,10 @@ Q_SIGNALS:
     void loaded();
     void statusChanged();
 protected:
-    virtual yt::UserRequest* newRequest();
-private Q_SLOTS:
-    void onReady(const QList<CT::User> &users, const QString &nextPageToken);
-    void onFailed(const QString &error);
+    virtual yt::ApiRef apiRef() const;
 private:
-    yt::UserRequest* request();
-    QPointer<yt::UserRequest> m_request;
+    void cancelJob();
+    yt::core::JobToken m_job;
     CT::User m_user;
     int m_status;
     QString m_error;

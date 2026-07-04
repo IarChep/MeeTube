@@ -6,11 +6,15 @@
 #include "innertube/accountstore.h"
 #include "innertube/accountmanager.h"
 #include "innertube/catalog.h"
-#include "requests/accountrequest.h"
 #include "innertube/accountdetails.h"
+#include "core/status.h"
+#include "innertube/apiref.h"
+#include "threading/workerhost.h"
 
 using namespace yt;
 
+// AccountManager is NOT rewired in this task (Task 13) — it still drives the
+// FakeTransport ITransport seam, so these helpers and their tests are unchanged.
 // Polls immediately instead of arming a timer, so the FakeTransport drains the whole
 // device-code -> poll -> token chain in a single flush().
 class TestAccountManager : public AccountManager {
@@ -20,14 +24,17 @@ protected:
     void schedulePoll() { poll(); }
 };
 
-// Injects a FakeTransport-backed AccountRequest through the newRequest() seam.
+// AccountDetails IS rewired (fetchAccount chain) — inject an inline WorkerHost +
+// FakeHttp through the apiRef() seam (mirrors tst_meetube_model). The FakeHttp is
+// public so the tests can queue fixtures and flush(). (The accounts_list fetch itself
+// is covered directly in tst_meetube_chains::accountFetchesIdentity.)
 class TestAccountDetails : public AccountDetails {
 public:
-    TestAccountDetails(ITransport *t, AccountStore *s) : AccountDetails(s), m_t(t) {}
+    TestAccountDetails(AccountStore *s) : AccountDetails(s) {}
+    WorkerHost m_host; FakeHttp m_fake;
 protected:
-    AccountRequest* newRequest() { return new AccountRequest(m_t, this); }
-private:
-    ITransport *m_t;
+    ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
+                                          const_cast<FakeHttp *>(&m_fake)); }
 };
 
 class TestAccount : public QObject { Q_OBJECT
@@ -83,35 +90,17 @@ private slots:
         QCOMPARE(s2.refreshToken("x"), QString("RT"));
     }
 
-    // ---- AccountRequest (accounts_list identity fetch) ----
-    void accountRequestFetchesIdentity() {
-        FakeTransport t;
-        t.queue("account/accounts_list", loadFixtureRaw("accounts_list.json"));
-        AccountRequest req(&t);
-        QSignalSpy readySpy(&req, SIGNAL(ready(CT::Account)));
-        QSignalSpy failSpy(&req, SIGNAL(failed(QString)));
-        req.list();
-        t.flush();
-        QCOMPARE(failSpy.count(), 0);
-        QCOMPARE(readySpy.count(), 1);
-        const CT::Account a = readySpy.at(0).at(0).value<CT::Account>();
-        QCOMPARE(a.username, QString("Ivan Petrov"));
-        QCOMPARE(a.channelId, QString("UCabc123def"));
-        QVERIFY(t.sent.at(0).contains("accountReadMask"));   // read mask in the body
-    }
-
-    // ---- AccountDetails (identity detail object) ----
+    // ---- AccountDetails (identity detail object, now on the fetchAccount chain) ----
     void detailsLoadsAndWritesThrough() {
-        FakeTransport t;
         AccountStore store(iniPath());
         CT::Account placeholder; placeholder.id = "default"; placeholder.username = "YouTube";
         store.save(placeholder, "RT");
-        t.queue("account/accounts_list", loadFixtureRaw("accounts_list.json"));
-        TestAccountDetails d(&t, &store);
+        TestAccountDetails d(&store);
+        d.m_fake.queue("account/accounts_list", loadFixtureRaw("accounts_list.json"));
         QCOMPARE(d.username(), QString("YouTube"));    // seeded from the store cache
         QSignalSpy loadedSpy(&d, SIGNAL(loaded()));
         d.load();
-        t.flush();
+        d.m_fake.flush();
         QCOMPARE(loadedSpy.count(), 1);
         QCOMPARE(d.username(), QString("Ivan Petrov"));
         QCOMPARE(d.handle(), QString("@ivanpetrov"));
@@ -121,14 +110,13 @@ private slots:
     }
 
     void detailsKeepsCacheOnFailure() {
-        FakeTransport t;   // nothing queued -> the post fails
         AccountStore store(iniPath());
         CT::Account cached; cached.id = "default"; cached.username = "Ivan";
         store.save(cached, "RT");
-        TestAccountDetails d(&t, &store);
+        TestAccountDetails d(&store);   // nothing queued -> the post fails
         d.load();
-        t.flush();
-        QCOMPARE(d.status(), (int) ServiceRequest::Failed);
+        d.m_fake.flush();
+        QCOMPARE(d.status(), (int) core::Failed);
         QCOMPARE(d.username(), QString("Ivan"));       // cached identity survives
     }
 

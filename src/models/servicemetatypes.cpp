@@ -16,7 +16,6 @@
 
 #include "servicemetatypes.h"
 #include "servicedatatypes.h"
-#include "requests/servicerequest.h"
 #include <QMetaType>
 
 void registerMeeTubeMetaTypes() {
@@ -31,5 +30,4 @@ void registerMeeTubeMetaTypes() {
     qRegisterMetaType<QList<CT::Subtitle> >("QList<CT::Subtitle>");
     qRegisterMetaType<QList<CT::Playlist> >("QList<CT::Playlist>");
     qRegisterMetaType<QList<CT::User> >("QList<CT::User>");
-    qRegisterMetaType<yt::ServiceRequest::Status>("yt::ServiceRequest::Status");
 }

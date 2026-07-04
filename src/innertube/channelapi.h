@@ -22,30 +22,24 @@
 
 namespace yt {
 
-class InnertubeClient;
-class UserRequest;
-class VideoRequest;
-class ActionRequest;
-
 // The `channel` node of the API tree — innertube.channel(). byId()/resolve() (single
-// channel headers) are plain detail objects, added in the detail-objects phase.
+// channel headers) are plain detail objects. The models/detail objects self-serve the
+// backend via their apiRef() seam, so this node holds no transport.
 class ChannelApi : public QObject {
     Q_OBJECT
 public:
-    explicit ChannelApi(InnertubeClient *client, QObject *parent = 0);
+    explicit ChannelApi(QObject *parent = 0);
 
     Q_INVOKABLE QObject* byId(const QString &channelId);         // ChannelDetails* (plain header)
     Q_INVOKABLE QObject* resolve(const QString &handleUrl);      // ChannelDetails* (@handle → header)
     Q_INVOKABLE QObject* searchChannels(const QString &query);   // ChannelModel* (list)
     Q_INVOKABLE QObject* videos(const QString &channelId);       // VideoModel* (channel uploads)
-    Q_INVOKABLE QObject* subscribe(const QString &channelId);    // ActionRequest*
-    Q_INVOKABLE QObject* unsubscribe(const QString &channelId);
-
-    UserRequest*  newUserRequest();
-    VideoRequest* newVideoRequest();
+    // Fire-and-forget actions — POST via core::submitAction (no-op until auth). QML
+    // ignores the return (ChannelPage.qml:184, VideoPage.qml:445), so plain void.
+    Q_INVOKABLE void subscribe(const QString &channelId);
+    Q_INVOKABLE void unsubscribe(const QString &channelId);
 
 private:
-    InnertubeClient *m_client;
     QPointer<QObject> m_details;   // reused ChannelDetails
     QPointer<QObject> m_search;
     QPointer<QObject> m_videos;

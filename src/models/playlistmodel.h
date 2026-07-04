@@ -17,9 +17,10 @@
 #ifndef PLAYLISTMODEL_H
 #define PLAYLISTMODEL_H
 
-#include <QPointer>
 #include "servicelistmodel.h"
-#include "requests/playlistrequest.h"
+#include "core/chains.h"
+#include "core/job.h"
+#include "innertube/apiref.h"
 
 class PlaylistModel : public ServiceListModel {
     Q_OBJECT
@@ -33,15 +34,15 @@ public:
     Q_INVOKABLE void search(const QString &query);
     Q_INVOKABLE void fetchMore();
 
+    // The chain's delivery sink — APPENDs the page rows. Plain public method (not a
+    // slot) so the meta-object stays frozen.
+    void applyList(const yt::core::Outcome<yt::core::PlaylistPage> &r);
+
 public Q_SLOTS:
     void cancel();
 
-private Q_SLOTS:
-    void onReady(const QList<CT::Playlist> &playlists, const QString &next);
-    void onFailed(const QString &error);
-
 protected:
-    virtual yt::PlaylistRequest* newRequest();
+    virtual yt::ApiRef apiRef() const;
 
     // Typed row storage — answers reads with a zero-alloc switch(roleIdx).
     int itemCount() const;
@@ -49,10 +50,10 @@ protected:
     void dropItems();
 
 private:
-    yt::PlaylistRequest* request();
+    void cancelJob();
 
     QList<CT::Playlist> m_rows;
-    QPointer<yt::PlaylistRequest> m_request;
+    yt::core::JobToken m_job;
     QString m_resourceId;
     bool m_canPage;
 };

@@ -23,23 +23,17 @@
 
 namespace yt {
 
-class InnertubeClient;
-class VideoRequest;
-class CommentRequest;
-class StreamsRequest;
-class SubtitlesRequest;
-class ActionRequest;
-
 // The `video` node of the InnerTube API tree — reached from QML as innertube.video().
 // Each method returns exactly the right shape for the data: a list model (feed /
-// searchVideos / comments), a plain detail object (details / streams / subtitles —
-// added in the detail-objects phase), or a fire-and-forget action (like / ...).
-// Returned objects are parented here (CppOwnership) and reused per kind, so QML can
-// bind them to a `property variant` without the returned-QObject GC pitfall.
+// searchVideos / comments), a plain detail object (details / streams / subtitles), or
+// a fire-and-forget action (like / ...). Returned objects are parented here
+// (CppOwnership) and reused per kind, so QML can bind them to a `property variant`
+// without the returned-QObject GC pitfall. The models/detail objects now self-serve
+// the backend via their apiRef() seam, so this node holds no transport.
 class VideoApi : public QObject {
     Q_OBJECT
 public:
-    explicit VideoApi(InnertubeClient *client, QObject *parent = 0);
+    explicit VideoApi(QObject *parent = 0);
 
     Q_INVOKABLE QObject* feed(const QString &navId);                                // VideoModel*
     Q_INVOKABLE QObject* searchVideos(const QString &query, const QString &order);  // VideoModel*
@@ -47,20 +41,13 @@ public:
     Q_INVOKABLE QObject* details(const QString &videoId);                           // VideoDetails* (plain)
     Q_INVOKABLE QObject* streams(const QString &videoId);                           // StreamSet* (plain)
     Q_INVOKABLE QObject* subtitles(const QString &videoId);                         // SubtitleSet* (plain)
-    Q_INVOKABLE QObject* like(const QString &videoId);                             // ActionRequest*
-    Q_INVOKABLE QObject* dislike(const QString &videoId);
-    Q_INVOKABLE QObject* removeLike(const QString &videoId);
-
-    // Request factories — the logical home for "obtaining Request classes". The model
-    // / detail-object newRequest() seams delegate here in production (tests override
-    // the seam to inject a FakeTransport-backed request instead).
-    VideoRequest*     newVideoRequest();
-    CommentRequest*   newCommentRequest();
-    StreamsRequest*   newStreamsRequest();
-    SubtitlesRequest* newSubtitlesRequest();
+    // Fire-and-forget actions — POST via core::submitAction (no-op until auth). QML
+    // ignores the return (VideoPage.qml:244/275), so they are plain void.
+    Q_INVOKABLE void like(const QString &videoId);
+    Q_INVOKABLE void dislike(const QString &videoId);
+    Q_INVOKABLE void removeLike(const QString &videoId);
 
 private:
-    InnertubeClient *m_client;
     // One cached VideoModel per feed id — the home feed, the History carousel and
     // any pushed feed page must not re-list each other's model.
     QMap<QString, QPointer<QObject> > m_feeds;

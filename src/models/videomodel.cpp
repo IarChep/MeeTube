@@ -37,9 +37,7 @@ enum VRole { RId, RTitle, RDescription, RThumbnailUrl, RLargeThumbnailUrl, RDate
 VideoModel::VideoModel(QObject *parent)
     : ServiceListModel(videoRoles(), parent), m_canPage(false) {}
 
-VideoModel::~VideoModel() {
-    if (m_request) m_request->deleteLater();
-}
+VideoModel::~VideoModel() { if (m_job) m_job->canceled.store(true); }
 
 int VideoModel::itemCount() const { return m_rows.size(); }
 
@@ -70,52 +68,80 @@ QVariant VideoModel::roleData(int row, int idx) const {
     return QVariant();
 }
 
-VideoRequest* VideoModel::newRequest() {
+ApiRef VideoModel::apiRef() const {
     Innertube *e = Innertube::instance();
-    return e ? e->videoApi()->newVideoRequest() : 0;
+    return e ? e->apiRef() : ApiRef();
 }
 
-VideoRequest* VideoModel::request() {
-    if (!m_request) {
-        m_request = newRequest();
-        if (m_request) {
-            connect(m_request, SIGNAL(videosReady(QList<CT::Video>,QString)),
-                    this, SLOT(onReady(QList<CT::Video>,QString)));
-            connect(m_request, SIGNAL(failed(QString)), this, SLOT(onFailed(QString)));
-        }
+// Kick a fetchVideoList chain for `spec` and route the result to applyList. The
+// token protocol (job-gate FIRST in the GUI delivery + dtor/cancel setting canceled)
+// guards the raw `self`; api/spec/job/r are captured by value.
+static void runVideoList(const ApiRef &api, const core::VideoListSpec &spec,
+                         const core::JobToken &job, VideoModel *self) {
+    if (!api.host || !api.http) {            // engine unavailable — old "not supported"
+        core::Outcome<core::VideoPage> out; out.error = "not supported";
+        self->applyList(out);               // synchronous, on the GUI thread — self is alive
+        return;
     }
-    return m_request;
+    api.host->invoke([api, spec, job, self]() {
+        core::fetchVideoList(*api.http, spec, job,
+            [api, job, self](const core::Outcome<core::VideoPage> &r) {
+                api.host->invokeGui([job, self, r]() {
+                    if (!core::live(job)) return;   // canceled or facade destroyed — MUST be first
+                    self->applyList(r);
+                });
+            });
+    });
 }
 
 void VideoModel::list(const QString &resourceId, const QString &params) {
-    if (!request()) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
+    cancelJob();
+    m_job = core::newJob();
     m_resourceId = resourceId;
     m_canPage = true;
     clear();
-    setStatus(ServiceRequest::Loading);
-    m_request->browseFeed(resourceId, QString(), params);
+    setStatus(core::Loading);
+    core::VideoListSpec spec;
+    spec.kind = core::VideoListSpec::Browse;
+    spec.browseId = resourceId; spec.params = params;
+    runVideoList(apiRef(), spec, m_job, this);
 }
 
 void VideoModel::search(const QString &query, const QString &order) {
-    if (!request()) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
+    cancelJob();
+    m_job = core::newJob();
     m_resourceId.clear();
     m_canPage = false;                      // search has no page token in the contract
     clear();
-    setStatus(ServiceRequest::Loading);
-    m_request->searchVideos(query, order);
+    setStatus(core::Loading);
+    core::VideoListSpec spec;
+    spec.kind = core::VideoListSpec::Search;
+    spec.query = query; spec.order = order;
+    runVideoList(apiRef(), spec, m_job, this);
 }
 
 void VideoModel::fetchMore() {
-    if (!m_canPage || nextToken().isEmpty() || status() == ServiceRequest::Loading) return;
-    if (!request()) return;
-    setStatus(ServiceRequest::Loading);
-    m_request->browseFeed(m_resourceId, nextToken());
+    if (!m_canPage || nextToken().isEmpty() || status() == core::Loading) return;
+    // Continue the same logical operation on a fresh token (the previous one is Ready).
+    m_job = core::newJob();
+    setStatus(core::Loading);
+    core::VideoListSpec spec;
+    spec.kind = core::VideoListSpec::Browse;
+    spec.browseId = m_resourceId; spec.page = nextToken();
+    runVideoList(apiRef(), spec, m_job, this);
 }
 
-void VideoModel::cancel() {
-    if (m_request) m_request->cancel();
-    setStatus(ServiceRequest::Canceled);
+void VideoModel::cancelJob() {
+    if (!m_job) return;
+    m_job->canceled.store(true);            // GUI thread; delivery checks on GUI thread
+    const ApiRef api = apiRef();
+    const core::JobToken job = m_job;
+    if (api.host && api.http)
+        api.host->invoke([api, job]() { api.http->abort(job); });
+    m_job.reset();
 }
+
+void VideoModel::cancel() { cancelJob(); setStatus(core::Canceled); }
 
 void VideoModel::assign(const QList<CT::Video> &videos) {
     beginResetModel();
@@ -124,21 +150,17 @@ void VideoModel::assign(const QList<CT::Video> &videos) {
     emitCountChanged();
     m_canPage = false;                       // externally supplied — not a pageable feed
     setNext(QString());
-    setStatus(ServiceRequest::Ready);
+    setStatus(core::Ready);
 }
 
-void VideoModel::onReady(const QList<CT::Video> &videos, const QString &next) {
-    if (!videos.isEmpty()) {
-        beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + videos.size() - 1);
-        m_rows << videos;
+void VideoModel::applyList(const core::Outcome<core::VideoPage> &r) {
+    if (!r.ok) { setError(r.error); setStatus(core::Failed); return; }
+    if (!r.value.items.isEmpty()) {
+        beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + r.value.items.size() - 1);
+        m_rows << r.value.items;
         endInsertRows();
         emitCountChanged();
     }
-    setNext(next);
-    setStatus(ServiceRequest::Ready);
-}
-
-void VideoModel::onFailed(const QString &error) {
-    setError(error);
-    setStatus(ServiceRequest::Failed);
+    setNext(r.value.next);
+    setStatus(core::Ready);
 }

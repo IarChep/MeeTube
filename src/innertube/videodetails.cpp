@@ -21,53 +21,61 @@
 namespace yt {
 
 VideoDetails::VideoDetails(QObject *parent)
-    : QObject(parent), m_related(new VideoModel(this)), m_status(ServiceRequest::Null) {}
+    : QObject(parent), m_related(new VideoModel(this)), m_status(core::Null) {}
+
+VideoDetails::~VideoDetails() { if (m_job) m_job->canceled.store(true); }
 
 QObject* VideoDetails::related() const { return m_related; }
 
-VideoRequest* VideoDetails::newRequest() {
+ApiRef VideoDetails::apiRef() const {
     Innertube *e = Innertube::instance();
-    return e ? e->videoApi()->newVideoRequest() : 0;
-}
-
-VideoRequest* VideoDetails::request() {
-    if (!m_request) {
-        m_request = newRequest();
-        if (m_request) {
-            connect(m_request, SIGNAL(watchReady(CT::Video,QList<CT::Video>)),
-                    this, SLOT(onWatchReady(CT::Video,QList<CT::Video>)));
-            connect(m_request, SIGNAL(failed(QString)), this, SLOT(onFailed(QString)));
-        }
-    }
-    return m_request;
+    return e ? e->apiRef() : ApiRef();
 }
 
 void VideoDetails::load(const QString &videoId) {
+    cancelJob();
     m_primary = CT::Video();
     emit loaded();
-    if (!request()) { m_error = "not supported"; m_status = ServiceRequest::Failed; emit statusChanged(); return; }
-    m_status = ServiceRequest::Loading;
+    m_job = core::newJob();
+    m_status = core::Loading;
     emit statusChanged();
-    m_request->loadWatch(videoId);
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) { core::Outcome<core::WatchResult> o; o.error = "not supported"; applyWatch(o); return; }
+    const core::JobToken job = m_job;
+    VideoDetails *self = this;
+    api.host->invoke([api, videoId, job, self]() {
+        core::fetchWatch(*api.http, videoId, job,
+            [api, job, self](const core::Outcome<core::WatchResult> &r) {
+                api.host->invokeGui([job, self, r]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->applyWatch(r);
+                });
+            });
+    });
+}
+
+void VideoDetails::cancelJob() {
+    if (!m_job) return;
+    m_job->canceled.store(true);
+    const ApiRef api = apiRef();
+    const core::JobToken job = m_job;
+    if (api.host && api.http)
+        api.host->invoke([api, job]() { api.http->abort(job); });
+    m_job.reset();
 }
 
 void VideoDetails::cancel() {
-    if (m_request) m_request->cancel();
-    m_status = ServiceRequest::Canceled;
+    cancelJob();
+    m_status = core::Canceled;
     emit statusChanged();
 }
 
-void VideoDetails::onWatchReady(const CT::Video &primary, const QList<CT::Video> &related) {
-    m_primary = primary;
-    m_related->assign(related);
-    m_status = ServiceRequest::Ready;
+void VideoDetails::applyWatch(const core::Outcome<core::WatchResult> &r) {
+    if (!r.ok) { m_error = r.error; m_status = core::Failed; emit statusChanged(); return; }
+    m_primary = r.value.primary;
+    m_related->assign(r.value.related);
+    m_status = core::Ready;
     emit loaded();
-    emit statusChanged();
-}
-
-void VideoDetails::onFailed(const QString &error) {
-    m_error = error;
-    m_status = ServiceRequest::Failed;
     emit statusChanged();
 }
 

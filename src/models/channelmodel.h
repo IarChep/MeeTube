@@ -17,9 +17,10 @@
 #ifndef CHANNELMODEL_H
 #define CHANNELMODEL_H
 
-#include <QPointer>
 #include "servicelistmodel.h"
-#include "requests/userrequest.h"
+#include "core/chains.h"
+#include "core/job.h"
+#include "innertube/apiref.h"
 
 // A list of channels (channel-search results) for a ListView. A single channel's
 // header is a plain ChannelDetails object, not this list.
@@ -31,15 +32,15 @@ public:
 
     Q_INVOKABLE void search(const QString &query);
 
+    // The chain's delivery sink — RESETS the rows. Plain public method (not a slot)
+    // so the meta-object stays frozen.
+    void applyUsers(const yt::core::Outcome<yt::core::UserPage> &r);
+
 public Q_SLOTS:
     void cancel();
 
-private Q_SLOTS:
-    void onReady(const QList<CT::User> &users, const QString &next);
-    void onFailed(const QString &error);
-
 protected:
-    virtual yt::UserRequest* newRequest();
+    virtual yt::ApiRef apiRef() const;
 
     // Typed row storage — answers reads with a zero-alloc switch(roleIdx).
     int itemCount() const;
@@ -47,10 +48,10 @@ protected:
     void dropItems();
 
 private:
-    yt::UserRequest* request();
+    void cancelJob();
 
     QList<CT::User> m_rows;
-    QPointer<yt::UserRequest> m_request;
+    yt::core::JobToken m_job;
 };
 
 #endif // CHANNELMODEL_H

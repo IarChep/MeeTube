@@ -21,11 +21,9 @@ endfunction()
 
 mt_test(tst_meetube_parsers)
 mt_test(tst_meetube_context)
-# Request classes + engine live in meetube-core (linked above), so no extra
-# sources here — listing them again would cause duplicate-symbol link errors.
-mt_test(tst_meetube_requests)
-# core::chains — the pure-C++ request layer (added in Task 12a, additive). Driven
-# over the FakeHttp seam; ports every tst_meetube_requests case 1:1 + oauth chains.
+# core::chains — the pure-C++ request layer (Task 12b: the sole successor to the
+# deleted tst_meetube_requests). Driven over the FakeHttp seam; ports every old
+# request case 1:1 + the oauth chains.
 mt_test(tst_meetube_chains)
 # Model + ServiceListModel live in meetube-core (linked above), so no extra
 # sources here — listing them again would cause duplicate-symbol link errors.

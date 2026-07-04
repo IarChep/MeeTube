@@ -17,9 +17,11 @@
 #ifndef YT_ACCOUNTDETAILS_H
 #define YT_ACCOUNTDETAILS_H
 #include <QObject>
-#include <QPointer>
 #include "servicedatatypes.h"
-#include "requests/accountrequest.h"
+#include "core/chains.h"
+#include "core/status.h"
+#include "core/job.h"
+#include "innertube/apiref.h"
 
 namespace yt {
 
@@ -39,7 +41,13 @@ class AccountDetails : public QObject {
     Q_PROPERTY(QString errorString READ errorString NOTIFY statusChanged)
 public:
     explicit AccountDetails(AccountStore *store = 0, QObject *parent = 0);
+    ~AccountDetails();
     Q_INVOKABLE void load();
+
+    // The chain's delivery sink (fetchAccount): write-through to the store on ok,
+    // keep the cached identity on failure. Plain public method (not a slot).
+    void applyAccount(const yt::core::Outcome<CT::Account> &r);
+
     QString username()    const { return m_account.username; }
     QString handle()      const { return m_account.handle; }
     QString avatarUrl()   const { return m_account.thumbnailUrl; }
@@ -52,13 +60,10 @@ Q_SIGNALS:
     void loaded();
     void statusChanged();
 protected:
-    virtual yt::AccountRequest* newRequest();
-private Q_SLOTS:
-    void onReady(const CT::Account &account);
-    void onFailed(const QString &error);
+    virtual yt::ApiRef apiRef() const;
 private:
-    yt::AccountRequest* request();
-    QPointer<yt::AccountRequest> m_request;
+    void cancelJob();
+    yt::core::JobToken m_job;
     AccountStore *m_store;
     CT::Account m_account;
     int m_status;

@@ -28,26 +28,32 @@
 #include "innertube/channelapi.h"
 #include "innertube/playlistapi.h"
 #include "innertube/accountapi.h"
-#include "requests/videorequest.h"
-#include "requests/streamsrequest.h"
-#include "requests/commentrequest.h"
-#include "requests/subtitlesrequest.h"
-#include "requests/playlistrequest.h"
-#include "requests/userrequest.h"
-#include "requests/actionrequest.h"
+#include "innertube/apiref.h"
+#include "threading/workerhost.h"
+#include "core/http.h"
 
 namespace yt {
 
-// The engine: a plain GUI-thread singleton owning the InnertubeClient transport.
-// Replaces cuteTube2's worker-threaded plugin Service — no QThread, no PluginHost,
-// no moveToThread, no blocking-queued factories. Requests are `new`ed directly on
-// the GUI thread and parented to the engine.
+// The engine: a plain GUI-thread singleton owning the callback core::Http transport
+// (m_http) and the cross-thread WorkerHost seam (m_host). Replaces cuteTube2's
+// worker-threaded plugin Service — no PluginHost, no blocking-queued factories. The
+// facades (models/detail objects/api tree) reach the backend via apiRef(); until
+// Task 14 both m_host and m_http stay GUI-affine (m_host un-started → inline).
+//
+// InnertubeClient m_client is kept ONLY as AccountManager's postForm transport
+// (AccountManager is rewired in Task 13); its session/context/cache are otherwise
+// dead — the live session lives on m_http.
 class Innertube : public QObject {
     Q_OBJECT
 public:
     static Innertube* instance();              // lazy singleton
 
-    Session& session() { return m_client.session(); }
+    // The live InnerTube session — now owned by the callback transport (m_http).
+    Session& session() { return m_http->session(); }
+
+    // The seam every facade uses to reach the backend (the WorkerHost dispatcher +
+    // the callback transport the chains run on). GUI-affine until Task 14.
+    ApiRef apiRef() { return ApiRef(&m_host, m_http); }
 
     // gl = region, hl = language (Innertube context locale).
     Q_INVOKABLE void applySettings(const QString &region, const QString &language);
@@ -84,17 +90,18 @@ private Q_SLOTS:
     // Copy the account manager's current bearer into the session so authed browse/
     // next calls carry it (player stays anonymous via the ContextBuilder guard).
     void applyBearer();
-    // Persist the server-issued visitorData so the next launch reuses the same
-    // anonymous identity (seeded back into the session in the constructor).
-    void persistVisitorData(const QString &visitorData);
 
 private:
     explicit Innertube(QObject *parent = 0);
     static Innertube *self;
     // Declaration order matters: m_manager is constructed from &m_client and &m_store.
-    InnertubeClient m_client;
+    InnertubeClient m_client;      // AccountManager's postForm transport only (Task 13)
     AccountStore    m_store;
     AccountManager  m_manager;
+    // The cross-thread dispatcher + the live callback transport (GUI-affine until
+    // Task 14). m_http is heap-owned so it can move to the worker thread later.
+    WorkerHost      m_host;
+    core::Http     *m_http;
     // API-tree groups (lazy; parented to the engine).
     VideoApi    *m_video;
     ChannelApi  *m_channel;
