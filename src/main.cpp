@@ -86,5 +86,11 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     viewer.setSource(QUrl("qrc:/qml/main.qml"));   // UI is out of scope; placeholder for now
     viewer.showExpanded();
 
-    return app->exec();
+    const int rc = app->exec();
+    // The backend now runs on a worker thread (Task 14): join it and destroy the
+    // transport before returning. stop() = quit + wait joins the worker first, so
+    // deleting m_http (its thread finished) is legal; without this the process would
+    // exit with a still-running QThread.
+    yt::Innertube::instance()->shutdown();
+    return rc;
 }

@@ -50,6 +50,10 @@ public:
     void start();                                  // moves worker dispatcher to the thread, starts it
     void stop();                                   // quit + wait; idempotent; invoke() no-ops afterwards
     bool started() const { return m_started; }
+    // The worker's QThread. Handed to Innertube so it can moveToThread() the
+    // transport onto this thread BEFORE start() (a parentless QObject may be pushed
+    // to a not-yet-started thread; the thread is then started). Not for general use.
+    QThread *thread() { return &m_thread; }
     void invoke(std::function<void()> fn);         // -> worker thread (or inline)
     void invokeGui(std::function<void()> fn);      // -> GUI thread   (or inline)
 private:

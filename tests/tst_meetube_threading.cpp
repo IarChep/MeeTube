@@ -13,12 +13,155 @@
 #include <QThread>
 #include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QHash>
+#include <QSet>
+#include <atomic>
 
 #include "core/job.h"
 #include "core/status.h"
+#include "core/http.h"
 #include "threading/workerhost.h"
+#include "models/videomodel.h"
 
 using namespace yt;
+
+// ---------------------------------------------------------------------------
+// THREADED INTEGRATION harness (the second half of this suite). The first half
+// exercises WorkerHost/JobToken in isolation; these four cases drive a REAL
+// started WorkerHost + a real core::Http moveToThread'd onto its worker + a
+// VideoModel, over a loopback TCP server — the production path after the flip:
+// QNAM I/O, the chain and the parse all run OFF the GUI thread.
+// ---------------------------------------------------------------------------
+
+// A minimal loopback HTTP server (mirrors tst_meetube_client's). It lives on the
+// GUI/test thread; the worker's QNAM reaches it over http://127.0.0.1:<port>. The
+// two run on different threads but communicate purely over the socket — no Qt
+// signals cross the thread boundary.
+//   Respond — read the full request (Content-Length aware), then send a canned 200
+//             + JSON body and close (normal finish).
+//   Hang    — accept and hold the socket open, never reply (drives cancel / stop /
+//             destroy while a request is genuinely in flight).
+class LoopbackServer : public QObject {
+    Q_OBJECT
+public:
+    enum Mode { Respond, Hang };
+    explicit LoopbackServer(Mode m, const QByteArray &body = "{\"ok\":true}", QObject *parent = 0)
+        : QObject(parent), m_mode(m), m_body(body) {
+        connect(&m_srv, SIGNAL(newConnection()), this, SLOT(onConn()));
+        m_srv.listen(QHostAddress::LocalHost, 0);
+    }
+    QString url() const { return QString("http://127.0.0.1:%1/").arg(m_srv.serverPort()); }
+    int connections() const { return m_held.size(); }
+private slots:
+    void onConn() {
+        QTcpSocket *s = m_srv.nextPendingConnection();
+        m_held << s;
+        if (m_mode == Respond) {
+            connect(s, SIGNAL(readyRead()), this, SLOT(onReadyRead()));
+            maybeServe(s);
+        }
+    }
+    void onReadyRead() {
+        QTcpSocket *s = qobject_cast<QTcpSocket *>(sender());
+        if (s) maybeServe(s);
+    }
+private:
+    void maybeServe(QTcpSocket *s) {
+        if (m_served.contains(s)) return;
+        m_buf[s] += s->readAll();
+        const QByteArray &buf = m_buf[s];
+        const int hdrEnd = buf.indexOf("\r\n\r\n");
+        if (hdrEnd < 0) return;
+        const int bodyStart = hdrEnd + 4;
+        int contentLen = 0;
+        const QByteArray header = buf.left(hdrEnd).toLower();
+        const int clPos = header.indexOf("content-length:");
+        if (clPos >= 0) {
+            int p = clPos + 15;
+            while (p < header.size() && (header[p] == ' ' || header[p] == '\t')) ++p;
+            int e = p;
+            while (e < header.size() && header[e] >= '0' && header[e] <= '9') ++e;
+            contentLen = header.mid(p, e - p).toInt();
+        }
+        if (buf.size() - bodyStart < contentLen) return;
+        m_served.insert(s);
+        const QByteArray body = m_body;
+        QByteArray resp = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
+                          "Content-Length: " + QByteArray::number(body.size()) +
+                          "\r\nConnection: close\r\n\r\n" + body;
+        s->write(resp);
+        s->flush();
+        s->disconnectFromHost();
+    }
+    QTcpServer m_srv;
+    Mode m_mode;
+    QByteArray m_body;
+    QList<QTcpSocket *> m_held;
+    QHash<QTcpSocket *, QByteArray> m_buf;
+    QSet<QTcpSocket *> m_served;
+};
+
+// A minimal browse payload the WEB parser turns into exactly one CT::Video. Sent as
+// the loopback's canned response for threadedFeedLoad.
+static const char *kBrowseOne =
+    "{\"contents\":{\"twoColumnBrowseResultsRenderer\":{\"tabs\":[{\"tabRenderer\":"
+    "{\"content\":{\"richGridRenderer\":{\"contents\":[{\"richItemRenderer\":{\"content\":"
+    "{\"videoRenderer\":{\"videoId\":\"vth000000001\",\"title\":{\"runs\":[{\"text\":"
+    "\"Threaded One\"}]},\"ownerText\":{\"runs\":[{\"text\":\"Chan T\"}]},"
+    "\"lengthText\":{\"simpleText\":\"1:23\"},\"thumbnail\":{\"thumbnails\":[{\"url\":"
+    "\"https://i.ytimg.com/vi/vth000000001/hqdefault.jpg\"}]}}}}}]}}}}]}}}";
+
+// An IHttp decorator that records — at DELIVERY time, on whatever thread the real
+// transport fires the callback — which thread the chain/parse runs on. It wraps a
+// real core::Http (moved to the worker) and forwards every call. post()/get() run on
+// the worker (called from the invoke closure); the wrapped HttpFn also runs on the
+// worker (core::Http delivers on its own thread), and parseVideoList executes inside
+// that callback — so m_parseThread is the exact thread the parse ran on.
+class ProbeHttp : public core::IHttp {
+public:
+    explicit ProbeHttp(core::Http *inner) : m_inner(inner), m_parseThread(0) {}
+    std::atomic<QThread *> m_parseThread;   // thread the delivered callback (parse) ran on
+
+    void post(const QString &endpoint, ClientId client, const std::string &body,
+              const core::JobToken &job, core::HttpFn done) {
+        ProbeHttp *self = this;
+        m_inner->post(endpoint, client, body, job, [self, done](const core::Reply &r) {
+            self->m_parseThread.store(QThread::currentThread());   // delivery/parse thread
+            done(r);
+        });
+    }
+    void postForm(const QString &url, const QMap<QString, QString> &fields,
+                  const core::JobToken &job, core::HttpFn done) {
+        m_inner->postForm(url, fields, job, done);
+    }
+    void get(const QString &url, const core::JobToken &job, core::HttpFn done) {
+        ProbeHttp *self = this;
+        m_inner->get(url, job, [self, done](const core::Reply &r) {
+            self->m_parseThread.store(QThread::currentThread());
+            done(r);
+        });
+    }
+    void abort(const core::JobToken &job) { m_inner->abort(job); }
+    Session &session() { return m_inner->session(); }
+    void clearCache() { m_inner->clearCache(); }
+private:
+    core::Http *m_inner;
+};
+
+// A VideoModel whose apiRef() seam returns the started host + the probe transport,
+// so list()/fetchMore() drive the real cross-thread path.
+class ThreadedVideoModel : public VideoModel {
+public:
+    ThreadedVideoModel(WorkerHost *host, ProbeHttp *http)
+        : VideoModel(0), m_host(host), m_http(http) {}
+protected:
+    ApiRef apiRef() const { return ApiRef(m_host, m_http); }
+private:
+    WorkerHost *m_host;
+    ProbeHttp *m_http;
+};
 
 class TestThreading : public QObject {
     Q_OBJECT
@@ -94,6 +237,126 @@ private slots:
         QVERIFY(!ran);                             // dropped immediately (stopped)
         QTest::qWait(50);                          // give any (wrongly) queued event a chance
         QVERIFY(!ran);                             // still never ran
+    }
+
+    // ---- threaded integration (real host + real Http on the worker + loopback) --
+
+    // The production round trip: list() posts through the worker's QNAM, the reply is
+    // parsed on the worker, and applyList lands back on the GUI thread with the row.
+    // Proves the parse ran OFF the GUI thread (the probe records the delivery thread).
+    void threadedFeedLoad() {
+        LoopbackServer srv(LoopbackServer::Respond, kBrowseOne);
+        WorkerHost host;
+        core::Http *http = new core::Http;         // parentless: movable to the worker
+        http->setBaseUrl(srv.url());               // config BEFORE the move (GUI thread)
+        http->moveToThread(host.thread());
+        host.start();                              // from here, http lives on the worker
+        ProbeHttp probe(http);
+
+        ThreadedVideoModel model(&host, &probe);
+        model.list("FEtest");
+
+        // Spin the GUI loop until the model reports Ready (or fail loud). qWait pumps
+        // BOTH the GUI event loop (loopback accept/serve + the invokeGui delivery) and
+        // lets the worker thread run; the worker's own event loop pumps the QNAM reply.
+        QElapsedTimer et; et.start();
+        while (model.status() != (int)core::Ready && et.elapsed() < 5000) QTest::qWait(10);
+
+        QCOMPARE(model.status(), (int)core::Ready);
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("vth000000001"));
+        QCOMPARE(model.data(0, QByteArray("title")).toString(), QString("Threaded One"));
+
+        // The parse ran on the worker, NOT the GUI thread. This is the crux of the flip.
+        QThread *pt = probe.m_parseThread.load();
+        QVERIFY(pt != 0);
+        QVERIFY(pt != QThread::currentThread());   // != GUI/test thread
+        QVERIFY(pt != qApp->thread());             // (same thing, explicit)
+
+        host.stop();                               // join the worker before deleting http
+        delete http;                               // legal: its thread has finished
+    }
+
+    // Cancel while the request is genuinely in flight (hung server): after cancel()
+    // the status is Canceled and NO late Ready ever arrives, even past when a reply
+    // would have. The model dtor/cancel set the token; the live()-gate drops delivery.
+    void cancelMidFlight() {
+        LoopbackServer srv(LoopbackServer::Hang);  // never replies
+        WorkerHost host;
+        core::Http *http = new core::Http;
+        http->setBaseUrl(srv.url());
+        http->moveToThread(host.thread());
+        host.start();
+        ProbeHttp probe(http);
+
+        ThreadedVideoModel model(&host, &probe);
+        model.list("FEtest");
+        QTest::qWait(60);                          // let the request reach the worker + connect
+        model.cancel();                            // GUI thread: token canceled + abort posted
+        QCOMPARE(model.status(), (int)core::Canceled);
+
+        // Spin well past any plausible delivery; the status must NOT flip to Ready.
+        QElapsedTimer et; et.start();
+        while (et.elapsed() < 600) {
+            QTest::qWait(20);
+            QVERIFY(model.status() != (int)core::Ready);   // no late delivery, ever
+        }
+        QCOMPARE(model.status(), (int)core::Canceled);
+
+        host.stop();
+        delete http;
+    }
+
+    // Destroy the model while a reply is in flight: no crash, no delivery. The model's
+    // dtor flips its JobToken->canceled; the GUI-side delivery closure captures the
+    // token (not a bare self alone) and its live()-gate returns before touching the
+    // freed model. Uses a Respond server so a reply is actually coming.
+    void destroyMidFlight() {
+        LoopbackServer srv(LoopbackServer::Respond, kBrowseOne);
+        WorkerHost host;
+        core::Http *http = new core::Http;
+        http->setBaseUrl(srv.url());
+        http->moveToThread(host.thread());
+        host.start();
+        ProbeHttp probe(http);
+
+        ThreadedVideoModel *model = new ThreadedVideoModel(&host, &probe);
+        model->list("FEtest");
+        QTest::qWait(5);                           // in flight; delete before it can complete
+        delete model;                              // dtor sets canceled; delivery must drop
+
+        // Spin past when the reply + invokeGui would have delivered. A use-after-free
+        // would crash here; a missed gate would (attempt to) touch the freed model.
+        QElapsedTimer et; et.start();
+        while (et.elapsed() < 600) QTest::qWait(20);
+        QVERIFY(true);                             // reached here = no crash, no bad delivery
+
+        host.stop();
+        delete http;
+    }
+
+    // Shutdown with a request in flight: host.stop() (quit+wait) must join the worker
+    // cleanly and promptly — no hang — even while a reply is outstanding on a hung
+    // server. Bounded so a deadlock fails the test instead of blocking the suite.
+    void shutdownWithInflight() {
+        LoopbackServer srv(LoopbackServer::Hang);
+        WorkerHost host;
+        core::Http *http = new core::Http;
+        http->setBaseUrl(srv.url());
+        http->moveToThread(host.thread());
+        host.start();
+        ProbeHttp probe(http);
+
+        ThreadedVideoModel model(&host, &probe);
+        model.list("FEtest");
+        QTest::qWait(60);                          // ensure the request is in flight on the worker
+
+        QElapsedTimer et; et.start();
+        host.stop();                               // quit + wait — must return, not hang
+        const qint64 joinMs = et.elapsed();
+        QVERIFY(joinMs < 4000);                    // clean, prompt join (no deadlock)
+
+        delete http;                               // thread finished: safe
     }
 
 private:

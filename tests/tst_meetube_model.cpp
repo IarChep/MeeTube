@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 #include "testutil.h"
+#include "innertube/innertube.h"
 #include "innertube/videoapi.h"
 #include "models/videomodel.h"
 #include "models/commentmodel.h"
@@ -124,6 +125,17 @@ private slots:
         qRegisterMetaType<QList<CT::Playlist> >("QList<CT::Playlist>");
         qRegisterMetaType<QList<CT::User> >("QList<CT::User>");
         qRegisterMetaType<CT::Video>("CT::Video");
+    }
+
+    // feedCachesPerBrowseId constructs the REAL Innertube singleton (VideoApi::feed
+    // reaches Innertube::instance()). After the Task 14 flip the engine ctor starts a
+    // worker QThread and moves its transport onto it, so the process must join that
+    // thread before exit — otherwise ~QThread runs on a still-running thread and the
+    // process crashes at teardown. shutdown() = m_host.stop() (quit+wait) + delete the
+    // transport. instance() always returns the singleton (constructing it if needed);
+    // shutting a just-constructed engine is harmless.
+    void cleanupTestCase() {
+        Innertube::instance()->shutdown();
     }
 
     void listPopulatesModel() {
