@@ -23,6 +23,12 @@ struct Reply {
     std::shared_ptr<const std::string> body;
     QString error;
     bool timedOut;
+    // Server-issued responseContext.visitorData, extracted by the transport in the
+    // one envelope scan (makeReply) so nothing re-scans the body. Populated only on
+    // the first youtubei reply that carries one (and only while the session lacks
+    // one); empty otherwise, including on cache hits. The field carries over into
+    // core::Reply in a later task.
+    QString visitorData;
     Reply() : ok(false), body(std::make_shared<std::string>()), timedOut(false) {}
 };
 

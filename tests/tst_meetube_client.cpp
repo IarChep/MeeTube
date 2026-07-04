@@ -166,16 +166,93 @@ private slots:
         QElapsedTimer et; et.start();
         while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
         QCOMPARE(spy.count(), 1);
+        // The transport extracts it in the one envelope scan and carries it on the Reply,
+        // so the session-level capture just adopts it (no second body scan).
+        QCOMPARE(rep->result().visitorData, QString("VD_XYZ"));
         QCOMPARE(client.session().visitorData, QString("VD_XYZ"));
         QCOMPARE(capSpy.count(), 1);
         QCOMPARE(capSpy.at(0).at(0).toString(), QString("VD_XYZ"));
 
-        // A second reply carrying a visitorData must not re-capture or re-announce.
+        // A second reply carrying a visitorData must not re-capture or re-announce. The
+        // session already has one, so the transport does not even extract it this time.
         TransportReply *rep2 = client.get(srv.url(), &owner);
         QSignalSpy spy2(rep2, SIGNAL(finished()));
         et.restart();
         while (spy2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(rep2->result().visitorData, QString());   // not re-extracted
         QCOMPARE(capSpy.count(), 1);
+    }
+
+    // A body that is not JSON at all — an HTML error/consent page — is rejected by the
+    // first-byte validity check: ok == false, "invalid JSON response". The body stays
+    // available for inspection, but nothing is parsed from it.
+    void htmlBodyIsInvalidJson() {
+        LoopbackServer srv(LoopbackServer::Respond, "<html><body>Sorry</body></html>");
+        InnertubeClient client;
+        QObject owner;
+        TransportReply *rep = client.get(srv.url(), &owner);
+        QSignalSpy spy(rep, SIGNAL(finished()));
+        QElapsedTimer et; et.start();
+        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(spy.count(), 1);
+        const Reply r = rep->result();
+        QVERIFY(!r.ok);
+        QCOMPARE(r.error, QString("invalid JSON response"));
+    }
+
+    // Documented semantic change: a body that OPENS like JSON but is truncated is no
+    // longer flagged "invalid JSON response". validate_json is gone; the single-pass
+    // scanner degrades to "nothing collected", so the reply is ok with an empty parse
+    // (the UI shows an empty result, not an error string).
+    void truncatedJsonParsesEmptyNotError() {
+        LoopbackServer srv(LoopbackServer::Respond, "{\"contents\":{\"foo\":[1,2,");
+        InnertubeClient client;
+        QObject owner;
+        TransportReply *rep = client.get(srv.url(), &owner);
+        QSignalSpy spy(rep, SIGNAL(finished()));
+        QElapsedTimer et; et.start();
+        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(spy.count(), 1);
+        const Reply r = rep->result();
+        QVERIFY(r.ok);                              // no "invalid JSON response"
+        QVERIFY(r.error.isEmpty());
+        QCOMPARE(r.visitorData, QString());         // nothing collected from the truncation
+    }
+
+    // An empty (or whitespace-only) 200 body is still "invalid JSON response": the
+    // first-byte check requires a JSON value, and validate_json rejected empty bodies
+    // before — only truncated-but-JSON-looking bodies changed behaviour.
+    void emptyBodyIsInvalidJson() {
+        LoopbackServer srv(LoopbackServer::Respond, "   \r\n  ");
+        InnertubeClient client;
+        QObject owner;
+        TransportReply *rep = client.get(srv.url(), &owner);
+        QSignalSpy spy(rep, SIGNAL(finished()));
+        QElapsedTimer et; et.start();
+        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(spy.count(), 1);
+        const Reply r = rep->result();
+        QVERIFY(!r.ok);
+        QCOMPARE(r.error, QString("invalid JSON response"));
+    }
+
+    // A top-level "error" envelope with a string message surfaces that message and
+    // keeps ok == false — but the body stays populated (OAuth polling reads its error
+    // code from a !ok reply). Guards the error ladder through the new single scan.
+    void errorEnvelopeSurfacesMessageAndKeepsBody() {
+        LoopbackServer srv(LoopbackServer::Respond,
+                           "{\"error\":{\"code\":401,\"message\":\"Login Required\"}}");
+        InnertubeClient client;
+        QObject owner;
+        TransportReply *rep = client.get(srv.url(), &owner);
+        QSignalSpy spy(rep, SIGNAL(finished()));
+        QElapsedTimer et; et.start();
+        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+        QCOMPARE(spy.count(), 1);
+        const Reply r = rep->result();
+        QVERIFY(!r.ok);
+        QCOMPARE(r.error, QString("Login Required"));
+        QVERIFY(QString::fromUtf8(r.body->c_str()).contains("Login Required"));  // body kept
     }
 
     // ---- part (c): the TTL response cache -------------------------------------
