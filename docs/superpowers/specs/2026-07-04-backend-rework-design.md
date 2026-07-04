@@ -225,10 +225,10 @@ flip + verification (14–15). Each task is independently shippable and committe
 - [ ] Capture golden + bench:
   `build-sim/bench_json dump tests/fixtures > /tmp/rework-golden-0.txt`
   `build-sim/bench_json bench tests/fixtures 20 > /tmp/rework-bench-0-host.txt`
-- [ ] Cross-build + qemu bench (ARM comparator, see memory notes):
+- [ ] Cross-build + qemu bench (ARM comparator, see memory notes). The N9 sysroot is
+  `/home/iarchep/QtSDK/Madde/sysroots/harmattan_sysroot_10.2011.34-1_slim` (`SYSROOT` in `./configure`):
   `./configure n9 && make -C build-n9 -j$(nproc)` then
-  `qemu-arm -L /opt/harmattan-sysroot -E LC_ALL=C -E LD_LIBRARY_PATH=/opt/harmattan-sysroot/usr/lib build-n9/bench_json bench tests/fixtures 5 > /tmp/rework-bench-0-qemu.txt`
-  (adjust the sysroot path to the one `./configure` prints).
+  `SR=/home/iarchep/QtSDK/Madde/sysroots/harmattan_sysroot_10.2011.34-1_slim; qemu-arm -L "$SR" -E LC_ALL=C -E LD_LIBRARY_PATH="$SR/usr/lib" build-n9/bench_json bench tests/fixtures 5 > /tmp/rework-bench-0-qemu.txt`
 - [ ] Commit nothing; stash the three files — every later task diffs against them.
 
 **Done when:** all three artifacts exist; tests green.
