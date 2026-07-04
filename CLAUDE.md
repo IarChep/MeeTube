@@ -72,17 +72,26 @@ source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 7 tes
 **CA certificates:** each `./configure` downloads the **latest Mozilla CA bundle** from
 `https://curl.se/ca/cacert.pem` (TLS-verified + sha256-checked, offline-resilient), embeds it into
 the OpenSSL install (`…/ssl/cert.pem`) and bundles it to `/opt/meetube/ssl` on device. Qt 4 does
-**not** read OpenSSL's default store, so [src/main.cpp](src/main.cpp) loads the bundle into
+**not** read OpenSSL's default store, so [src/app/main.cpp](src/app/main.cpp) loads the bundle into
 `QSslConfiguration::defaultConfiguration()` at startup (path via the `MEETUBE_CA_BUNDLE` compile def)
 and sets `QSsl::AnyProtocol` so Qt 4.7 negotiates **TLS 1.2** with the bundled OpenSSL 1.0.2.
 
 ### CMake layout
 
 Root [CMakeLists.txt](CMakeLists.txt) orders: `add_subdirectory(deps)` (early — exports its
-cross-consumed vars as `CACHE INTERNAL`) → `src` → `tests` (host-only) → `webp-imageformat` →
-the `meetube` executable. The app = `main.cpp` + `qmlapplicationviewer` + `harmattan/` (squircle) +
-`resources/resources.qrc` (baked in via **AUTORCC**), linking the **`meetube-core`** STATIC lib
-([src/CMakeLists.txt](src/CMakeLists.txt) = types + parsers + innertube + requests + models).
+cross-consumed vars as `CACHE INTERNAL`) → `src` → `tests` (host-only) → `bench_json`.
+**`src/` is a container** ([src/CMakeLists.txt](src/CMakeLists.txt)) that adds three subprojects
+in dependency order, each with its own CMakeLists:
+- [src/core/](src/core/CMakeLists.txt) — the **`meetube-core`** STATIC lib (types + parsers +
+  innertube + the `core::` transport/chains + models + threading). The `core::` primitives —
+  job/status/http/chains — sit in `src/core/core/`, mirroring `yt::core`.
+- [src/webp-imageformat/](src/webp-imageformat/CMakeLists.txt) — the `qwebp` image plugin.
+- [src/app/](src/app/CMakeLists.txt) — the **`meetube`** executable (`main.cpp` +
+  `qmlapplicationviewer` + `harmattan/` squircle + `resources/resources.qrc` baked in via
+  **AUTORCC**), linking `meetube-core`. It also owns the booster/loader link options, the
+  `WEBP_PLUGIN_DIR`/`MEETUBE_CA_BUNDLE` compile defs, the install rules, and the N9 `package` target.
+
+`deps/`, `tests/`, and the `bench_json` harness stay at the repo root.
 
 ### Platform option: BUILD_N9
 
@@ -100,9 +109,10 @@ the `meetube` executable. The app = `main.cpp` + `qmlapplicationviewer` + `harma
 
 ## Architecture
 
-`meetube-core` (the testable backend, a STATIC lib) + the GUI app on top.
+`meetube-core` (the testable backend, a STATIC lib built from `src/core/`) + the GUI app on top
+(built from `src/app/`). The paths below are relative to `src/core/` unless a bullet says `src/app/`.
 
-### `src/` (the backend — `meetube-core`)
+### `src/core/` (the backend — `meetube-core`)
 
 - **`types/servicedatatypes.h`** — the `CT::` value types (`CT::Video`/`Stream`/`Comment`/`Category`/…).
 - **`parsers/`** — the **Glaze**-backed JSON layer (C++23; `deps/glaze` submodule, header-only,
@@ -148,15 +158,15 @@ the `meetube` executable. The app = `main.cpp` + `qmlapplicationviewer` + `harma
   `core::chain` through `apiRef().host->invoke(...)` and delivers back via `invokeGui`, guarded by
   the `JobToken` gate (dtor + `cancel()` cancel the token — the cross-thread safety protocol).
   Registered as `qmlRegisterType<VideoModel>("MeeTube",1,0,"VideoModel")`.
-- **`harmattan/`** — `maskeditem` + `maskeffect`: the Nokia **squircle** avatar. A `MaskedItem`
+- **`src/app/harmattan/`** — `maskeditem` + `maskeffect`: the Nokia **squircle** avatar. A `MaskedItem`
   `QDeclarativeItem` whose `MaskEffect` (`QGraphicsEffect`) composites children over `avatar-mask.png`
   with `CompositionMode_SourceIn`. Ported from cuteTube2; registered
-  `qmlRegisterType<MaskedItem>("MeeTube",1,0,"MaskedItem")`.
-- **`qmlapplicationviewer/`** — the Harmattan `QmlApplicationViewer` + `createApplication()`
+  `qmlRegisterType<MaskedItem>("MeeTube",1,0,"MaskedItem")`. (Also `perlinbackground`, `qrimageprovider`.)
+- **`src/app/qmlapplicationviewer/`** — the Harmattan `QmlApplicationViewer` + `createApplication()`
   (`MDeclarativeCache::qApplication()` under the booster), ported from MeeShopGUI.
-- **`main.cpp`** — booster `createApplication`, registers `VideoModel` + `MaskedItem`, exposes
-  `innertube`, loads the CA bundle + sets `AnyProtocol`, adds the WebP plugin path, loads
-  `qrc:/qml/main.qml`.
+- **`src/app/main.cpp`** — booster `createApplication`, registers `VideoModel` + `MaskedItem`, exposes
+  `innertube`, loads the CA bundle + sets `AnyProtocol`, adds the WebP plugin path, calls
+  `Innertube::shutdown()` after `exec()`, loads `qrc:/qml/main.qml`.
 
 ### `webp-imageformat/` — Qt 4 WebP image plugin
 
