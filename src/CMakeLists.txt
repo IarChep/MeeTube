@@ -46,6 +46,7 @@ add_library(meetube-core STATIC
     models/channelmodel.cpp
     models/accountmodel.cpp
     models/servicemetatypes.cpp
+    threading/workerhost.cpp
 )
 # AUTOMOC: innertube/innertubeclient.h declares a Q_OBJECT (signals/slots for
 # the QNetworkAccessManager-backed transport), as do the request classes

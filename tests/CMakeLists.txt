@@ -34,3 +34,7 @@ mt_test(tst_meetube_client)
 # Auth: AccountStore (QSettings round-trip) + AccountManager device-code flow over
 # the FakeTransport postForm seam.
 mt_test(tst_meetube_account)
+# Threading foundation: WorkerHost (cross-thread posted-closure seam, inline when
+# not started), JobToken (cancellation flag), core::Status mirror. Drives a real
+# QThread round trip (invoke → worker → invokeGui → GUI) via QTRY_VERIFY.
+mt_test(tst_meetube_threading)
