@@ -1,26 +1,30 @@
 #include <QtTest/QtTest>
-#include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
-#include <QPointer>
 #include <QHash>
 #include <QSet>
+#include <QElapsedTimer>
+#include <memory>
 #include "testutil.h"
-#include "innertube/innertubeclient.h"
-#include "requests/videorequest.h"
+#include "core/http.h"
+#include "core/job.h"
 
 using namespace yt;
+using yt::core::Http;
+using yt::core::JobToken;
+// NB: no `using yt::core::Reply` — testutil.h drags in yt::Reply (the legacy
+// TransportReply carrier), so we always qualify yt::core::Reply where needed.
 
-// A trivial loopback HTTP server the InnertubeClient::get()/post() paths can hit
-// over plain http://127.0.0.1:<port>. It lets a test drive the real lifetime
-// machinery (NamReply finish/timeout/owner-death) without touching the production
-// network code: two behaviours, picked per-connection:
+// A trivial loopback HTTP server core::Http::get()/post()/postForm() can hit over
+// plain http://127.0.0.1:<port>. It drives the real transport (manager-level
+// finish/timeout/coalescing/cancel) without touching the production network code.
+// Two behaviours, picked per-connection:
 //   Respond  — read the full request (parsing Content-Length so a POST body is
 //              captured intact), record the request body, then send a minimal 200
 //              + JSON body and close (normal finish). The captured bodies let a
 //              test assert on exactly what the transport put on the wire.
 //   Hang     — accept and hold the socket open, never reply (drives timeout /
-//              owner-death; the request stays in-flight until aborted).
+//              cancel; the request stays in-flight until aborted).
 class LoopbackServer : public QObject {
     Q_OBJECT
 public:
@@ -33,7 +37,7 @@ public:
     QString url() const { return QString("http://127.0.0.1:%1/").arg(m_srv.serverPort()); }
     int connections() const { return m_held.size(); }   // network hits observed
     // Request bodies (bytes after the header terminator) seen so far, in arrival
-    // order. Used by the caching test to assert on what the transport actually sent.
+    // order. Used by the caching / context tests to assert on what actually shipped.
     QList<QByteArray> bodies() const { return m_bodies; }
     QByteArray lastBody() const { return m_bodies.isEmpty() ? QByteArray() : m_bodies.last(); }
 private slots:
@@ -91,367 +95,281 @@ private:
     QList<QByteArray> m_bodies;
 };
 
+// A single captured Reply: the callback records the delivered Reply (by value —
+// its shared_ptr body keeps the payload alive) and bumps a counter, so a test can
+// assert BOTH the payload AND "fired exactly N times". Fully qualified yt::core::Reply
+// to avoid clashing with the (still-present) yt::Reply that testutil.h pulls in.
+struct Sink {
+    Sink() : calls(0) {}
+    int calls;
+    yt::core::Reply reply;
+    yt::core::HttpFn fn() {
+        Sink *self = this;
+        return [self](const yt::core::Reply &r) { ++self->calls; self->reply = r; };
+    }
+};
+
 class TestClient : public QObject { Q_OBJECT
 private slots:
-    void initTestCase() {
-        qRegisterMetaType<QList<CT::Video> >("QList<CT::Video>");
-    }
+    // ---- delivery ok / envelope / validity -----------------------------------
 
-    // ---- part (a): request-level Canceled guard, FakeTransport -----------------
-    // Start a request (status -> Loading), cancel() it, THEN flush the transport.
-    // onFinished()'s aborted() guard must suppress delivery: no ready/failed, status
-    // stays Canceled.
-    void canceledGuardSuppressesDelivery() {
-        FakeTransport t;
-        t.queue("browse", loadFixtureRaw("browse_feed.json"));
-
-        VideoRequest req(&t);
-        QSignalSpy readySpy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
-        QSignalSpy failedSpy(&req, SIGNAL(failed(QString)));
-
-        req.browseFeed("FEwhat_to_watch", QString());
-        QCOMPARE((int)req.status(), (int)ServiceRequest::Loading);  // posted, not delivered
-        QCOMPARE(t.sent.size(), 1);                                 // the POST went out
-
-        req.cancel();
-        QCOMPARE((int)req.status(), (int)ServiceRequest::Canceled);
-
-        t.flush();   // fires the reply — the aborted() guard must short-circuit it
-
-        QCOMPARE(readySpy.count(), 0);
-        QCOMPARE(failedSpy.count(), 0);
-        QCOMPARE((int)req.status(), (int)ServiceRequest::Canceled);
-    }
-
-    // Control: without a cancel, flush() delivers normally.
-    void asyncDeliversWhenNotCanceled() {
-        FakeTransport t;
-        t.queue("browse", loadFixtureRaw("browse_feed.json"));
-        VideoRequest req(&t);
-        QSignalSpy readySpy(&req, SIGNAL(videosReady(QList<CT::Video>,QString)));
-        req.browseFeed("FEwhat_to_watch", QString());
-        QCOMPARE(readySpy.count(), 0);     // nothing until flush
-        t.flush();
-        QCOMPARE(readySpy.count(), 1);
-        QCOMPARE((int)req.status(), (int)ServiceRequest::Ready);
-    }
-
-    // ---- part (b): InnertubeClient internals, real m_nam over loopback ---------
-
-    // Normal finish: finished() fires exactly once and result() is ok. Exercises
-    // NamReply::onReplyFinished() (single dispatch, no double-fire).
-    void normalFinishDispatchesOnce() {
-        LoopbackServer srv(LoopbackServer::Respond);
-        InnertubeClient client;
-        QObject owner;
-        TransportReply *rep = client.get(srv.url(), &owner);
-        QSignalSpy spy(rep, SIGNAL(finished()));
-
-        QElapsedTimer et; et.start();
-        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-
-        QCOMPARE(spy.count(), 1);
-        QVERIFY(rep->result().ok);
-        QTest::qWait(50);              // any stray queued slot must NOT re-dispatch
-        QCOMPARE(spy.count(), 1);
-    }
-
-    // Owner destroyed before the (hung) request finishes: the handle (a child of the
-    // owner) is destroyed with it, aborting the in-flight reply silently — finished()
-    // must never fire. Drives NamReply's destructor path (no use-after-free).
-    void ownerDeathSkipsCallbackAndAborts() {
-        LoopbackServer srv(LoopbackServer::Hang);
-        InnertubeClient client;
-        QObject *owner = new QObject;
-        QPointer<TransportReply> rep = client.get(srv.url(), owner);
-        QSignalSpy spy(rep, SIGNAL(finished()));
-        QTest::qWait(50);              // let the connection establish + hang
-        delete owner;                  // deletes the child handle -> silent abort
-        QTest::qWait(100);             // let abort()->finished() + deleteLater run
-        QVERIFY(rep.isNull());         // handle died with its owner
-        QCOMPARE(spy.count(), 0);      // finished() was never emitted
-    }
-
-    // Timeout fires: the watchdog aborts the hung reply, routed through the single
-    // onReplyFinished() teardown -> exactly one finished() carrying a timedOut Reply.
-    // Uses setTimeoutMs() so we wait ~120ms, not 20s.
-    void timeoutDispatchesExactlyOnce() {
-        LoopbackServer srv(LoopbackServer::Hang);
-        InnertubeClient client;
-        client.setTimeoutMs(120);
-        QObject owner;
-        TransportReply *rep = client.get(srv.url(), &owner);
-        QSignalSpy spy(rep, SIGNAL(finished()));
-
-        QElapsedTimer et; et.start();
-        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-
-        QCOMPARE(spy.count(), 1);      // exactly one dispatch
-        const Reply r = rep->result();
-        QVERIFY(!r.ok);                // aborted reply surfaces as a failure
-        QVERIFY(r.timedOut);           // distinctly a timeout, not a plain cancel
-        QTest::qWait(100);             // no late second dispatch
-        QCOMPARE(spy.count(), 1);
-    }
-
-    // P1.4: the client captures responseContext.visitorData from the first reply and
-    // keeps it in the session for subsequent requests. The capture is announced via
-    // visitorDataCaptured() exactly once (the engine persists it), and a session
-    // seeded with a stored value is never overwritten.
-    void visitorDataCaptured() {
-        LoopbackServer srv(LoopbackServer::Respond, "{\"responseContext\":{\"visitorData\":\"VD_XYZ\"}}");
-        InnertubeClient client;
-        QObject owner;
-        QSignalSpy capSpy(&client, SIGNAL(visitorDataCaptured(QString)));
-        TransportReply *rep = client.get(srv.url(), &owner);
-        QSignalSpy spy(rep, SIGNAL(finished()));
-        QElapsedTimer et; et.start();
-        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(spy.count(), 1);
-        // The transport extracts it in the one envelope scan and carries it on the Reply,
-        // so the session-level capture just adopts it (no second body scan).
-        QCOMPARE(rep->result().visitorData, QString("VD_XYZ"));
-        QCOMPARE(client.session().visitorData, QString("VD_XYZ"));
-        QCOMPARE(capSpy.count(), 1);
-        QCOMPARE(capSpy.at(0).at(0).toString(), QString("VD_XYZ"));
-
-        // A second reply carrying a visitorData must not re-capture or re-announce. The
-        // session already has one, so the transport does not even extract it this time.
-        TransportReply *rep2 = client.get(srv.url(), &owner);
-        QSignalSpy spy2(rep2, SIGNAL(finished()));
-        et.restart();
-        while (spy2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(rep2->result().visitorData, QString());   // not re-extracted
-        QCOMPARE(capSpy.count(), 1);
-    }
-
-    // A body that is not JSON at all — an HTML error/consent page — is rejected by the
-    // first-byte validity check: ok == false, "invalid JSON response". The body stays
-    // available for inspection, but nothing is parsed from it.
-    void htmlBodyIsInvalidJson() {
-        LoopbackServer srv(LoopbackServer::Respond, "<html><body>Sorry</body></html>");
-        InnertubeClient client;
-        QObject owner;
-        TransportReply *rep = client.get(srv.url(), &owner);
-        QSignalSpy spy(rep, SIGNAL(finished()));
-        QElapsedTimer et; et.start();
-        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(spy.count(), 1);
-        const Reply r = rep->result();
-        QVERIFY(!r.ok);
-        QCOMPARE(r.error, QString("invalid JSON response"));
-    }
-
-    // Documented semantic change: a body that OPENS like JSON but is truncated is no
-    // longer flagged "invalid JSON response". validate_json is gone; the single-pass
-    // scanner degrades to "nothing collected", so the reply is ok with an empty parse
-    // (the UI shows an empty result, not an error string).
-    void truncatedJsonParsesEmptyNotError() {
-        LoopbackServer srv(LoopbackServer::Respond, "{\"contents\":{\"foo\":[1,2,");
-        InnertubeClient client;
-        QObject owner;
-        TransportReply *rep = client.get(srv.url(), &owner);
-        QSignalSpy spy(rep, SIGNAL(finished()));
-        QElapsedTimer et; et.start();
-        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(spy.count(), 1);
-        const Reply r = rep->result();
-        QVERIFY(r.ok);                              // no "invalid JSON response"
-        QVERIFY(r.error.isEmpty());
-        QCOMPARE(r.visitorData, QString());         // nothing collected from the truncation
-    }
-
-    // An empty (or whitespace-only) 200 body is still "invalid JSON response": the
-    // first-byte check requires a JSON value, and validate_json rejected empty bodies
-    // before — only truncated-but-JSON-looking bodies changed behaviour.
-    void emptyBodyIsInvalidJson() {
-        LoopbackServer srv(LoopbackServer::Respond, "   \r\n  ");
-        InnertubeClient client;
-        QObject owner;
-        TransportReply *rep = client.get(srv.url(), &owner);
-        QSignalSpy spy(rep, SIGNAL(finished()));
-        QElapsedTimer et; et.start();
-        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(spy.count(), 1);
-        const Reply r = rep->result();
-        QVERIFY(!r.ok);
-        QCOMPARE(r.error, QString("invalid JSON response"));
+    // Normal finish: done fires exactly once, ok, body bytes intact. Also asserts
+    // the async contract — nothing is delivered re-entrantly from within get().
+    void okBodyDeliversOnce() {
+        LoopbackServer srv(LoopbackServer::Respond, "{\"marker\":42}");
+        Http http;
+        Sink sink;
+        JobToken job = core::newJob();
+        http.get(srv.url(), job, sink.fn());
+        QCOMPARE(sink.calls, 0);                    // NOT synchronous
+        spin(sink.calls);
+        QCOMPARE(sink.calls, 1);
+        QVERIFY(sink.reply.ok);
+        QVERIFY((bool) sink.reply.body);            // never null
+        QCOMPARE(QString::fromUtf8(sink.reply.body->c_str()), QString("{\"marker\":42}"));
+        QTest::qWait(50);                           // no stray second dispatch
+        QCOMPARE(sink.calls, 1);
     }
 
     // A top-level "error" envelope with a string message surfaces that message and
-    // keeps ok == false — but the body stays populated (OAuth polling reads its error
-    // code from a !ok reply). Guards the error ladder through the new single scan.
+    // keeps ok == false — the body stays populated (OAuth polling reads its error
+    // code from a !ok reply).
     void errorEnvelopeSurfacesMessageAndKeepsBody() {
-        LoopbackServer srv(LoopbackServer::Respond,
-                           "{\"error\":{\"code\":401,\"message\":\"Login Required\"}}");
-        InnertubeClient client;
-        QObject owner;
-        TransportReply *rep = client.get(srv.url(), &owner);
-        QSignalSpy spy(rep, SIGNAL(finished()));
-        QElapsedTimer et; et.start();
-        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(spy.count(), 1);
-        const Reply r = rep->result();
-        QVERIFY(!r.ok);
-        QCOMPARE(r.error, QString("Login Required"));
-        QVERIFY(QString::fromUtf8(r.body->c_str()).contains("Login Required"));  // body kept
+        LoopbackServer srv(LoopbackServer::Respond, "{\"error\":{\"message\":\"boom\"}}");
+        Http http;
+        Sink sink;
+        JobToken job = core::newJob();
+        http.get(srv.url(), job, sink.fn());
+        spin(sink.calls);
+        QCOMPARE(sink.calls, 1);
+        QVERIFY(!sink.reply.ok);
+        QCOMPARE(sink.reply.error, QString("boom"));
+        QVERIFY(QString::fromUtf8(sink.reply.body->c_str()).contains("boom"));  // body kept
     }
 
-    // ---- part (c): the TTL response cache -------------------------------------
-    // An identical cacheable POST within its TTL is served from the cache (no second
-    // network hit, same payload); write endpoints are never cached; clearCache()
-    // forces a refetch.
-    void postCachesWithinTtl() {
+    // A body that is not JSON at all — an HTML error/consent page — is rejected by
+    // the first-byte validity check: ok == false, "invalid JSON response".
+    void htmlBodyIsInvalidJson() {
+        LoopbackServer srv(LoopbackServer::Respond, "<html><body>Sorry</body></html>");
+        Http http;
+        Sink sink;
+        JobToken job = core::newJob();
+        http.get(srv.url(), job, sink.fn());
+        spin(sink.calls);
+        QCOMPARE(sink.calls, 1);
+        QVERIFY(!sink.reply.ok);
+        QCOMPARE(sink.reply.error, QString("invalid JSON response"));
+    }
+
+    // An empty / whitespace-only 200 body is likewise "invalid JSON response": the
+    // first-byte check requires a JSON value to begin with '{' or '['.
+    void emptyBodyIsInvalidJson() {
+        LoopbackServer srv(LoopbackServer::Respond, "   \r\n  ");
+        Http http;
+        Sink sink;
+        JobToken job = core::newJob();
+        http.get(srv.url(), job, sink.fn());
+        spin(sink.calls);
+        QCOMPARE(sink.calls, 1);
+        QVERIFY(!sink.reply.ok);
+        QCOMPARE(sink.reply.error, QString("invalid JSON response"));
+    }
+
+    // ---- timeout --------------------------------------------------------------
+
+    // The shared deadline timer fires: the hung reply is aborted, routed through the
+    // single onFinished() teardown -> exactly one delivery carrying timedOut = true.
+    // setTimeoutMs(50) so we wait ~ms, not the 20s default.
+    void timeoutDeliversTimedOut() {
+        LoopbackServer srv(LoopbackServer::Hang);
+        Http http;
+        http.setTimeoutMs(50);
+        Sink sink;
+        JobToken job = core::newJob();
+        http.get(srv.url(), job, sink.fn());
+        spin(sink.calls);
+        QCOMPARE(sink.calls, 1);
+        QVERIFY(!sink.reply.ok);
+        QVERIFY(sink.reply.timedOut);
+        QCOMPARE(sink.reply.error, QString("request timed out"));
+        QTest::qWait(80);                           // no late second dispatch
+        QCOMPARE(sink.calls, 1);
+    }
+
+    // ---- cancel ---------------------------------------------------------------
+
+    // job canceled before the server responds: the done callback must NOT be
+    // invoked (the live(job) gate in onFinished drops it), and abort(job) reaps the
+    // in-flight reply so nothing leaks and no late call fires.
+    void canceledJobIsNotDelivered() {
+        LoopbackServer srv(LoopbackServer::Hang);
+        Http http;
+        Sink sink;
+        JobToken job = core::newJob();
+        http.get(srv.url(), job, sink.fn());
+        QTest::qWait(50);                           // let the connection establish + hang
+        job->canceled = true;                       // cancel on the "GUI thread"
+        http.abort(job);                            // early-reap the reply -> delivers to nobody
+        QTest::qWait(150);                          // let abort()->finished()->onFinished run
+        QCOMPARE(sink.calls, 0);                    // never delivered
+    }
+
+    // ---- coalescing -----------------------------------------------------------
+
+    // Two identical in-flight posts (same endpoint+client+body) collapse onto ONE
+    // network call: the server sees a single connection, BOTH callbacks fire, and
+    // they share the SAME body pointer.
+    void identicalInflightPostsCoalesce() {
+        LoopbackServer srv(LoopbackServer::Respond, "{\"marker\":7}");
+        Http http;
+        http.setBaseUrl(srv.url());
+        const std::string body = "{\"videoId\":\"vid\"}";
+
+        Sink a, b;
+        JobToken ja = core::newJob(), jb = core::newJob();
+        // "player" is TTL 0 so the cache never masks the coalescing — the second
+        // post is coalesced only because the first is still in flight.
+        http.post("player", ClientId::WEB, body, ja, a.fn());
+        http.post("player", ClientId::WEB, body, jb, b.fn());   // in flight -> coalesced
+
+        QElapsedTimer et; et.start();
+        while ((a.calls == 0 || b.calls == 0) && et.elapsed() < 5000) QTest::qWait(10);
+
+        QCOMPARE(a.calls, 1);
+        QCOMPARE(b.calls, 1);
+        QCOMPARE(srv.connections(), 1);             // ONE network hit for both
+        QVERIFY(a.reply.ok);
+        QVERIFY(b.reply.ok);
+        QVERIFY(a.reply.body == b.reply.body);      // the SAME shared payload
+    }
+
+    // ---- TTL response cache ---------------------------------------------------
+
+    // A cacheable POST (TTL>0 endpoint) within its TTL is served from the cache: no
+    // second network hit, delivered async, same payload. clearCache() forces a
+    // refetch.
+    void postCachesWithinTtlAndClearRefetches() {
         LoopbackServer srv(LoopbackServer::Respond, "{\"marker\":1}");
-        InnertubeClient client;
-        client.setBaseUrl(srv.url());
-        QObject owner;
+        Http http;
+        http.setBaseUrl(srv.url());
         const std::string body = "{\"browseId\":\"FEtest\"}";
 
-        TransportReply *r1 = client.post("browse", ClientId::WEB, body, &owner);
-        QSignalSpy s1(r1, SIGNAL(finished()));
-        QElapsedTimer et; et.start();
-        while (s1.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QVERIFY(r1->result().ok);
+        Sink a;
+        JobToken ja = core::newJob();
+        http.post("browse", ClientId::WEB, body, ja, a.fn());
+        spin(a.calls);
+        QVERIFY(a.reply.ok);
         QCOMPARE(srv.connections(), 1);
 
-        // Identical request: cache hit — delivered async, no new connection.
-        TransportReply *r2 = client.post("browse", ClientId::WEB, body, &owner);
-        QSignalSpy s2(r2, SIGNAL(finished()));
-        QCOMPARE(s2.count(), 0);                 // NOT synchronous (connect-then-fire)
-        et.restart();
-        while (s2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(s2.count(), 1);
-        QVERIFY(r2->result().ok);
-        QVERIFY(QString::fromUtf8(r2->result().body->c_str()).contains("\"marker\":1"));
-        QCOMPARE(srv.connections(), 1);          // served from the cache
-
-        // A different body misses the cache.
-        const std::string body2 = "{\"browseId\":\"FEother\"}";
-        TransportReply *r3 = client.post("browse", ClientId::WEB, body2, &owner);
-        QSignalSpy s3(r3, SIGNAL(finished()));
-        et.restart();
-        while (s3.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(srv.connections(), 2);
+        // Identical request: cache hit — delivered async (NOT re-entrant), no new hit.
+        Sink b;
+        JobToken jb = core::newJob();
+        http.post("browse", ClientId::WEB, body, jb, b.fn());
+        QCOMPARE(b.calls, 0);                       // async even on a cache hit
+        spin(b.calls);
+        QCOMPARE(b.calls, 1);
+        QVERIFY(b.reply.ok);
+        QVERIFY(QString::fromUtf8(b.reply.body->c_str()).contains("\"marker\":1"));
+        QCOMPARE(srv.connections(), 1);             // served from the cache
 
         // Writes are never cached: two identical like/like posts -> two hits.
         const std::string likeBody = "{\"target\":{\"videoId\":\"vid\"}}";
         for (int i = 0; i < 2; ++i) {
-            TransportReply *r = client.post("like/like", ClientId::TVHTML5, likeBody, &owner);
-            QSignalSpy s(r, SIGNAL(finished()));
-            et.restart();
-            while (s.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
+            Sink s; JobToken j = core::newJob();
+            http.post("like/like", ClientId::TVHTML5, likeBody, j, s.fn());
+            spin(s.calls);
         }
-        QCOMPARE(srv.connections(), 4);
+        QCOMPARE(srv.connections(), 3);
 
-        // clearCache() (bearer/locale changed) forces a refetch.
-        client.clearCache();
-        TransportReply *r4 = client.post("browse", ClientId::WEB, body, &owner);
-        QSignalSpy s4(r4, SIGNAL(finished()));
-        et.restart();
-        while (s4.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(srv.connections(), 5);
+        // clearCache() (bearer/locale changed) forces a refetch of the browse call.
+        http.clearCache();
+        Sink c;
+        JobToken jc = core::newJob();
+        http.post("browse", ClientId::WEB, body, jc, c.fn());
+        spin(c.calls);
+        QCOMPARE(srv.connections(), 4);
     }
 
-    // ---- part (d): per-client context/header caching + generation invalidation --
-    // The transport memoizes the serialized `context` (and header list) per client
-    // for a session generation: rebuilding it is a Glaze write + ~6 allocations,
-    // identical for every request on a feed page. A session mutation must NOT leak
-    // into an already-built cache; clearCache() (and the visitorData-capture path)
-    // bump the generation and force a rebuild. Proven against the RAW request bytes:
-    //   - `player` is TTL 0 (cacheTtlSecs), so the response cache never interferes:
-    //     every post below actually hits the wire and is captured by the loopback.
+    // ---- per-client context cache + generation invalidation -------------------
+
+    // The transport memoizes the serialized `context` per client for a session
+    // generation. A DIRECT session mutation must NOT leak into an already-built
+    // cache; clearCache() bumps the generation and forces a rebuild. Proven against
+    // the RAW request bytes — `player` is TTL 0 so every post hits the wire.
     void contextCachedUntilInvalidated() {
         LoopbackServer srv(LoopbackServer::Respond, "{\"ok\":true}");
-        InnertubeClient client;
-        client.setBaseUrl(srv.url());
-        QObject owner;
+        Http http;
+        http.setBaseUrl(srv.url());
         const std::string body = "{\"videoId\":\"vid\"}";
 
         // (1) First post builds + caches the WEB context (default hl == "en").
-        TransportReply *r1 = client.post("player", ClientId::WEB, body, &owner);
-        QSignalSpy s1(r1, SIGNAL(finished()));
-        QElapsedTimer et; et.start();
-        while (s1.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(s1.count(), 1);
+        Sink a; JobToken ja = core::newJob();
+        http.post("player", ClientId::WEB, body, ja, a.fn());
+        spin(a.calls);
         QCOMPARE(srv.bodies().size(), 1);
         QVERIFY(srv.bodies().at(0).contains("\"hl\":\"en\""));
 
         // (2) Mutate the session locale WITHOUT invalidating. The context is genuinely
-        //     cached, so the next payload must STILL carry the old "hl":"en" — the
-        //     mutation is not consulted until the cache is rebuilt.
-        client.session().hl = "fr";
-        TransportReply *r2 = client.post("player", ClientId::WEB, body, &owner);
-        QSignalSpy s2(r2, SIGNAL(finished()));
-        et.restart();
-        while (s2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(s2.count(), 1);
-        QCOMPARE(srv.bodies().size(), 2);          // player is TTL 0 — a real 2nd hit
-        QVERIFY(srv.bodies().at(1).contains("\"hl\":\"en\""));   // still cached
+        //     cached, so the next payload must STILL carry the old "hl":"en".
+        http.session().hl = "fr";
+        Sink b; JobToken jb = core::newJob();
+        http.post("player", ClientId::WEB, body, jb, b.fn());
+        spin(b.calls);
+        QCOMPARE(srv.bodies().size(), 2);
+        QVERIFY(srv.bodies().at(1).contains("\"hl\":\"en\""));    // still cached
         QVERIFY(!srv.bodies().at(1).contains("\"hl\":\"fr\""));
 
-        // (3) clearCache() now folds in invalidateSessionCaches() (the same path
-        //     Innertube::applySettings/applyBearer take): the next post rebuilds the
-        //     context from the mutated session and carries the new "hl":"fr".
-        client.clearCache();
-        TransportReply *r3 = client.post("player", ClientId::WEB, body, &owner);
-        QSignalSpy s3(r3, SIGNAL(finished()));
-        et.restart();
-        while (s3.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(s3.count(), 1);
+        // (3) clearCache() folds in the session-cache invalidation: the next post
+        //     rebuilds the context from the mutated session and carries "hl":"fr".
+        http.clearCache();
+        Sink c; JobToken jc = core::newJob();
+        http.post("player", ClientId::WEB, body, jc, c.fn());
+        spin(c.calls);
         QCOMPARE(srv.bodies().size(), 3);
-        QVERIFY(srv.bodies().at(2).contains("\"hl\":\"fr\""));   // rebuilt
+        QVERIFY(srv.bodies().at(2).contains("\"hl\":\"fr\""));    // rebuilt
     }
 
-    // The visitorData-capture path invalidates the context/header caches (context
-    // embeds visitorData, headers embed X-Goog-Visitor-Id) but leaves the response
-    // cache untouched. Here: the first reply seeds visitorData; the NEXT payload must
-    // then carry that visitorData in its context — proving captureVisitorData()
-    // rebuilt the cached context. Uses `player` (TTL 0) so both posts hit the wire.
-    void visitorDataCaptureInvalidatesContextCache() {
-        LoopbackServer srv(LoopbackServer::Respond,
-                           "{\"responseContext\":{\"visitorData\":\"VD_CAP\"}}");
-        InnertubeClient client;
-        client.setBaseUrl(srv.url());
-        QObject owner;
-        const std::string body = "{\"videoId\":\"vid\"}";
+    // ---- visitor sink ---------------------------------------------------------
 
-        // (1) First post: session has no visitorData yet, so the built context omits
-        //     it. The reply carries VD_CAP; captureVisitorData() adopts it and bumps
-        //     the cache generation.
-        TransportReply *r1 = client.post("player", ClientId::WEB, body, &owner);
-        QSignalSpy s1(r1, SIGNAL(finished()));
-        QElapsedTimer et; et.start();
-        while (s1.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(s1.count(), 1);
-        QCOMPARE(srv.bodies().size(), 1);
-        QVERIFY(!srv.bodies().at(0).contains("VD_CAP"));         // not sent yet
-        QCOMPARE(client.session().visitorData, QString("VD_CAP"));  // now captured
+    // A reply carrying responseContext.visitorData fires the sink EXACTLY once; a
+    // second reply with a visitorData does NOT re-fire (the session already has one,
+    // so the transport doesn't even re-extract it).
+    void visitorSinkFiresOnceThenNever() {
+        LoopbackServer srv(LoopbackServer::Respond, "{\"responseContext\":{\"visitorData\":\"VD_XYZ\"}}");
+        Http http;
+        QStringList captured;
+        http.setVisitorSink(makeCollector(&captured));
 
-        // (2) Next post: the context was invalidated by the capture, so it rebuilds
-        //     with the freshly captured visitorData embedded.
-        TransportReply *r2 = client.post("player", ClientId::WEB, body, &owner);
-        QSignalSpy s2(r2, SIGNAL(finished()));
-        et.restart();
-        while (s2.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(s2.count(), 1);
-        QCOMPARE(srv.bodies().size(), 2);
-        QVERIFY(srv.bodies().at(1).contains("\"visitorData\":\"VD_CAP\""));  // rebuilt
+        Sink a; JobToken ja = core::newJob();
+        http.get(srv.url(), ja, a.fn());
+        spin(a.calls);
+        QCOMPARE(a.calls, 1);
+        QCOMPARE(a.reply.visitorData, QString("VD_XYZ"));         // carried on the Reply
+        QCOMPARE(http.session().visitorData, QString("VD_XYZ"));  // adopted into the session
+        QCOMPARE(captured.size(), 1);
+        QCOMPARE(captured.at(0), QString("VD_XYZ"));
+
+        // A second reply carrying a visitorData must not re-fire the sink. The
+        // session already has one, so the transport doesn't even extract it.
+        Sink b; JobToken jb = core::newJob();
+        http.get(srv.url(), jb, b.fn());
+        spin(b.calls);
+        QCOMPARE(b.reply.visitorData, QString());                 // not re-extracted
+        QCOMPARE(captured.size(), 1);                             // sink not re-fired
     }
 
-    // A persisted visitorData seeded into the session wins over the server's.
-    void visitorDataSeededNotOverwritten() {
-        LoopbackServer srv(LoopbackServer::Respond, "{\"responseContext\":{\"visitorData\":\"VD_SERVER\"}}");
-        InnertubeClient client;
-        client.session().visitorData = "VD_STORED";
-        QObject owner;
-        QSignalSpy capSpy(&client, SIGNAL(visitorDataCaptured(QString)));
-        TransportReply *rep = client.get(srv.url(), &owner);
-        QSignalSpy spy(rep, SIGNAL(finished()));
+private:
+    // Spin the GUI event loop until `counter` advances (Qt 4.7 has no QTRY_VERIFY):
+    // qWait() pumps posted events + the network + the deadline timer. Bounded so a
+    // regression fails loud instead of hanging.
+    static void spin(int &counter) {
+        const int start = counter;
         QElapsedTimer et; et.start();
-        while (spy.count() == 0 && et.elapsed() < 5000) QTest::qWait(10);
-        QCOMPARE(client.session().visitorData, QString("VD_STORED"));
-        QCOMPARE(capSpy.count(), 0);
+        while (counter == start && et.elapsed() < 5000) QTest::qWait(10);
+    }
+
+    static std::function<void(const QString &)> makeCollector(QStringList *out) {
+        return [out](const QString &v) { *out << v; };
     }
 };
 QTEST_MAIN(TestClient)
