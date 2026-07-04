@@ -6,7 +6,12 @@
 # ---------------------------------------------------------------------------
 add_library(meetube-core STATIC
     parsers/continuation.cpp
-    parsers/rendererparser.cpp
+    parsers/videolistparser.cpp
+    parsers/watchparser.cpp
+    parsers/playlistparser.cpp
+    parsers/channelparser.cpp
+    parsers/commentparser.cpp
+    parsers/accountparser.cpp
     parsers/playerparser.cpp
     innertube/clientconfig.cpp
     innertube/contextbuilder.cpp
