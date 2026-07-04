@@ -18,6 +18,7 @@ add_library(meetube-core STATIC
     innertube/itransport.cpp
     innertube/innertubeclient.cpp
     core/http.cpp
+    core/chains.cpp
     requests/servicerequest.cpp
     requests/bodies.cpp
     requests/videorequest.cpp

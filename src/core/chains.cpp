@@ -1,0 +1,426 @@
+/*
+ * Copyright (C) 2016 Stuart Howarth <showarth@marxoft.co.uk>
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 3 as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+// core::chains — the request layer as pure C++. Each function is a byte-for-byte
+// port of one old QObject request class's logic onto the callback IHttp seam; the
+// per-chain source map is on each function. The old files (videorequest.cpp,
+// accountmanager.cpp, …) are still live in Task 12a, so this TU defines its OWN
+// copies of their file-static helpers (sortParam / isAuthedFeed / the oj:: OAuth
+// response structs) in an anonymous namespace — no ODR clash. 12b deletes the old
+// copies; these stay.
+#include "core/chains.h"
+#include "requests/bodies.h"
+#include "innertube/catalog.h"
+#include "parsers/rendererparser.h"
+#include "parsers/playerparser.h"
+#include "parsers/continuation.h"
+#include "parsers/ytjson.h"
+#include <memory>
+
+namespace yt { namespace core {
+
+namespace {
+
+// ---- videorequest.cpp:23-28 (search sort → base64 protobuf param) -----------
+std::string sortParam(const QString &order) {
+    if (order == "date")   return "CAISAhAB";
+    if (order == "views")  return "CAMSAhAB";
+    if (order == "rating") return "CAESAhAB";
+    return std::string();   // relevance
+}
+
+// videorequest.cpp:34-38 — the personalized feeds only work on the TV client: the
+// OAuth bearer is minted with the TV device-code credentials, and WEB browse
+// rejects it with 400 INVALID_ARGUMENT. TV responses carry tileRenderer items,
+// which parseVideoList handles.
+bool isAuthedFeed(const QString &resourceId) {
+    return resourceId == QLatin1String("FEhistory")
+        || resourceId == QLatin1String("FEsubscriptions")
+        || resourceId == QLatin1String("FElibrary");
+}
+
+// ---- OAuth device-code endpoint responses (accountmanager.cpp:26-44) ---------
+// Fixed schemas; unknown keys skipped. Local copies so the still-live
+// accountmanager.cpp's oj:: (in its own anonymous TU scope) never clashes.
+namespace oj {
+struct DeviceCode {
+    std::optional<std::string> device_code;
+    std::optional<std::string> user_code;
+    std::optional<std::string> verification_url;
+    std::optional<std::string> verification_uri;
+    std::optional<gj::FlexInt> interval;
+};
+struct Token {
+    std::optional<std::string> access_token;
+    std::optional<std::string> refresh_token;
+    std::optional<std::string> error;
+};
+} // namespace oj
+
+QString qstr(const std::optional<std::string> &s)
+{
+    return s ? QString::fromUtf8(s->data(), (int)s->size()) : QString();
+}
+
+// The action-endpoint map (actionrequest.cpp:22-26). channel kinds use
+// subscribeChannels; video kinds use likeTarget.
+struct ActionSpec { const char *endpoint; bool channel; };
+ActionSpec actionSpecFor(ActionKind kind) {
+    switch (kind) {
+    case Subscribe:   { ActionSpec s = { "subscription/subscribe",   true  }; return s; }
+    case Unsubscribe: { ActionSpec s = { "subscription/unsubscribe", true  }; return s; }
+    case Like:        { ActionSpec s = { "like/like",                false }; return s; }
+    case Dislike:     { ActionSpec s = { "like/dislike",             false }; return s; }
+    case RemoveLike:  { ActionSpec s = { "like/removelike",          false }; return s; }
+    }
+    ActionSpec s = { "like/like", false }; return s;   // unreachable
+}
+
+} // namespace
+
+// ---- fetchVideoList — videorequest.cpp:40-53, 76-80 --------------------------
+void fetchVideoList(IHttp &http, const VideoListSpec &spec, const JobToken &job,
+                    std::function<void(const Outcome<VideoPage> &)> done)
+{
+    if (spec.kind == VideoListSpec::Search) {
+        http.post("search", ClientId::WEB, bodies::search(spec.query, sortParam(spec.order)), job,
+            [done](const Reply &r) {
+                Outcome<VideoPage> out;
+                if (!r.ok) { out.error = r.error; done(out); return; }
+                QString token; QList<CT::Video> v = parseVideoList(*r.body, &token);
+                out.ok = true; out.value.items = v; out.value.next = token;
+                done(out);
+            });
+        return;
+    }
+    const ClientId cid = isAuthedFeed(spec.browseId) ? ClientId::TVHTML5 : ClientId::WEB;
+    http.post("browse", cid, bodies::browse(spec.browseId, spec.params, spec.page), job,
+        [done](const Reply &r) {
+            Outcome<VideoPage> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            QString token; QList<CT::Video> v = parseVideoList(*r.body, &token);
+            out.ok = true; out.value.items = v; out.value.next = token;
+            done(out);
+        });
+}
+
+// ---- fetchWatch — videorequest.cpp:55-75 ------------------------------------
+void fetchWatch(IHttp &http, const QString &videoId, const JobToken &job,
+                std::function<void(const Outcome<WatchResult> &)> done)
+{
+    http.post("next", ClientId::WEB, bodies::nextVideo(videoId), job,
+        [videoId, done](const Reply &r) {
+            Outcome<WatchResult> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            CT::Video primary; QList<CT::Video> related;
+            parseWatchPage(*r.body, &primary, &related);
+            primary.id = videoId;                    // /next does not echo the id; carry it
+            primary.commentsId = videoId; primary.subtitlesId = videoId; primary.relatedVideosId = videoId;
+            out.ok = true; out.value.primary = primary; out.value.related = related;
+            done(out);
+        });
+}
+
+// ---- fetchComments — commentrequest.cpp:24-57 (discover → page) -------------
+static void fetchCommentsPage(IHttp &http, const QString &token, const JobToken &job,
+                              std::function<void(const Outcome<CommentPage> &)> done)
+{
+    http.post("next", ClientId::WEB, bodies::nextContinuation(token), job,
+        [done](const Reply &r) {
+            Outcome<CommentPage> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            QString next; QList<CT::Comment> c = parseComments(*r.body, &next);
+            out.ok = true; out.value.items = c; out.value.next = next;
+            done(out);
+        });
+}
+
+void fetchComments(IHttp &http, const QString &videoId, const QString &page, const JobToken &job,
+                   std::function<void(const Outcome<CommentPage> &)> done)
+{
+    if (!page.isEmpty()) { fetchCommentsPage(http, page, job, done); return; }
+    // Step 1: POST /next by videoId to discover the comments-section continuation token.
+    http.post("next", ClientId::WEB, bodies::nextVideo(videoId), job,
+        [&http, job, done](const Reply &r) {
+            Outcome<CommentPage> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            // Find the comments-section panel's continuation token.
+            const QString token = findContinuationTokenUnder(*r.body, "engagementPanels");
+            // No panel/token == comments disabled: deliver an empty, successful page
+            // (the model distinguishes this from a failure by status Ready + count 0).
+            if (token.isEmpty()) { out.ok = true; done(out); return; }
+            if (!live(job)) return;                  // canceled between steps — stop here
+            fetchCommentsPage(http, token, job, done);
+        });
+}
+
+// ---- fetchPlayer — streamsrequest.cpp + subtitlesrequest.cpp (merged) -------
+// Runs the IOS→ANDROID streams ladder EXACTLY as streamsrequest.cpp:36-57, while
+// surfacing captions from the FIRST transport-ok response (IOS preferred) with
+// captionsOk=true even when streams fail — preserving today's independent
+// SubtitlesRequest (which never checked playability). If EVERY attempt is
+// transport-failed, captionsOk=false with the last error. One parsePlayer() read
+// per response (no re-read of the body).
+namespace {
+// Accumulator threaded through the IOS→ANDROID recursion.
+struct PlayerAccum {
+    bool haveCaptions;              // captions taken from a transport-ok response yet?
+    QList<CT::Subtitle> captions;
+    QString lastError;              // last transport error (for the all-failed caption path)
+    PlayerAccum() : haveCaptions(false) {}
+};
+} // namespace
+
+static void playerTry(IHttp &http, const QString &videoId, ClientId client,
+                      std::shared_ptr<PlayerAccum> acc, const JobToken &job,
+                      std::function<void(const PlayerOutcome &)> done)
+{
+    http.post("player", client, bodies::player(videoId), job,
+        [&http, videoId, client, acc, job, done](const Reply &r) {
+            const bool isLast = (client == ClientId::ANDROID);
+
+            // ---- captions side (subtitlesrequest.cpp): first transport-ok wins ----
+            if (r.ok) {
+                const PlayerResult pr = parsePlayer(*r.body);
+                if (!acc->haveCaptions) { acc->haveCaptions = true; acc->captions = pr.captions; }
+
+                // ---- streams side (streamsrequest.cpp:44-54) ----
+                if (pr.playable) {
+                    if (!pr.streams.isEmpty()) {
+                        PlayerOutcome out;
+                        out.streamsOk = true; out.streams = pr.streams;
+                        out.captionsOk = true; out.captions = acc->captions;
+                        done(out); return;
+                    }
+                    // Distinguish "every format needs signature decipher (unsupported)"
+                    // from a plain empty response, so the UI can fall through to a
+                    // system-handoff.
+                    if (isLast && pr.cipheredOnly) {
+                        PlayerOutcome out;
+                        out.streamsError = QString::fromLatin1("streams require signature decipher (unsupported)");
+                        out.captionsOk = true; out.captions = acc->captions;
+                        done(out); return;
+                    }
+                } else if (isLast) {
+                    PlayerOutcome out;
+                    out.streamsError = pr.reason;
+                    out.captionsOk = true; out.captions = acc->captions;
+                    done(out); return;
+                }
+            } else {
+                acc->lastError = r.error;            // remember for the all-failed caption path
+            }
+
+            if (isLast) {
+                // streamsrequest.cpp:53 — the last attempt's terminal streams failure.
+                PlayerOutcome out;
+                out.streamsError = r.ok ? QString::fromLatin1("no playable streams") : r.error;
+                if (acc->haveCaptions) { out.captionsOk = true; out.captions = acc->captions; }
+                else { out.captionsError = acc->lastError; }   // every attempt transport-failed
+                done(out); return;
+            }
+            if (!live(job)) return;                  // canceled between IOS and ANDROID
+            playerTry(http, videoId, ClientId::ANDROID, acc, job, done);   // ANDROID is its own last attempt
+        });
+}
+
+void fetchPlayer(IHttp &http, const QString &videoId, const JobToken &job,
+                 std::function<void(const PlayerOutcome &)> done)
+{
+    std::shared_ptr<PlayerAccum> acc = std::make_shared<PlayerAccum>();
+    playerTry(http, videoId, ClientId::IOS, acc, job, done);
+}
+
+// ---- fetchChannelById — userrequest.cpp:28-32, 66-69 ------------------------
+void fetchChannelById(IHttp &http, const QString &channelId, const JobToken &job,
+                      std::function<void(const Outcome<CT::User> &)> done)
+{
+    http.post("browse", ClientId::WEB, bodies::browse(channelId, QString(), QString()), job,
+        [done](const Reply &r) {
+            Outcome<CT::User> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            const CT::User u = parseChannel(*r.body);
+            if (u.id.isEmpty() && u.username.isEmpty()) {
+                out.error = QString::fromLatin1("channel unavailable"); done(out); return;
+            }
+            out.ok = true; out.value = u;
+            done(out);
+        });
+}
+
+// ---- fetchChannelByUrl — userrequest.cpp:34-60 (resolve → browse) -----------
+void fetchChannelByUrl(IHttp &http, const QString &handleUrl, const JobToken &job,
+                       std::function<void(const Outcome<CT::User> &)> done)
+{
+    http.post("navigation/resolve_url", ClientId::WEB, bodies::resolveUrl(handleUrl), job,
+        [&http, job, done](const Reply &r) {
+            Outcome<CT::User> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            const QString browseId = parseResolvedBrowseId(*r.body);
+            if (browseId.isEmpty()) {
+                out.error = QString::fromLatin1("could not resolve channel"); done(out); return;
+            }
+            if (!live(job)) return;                  // canceled between steps — stop here
+            fetchChannelById(http, browseId, job, done);   // chain to the channel browse
+        });
+}
+
+// ---- fetchUserSearch — userrequest.cpp:41-46, 61-65 -------------------------
+void fetchUserSearch(IHttp &http, const QString &query, const JobToken &job,
+                     std::function<void(const Outcome<UserPage> &)> done)
+{
+    http.post("search", ClientId::WEB, bodies::search(query, "EgIQAg=="), job,   // channels filter
+        [done](const Reply &r) {
+            Outcome<UserPage> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            QString token; QList<CT::User> u = parseUserList(*r.body, &token);
+            out.ok = true; out.value.items = u; out.value.next = token;
+            done(out);
+        });
+}
+
+// ---- fetchPlaylists — playlistrequest.cpp:23-27, 35-43 ----------------------
+void fetchPlaylists(IHttp &http, const QString &resourceId, const QString &page, const QString &params,
+                    const JobToken &job, std::function<void(const Outcome<PlaylistPage> &)> done)
+{
+    http.post("browse", ClientId::WEB, bodies::browse(resourceId, params, page), job,
+        [done](const Reply &r) {
+            Outcome<PlaylistPage> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            QString token; QList<CT::Playlist> p = parsePlaylistList(*r.body, &token);
+            out.ok = true; out.value.items = p; out.value.next = token;
+            done(out);
+        });
+}
+
+// ---- fetchPlaylistSearch — playlistrequest.cpp:29-33, 35-43 -----------------
+void fetchPlaylistSearch(IHttp &http, const QString &query, const JobToken &job,
+                         std::function<void(const Outcome<PlaylistPage> &)> done)
+{
+    http.post("search", ClientId::WEB, bodies::search(query, "EgIQAw=="), job,   // playlists filter
+        [done](const Reply &r) {
+            Outcome<PlaylistPage> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            QString token; QList<CT::Playlist> p = parsePlaylistList(*r.body, &token);
+            out.ok = true; out.value.items = p; out.value.next = token;
+            done(out);
+        });
+}
+
+// ---- fetchAccount — accountrequest.cpp:23-44 --------------------------------
+void fetchAccount(IHttp &http, const JobToken &job,
+                  std::function<void(const Outcome<CT::Account> &)> done)
+{
+    http.post("account/accounts_list", ClientId::TVHTML5, bodies::accountsList(), job,
+        [done](const Reply &r) {
+            Outcome<CT::Account> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            const CT::Account a = parseAccountsList(*r.body);
+            if (a.username.isEmpty() && a.channelId.isEmpty()) {
+                out.error = QString::fromLatin1("account unavailable"); done(out); return;
+            }
+            out.ok = true; out.value = a;
+            done(out);
+        });
+}
+
+// ---- submitAction — actionrequest.cpp ---------------------------------------
+// TVHTML5, not WEB: these writes need the Bearer, which only rides on the TV
+// client (the ContextBuilder guard keeps every other client anonymous).
+void submitAction(IHttp &http, ActionKind kind, const QString &targetId, const JobToken &job,
+                  std::function<void(bool ok)> done)
+{
+    const ActionSpec spec = actionSpecFor(kind);
+    const std::string body = spec.channel ? bodies::subscribeChannels(targetId)
+                                          : bodies::likeTarget(targetId);
+    http.post(QString::fromLatin1(spec.endpoint), ClientId::TVHTML5, body, job,
+        [done](const Reply &r) { done(r.ok); });
+}
+
+// ---- OAuth — accountmanager.cpp:53-58, 87-96, 143-154 -----------------------
+void oauthDeviceCode(IHttp &http, const JobToken &job,
+                     std::function<void(const Outcome<DeviceCode> &)> done)
+{
+    QMap<QString, QString> f;
+    f["client_id"] = QString::fromLatin1(Catalog::kOAuthClientId);
+    f["scope"]     = QString::fromLatin1(Catalog::kOAuthScope);
+    http.postForm(QString::fromLatin1(Catalog::kDeviceCodeUrl), f, job,
+        [done](const Reply &r) {
+            Outcome<DeviceCode> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            oj::DeviceCode dc{};
+            gj::readJsonDoc(dc, *r.body);
+            out.value.deviceCode = qstr(dc.device_code);
+            out.value.userCode   = qstr(dc.user_code);
+            out.value.verificationUrl = qstr(dc.verification_url);
+            if (out.value.verificationUrl.isEmpty()) out.value.verificationUrl = qstr(dc.verification_uri);
+            out.value.intervalSecs = (int) gj::toInt64(dc.interval);
+            if (out.value.intervalSecs <= 0) out.value.intervalSecs = 5;
+            if (out.value.deviceCode.isEmpty() || out.value.userCode.isEmpty()) {
+                out.error = QString::fromLatin1("device code request failed"); done(out); return;
+            }
+            out.ok = true;
+            done(out);
+        });
+}
+
+// One poll of the token endpoint. The retry loop (authorization_pending/slow_down)
+// stays in the facade (12b); this chain does ONE poll and reports the raw grant.
+void oauthPollToken(IHttp &http, const QString &deviceCode, const JobToken &job,
+                    std::function<void(const TokenGrant &)> done)
+{
+    QMap<QString, QString> f;
+    f["client_id"]     = QString::fromLatin1(Catalog::kOAuthClientId);
+    f["client_secret"] = QString::fromLatin1(Catalog::kOAuthClientSecret);
+    f["device_code"]   = deviceCode;
+    f["grant_type"]    = QString::fromLatin1("urn:ietf:params:oauth:grant-type:device_code");
+    http.postForm(QString::fromLatin1(Catalog::kTokenUrl), f, job,
+        [done](const Reply &r) {
+            TokenGrant g;
+            g.transportOk = r.ok;
+            if (!r.ok) g.transportError = r.error;
+            oj::Token tok{};
+            gj::readJsonDoc(tok, *r.body);
+            g.accessToken  = qstr(tok.access_token);
+            g.refreshToken = qstr(tok.refresh_token);
+            g.error        = qstr(tok.error);
+            done(g);
+        });
+}
+
+void oauthRefresh(IHttp &http, const QString &refreshToken, const JobToken &job,
+                  std::function<void(const TokenGrant &)> done)
+{
+    QMap<QString, QString> f;
+    f["client_id"]     = QString::fromLatin1(Catalog::kOAuthClientId);
+    f["client_secret"] = QString::fromLatin1(Catalog::kOAuthClientSecret);
+    f["refresh_token"] = refreshToken;
+    f["grant_type"]    = QString::fromLatin1("refresh_token");
+    http.postForm(QString::fromLatin1(Catalog::kTokenUrl), f, job,
+        [done](const Reply &r) {
+            TokenGrant g;
+            g.transportOk = r.ok;
+            if (!r.ok) g.transportError = r.error;
+            oj::Token tok{};
+            gj::readJsonDoc(tok, *r.body);
+            g.accessToken  = qstr(tok.access_token);
+            g.refreshToken = qstr(tok.refresh_token);
+            g.error        = qstr(tok.error);
+            done(g);
+        });
+}
+
+}}
