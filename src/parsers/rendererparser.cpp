@@ -1,6 +1,6 @@
 #include "rendererparser.h"
 #include "continuation.h"
-#include "ytjson.h"
+#include "tokenscan.h"
 #include "jsonscan.h"
 #include <QRegExp>
 #include <vector>
@@ -553,6 +553,31 @@ struct CollectorBase {
     void consume() { if (!open.empty()) open.back() = 1; }
 };
 
+// ---------------------------------------------------------------------------
+// WithToken<Inner> — wraps a renderer collector and additionally captures the
+// FIRST continuation token found in document order. Equivalent to a separate
+// findContinuationToken pass because token wrappers never occur inside a
+// captured (consumed) renderer subtree (verified across the fixture corpus;
+// the golden dump is the regression gate).
+// ---------------------------------------------------------------------------
+template <class Inner>
+struct WithToken {
+    Inner inner;
+    std::string token;
+    void enter(int d) { inner.enter(d); }
+    void leave(int d) { inner.leave(d); }
+    scan::Action what(std::string_view key, int d)
+    {
+        if (token.empty() && gj::isTokenKey(key)) return scan::Action::Capture;
+        return inner.what(key, d);
+    }
+    void capture(std::string_view key, std::string_view value, int d)
+    {
+        if (gj::isTokenKey(key)) { gj::captureToken(key, value, &token); return; }
+        inner.capture(key, value, d);
+    }
+};
+
 // Video renderer kinds (all share the VideoR shape). playlistVideoRenderer lets
 // a VLxxxx browse (a playlist's contents) populate a VideoModel directly.
 static bool isVideoKind(std::string_view key)
@@ -600,39 +625,77 @@ struct VideoCollector : CollectorBase {
 QList<CT::Video> parseVideoList(std::string_view response, QString *nextToken)
 {
     QList<CT::Video> out;
-    VideoCollector c;
-    c.out = &out;
-    scan::document(response, c);
-    if (nextToken) *nextToken = findContinuationToken(response);
+    if (nextToken) {
+        WithToken<VideoCollector> w;
+        w.inner.out = &out;
+        scan::document(response, w);
+        *nextToken = QString::fromUtf8(w.token.data(), (int)w.token.size());
+    } else {
+        VideoCollector c;
+        c.out = &out;
+        scan::document(response, c);
+    }
     return out;
 }
 
-struct CommentCollector : CollectorBase {
+// CommentScanner — single-pass: collects commentEntityPayload (consume
+// semantics, same as the old CommentCollector) AND captures the first
+// top-level onResponseReceivedEndpoints extent (for the token mini-scan)
+// AND records the first continuation token found OUTSIDE that extent.
+//
+// Token precedence after the scan reproduces the old two-call logic exactly:
+//   if (token inside onRRE extent)   → use it          (same: findContinuationTokenUnder)
+//   else if (token outside extent)   → use it          (same: findContinuationToken on whole doc)
+struct CommentScanner : CollectorBase {
     QList<CT::Comment> *out;
-    scan::Action what(std::string_view key, int)
+    std::string_view onRRE;          // first top-level onResponseReceivedEndpoints extent
+    std::string outsideToken;        // first token found outside the onRRE extent
+
+    scan::Action what(std::string_view key, int d)
     {
         if (consumed()) return scan::Action::Skip;
         if (key == "commentEntityPayload") { consume(); return scan::Action::Capture; }
+        // Capture the top-level onRRE extent once (depth 0 = immediate child of root).
+        if (d == 0 && key == "onResponseReceivedEndpoints" && onRRE.empty())
+            return scan::Action::Capture;
+        // Track first token outside the onRRE extent (it cannot be inside since
+        // we captured onRRE above — once captured, the scanner does not descend into it).
+        if (outsideToken.empty() && gj::isTokenKey(key)) return scan::Action::Capture;
         return scan::Action::Descend;
     }
-    void capture(std::string_view, std::string_view value, int)
+    void capture(std::string_view key, std::string_view value, int d)
     {
-        rj::CommentPayload p{};
-        readJson(p, value);
-        const CT::Comment c = fromCommentPayload(p);
-        if (!c.body.isEmpty()) *out << c;
+        if (key == "commentEntityPayload") {
+            rj::CommentPayload p{};
+            readJson(p, value);
+            const CT::Comment c = fromCommentPayload(p);
+            if (!c.body.isEmpty()) *out << c;
+            return;
+        }
+        if (d == 0 && key == "onResponseReceivedEndpoints" && onRRE.empty()) {
+            onRRE = value;
+            return;
+        }
+        if (gj::isTokenKey(key)) {
+            gj::captureToken(key, value, &outsideToken);
+            return;
+        }
     }
 };
 
 QList<CT::Comment> parseComments(std::string_view response, QString *nextToken)
 {
     QList<CT::Comment> out;
-    CommentCollector c;
-    c.out = &out;
-    scan::document(response, c);
+    CommentScanner s;
+    s.out = &out;
+    scan::document(response, s);
     if (nextToken) {
-        QString t = findContinuationTokenUnder(response, "onResponseReceivedEndpoints");
-        if (t.isEmpty()) t = findContinuationToken(response);
+        // Prefer token inside onResponseReceivedEndpoints (mini-scan), else
+        // the first token found outside it during the main scan.
+        QString t;
+        if (!s.onRRE.empty()) t = findContinuationToken(s.onRRE);
+        if (t.isEmpty() && !s.outsideToken.empty())
+            t = QString::fromUtf8(s.outsideToken.data(), (int)s.outsideToken.size());
         *nextToken = t;
     }
     return out;
@@ -675,10 +738,16 @@ struct PlaylistCollector : CollectorBase {
 QList<CT::Playlist> parsePlaylistList(std::string_view response, QString *nextToken)
 {
     QList<CT::Playlist> out;
-    PlaylistCollector c;
-    c.out = &out;
-    scan::document(response, c);
-    if (nextToken) *nextToken = findContinuationToken(response);
+    if (nextToken) {
+        WithToken<PlaylistCollector> w;
+        w.inner.out = &out;
+        scan::document(response, w);
+        *nextToken = QString::fromUtf8(w.token.data(), (int)w.token.size());
+    } else {
+        PlaylistCollector c;
+        c.out = &out;
+        scan::document(response, c);
+    }
     return out;
 }
 
@@ -776,10 +845,16 @@ struct UserCollector : CollectorBase {
 QList<CT::User> parseUserList(std::string_view response, QString *nextToken)
 {
     QList<CT::User> out;
-    UserCollector c;
-    c.out = &out;
-    scan::document(response, c);
-    if (nextToken) *nextToken = findContinuationToken(response);
+    if (nextToken) {
+        WithToken<UserCollector> w;
+        w.inner.out = &out;
+        scan::document(response, w);
+        *nextToken = QString::fromUtf8(w.token.data(), (int)w.token.size());
+    } else {
+        UserCollector c;
+        c.out = &out;
+        scan::document(response, c);
+    }
     return out;
 }
 
@@ -832,12 +907,70 @@ static QString findLikeText(std::string_view primaryInfo)
     return QString();
 }
 
+// WatchScanner — single-pass scan for parseWatchPage:
+//   (a) VideoCollector logic (consume semantics) → related list
+//   (b) first videoPrimaryInfoRenderer extent captured (no consume — siblings
+//       must still be visited so the related list is fully collected)
+//   (c) first videoSecondaryInfoRenderer extent captured (same — no consume)
+struct WatchScanner : CollectorBase {
+    QList<CT::Video> *related;
+    std::string_view primary;
+    std::string_view secondary;
+
+    scan::Action what(std::string_view key, int d)
+    {
+        if (consumed()) return scan::Action::Skip;
+        // Capture the info renderer extents without marking the parent as consumed,
+        // so sibling renderer keys are still visited (the related list collection).
+        if (primary.empty() && key == "videoPrimaryInfoRenderer")
+            return scan::Action::Capture;
+        if (secondary.empty() && key == "videoSecondaryInfoRenderer")
+            return scan::Action::Capture;
+        // VideoCollector logic for related videos (consume semantics).
+        if (related && (key == "lockupViewModel" || key == "tileRenderer" || isVideoKind(key))) {
+            consume();
+            return scan::Action::Capture;
+        }
+        return scan::Action::Descend;
+    }
+    void capture(std::string_view key, std::string_view value, int d)
+    {
+        if (key == "videoPrimaryInfoRenderer" && primary.empty()) {
+            primary = value; return;
+        }
+        if (key == "videoSecondaryInfoRenderer" && secondary.empty()) {
+            secondary = value; return;
+        }
+        // Video renderer capture (same logic as VideoCollector).
+        if (!related) return;
+        if (key == "lockupViewModel") {
+            rj::Lockup lm{};
+            readJson(lm, value);
+            if (lm.contentType && *lm.contentType == "LOCKUP_CONTENT_TYPE_VIDEO")
+                *related << fromLockupVideo(lm);
+        } else if (key == "tileRenderer") {
+            rj::Tile t{};
+            readJson(t, value);
+            if (t.contentType && *t.contentType == "TILE_CONTENT_TYPE_VIDEO")
+                *related << fromTile(t);
+        } else {
+            rj::VideoR r{};
+            readJson(r, value);
+            *related << fromVideoRenderer(r);
+        }
+    }
+};
+
 void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Video> *related)
 {
-    if (related) *related = parseVideoList(response, 0);   // secondaryResults lockups/compactVideoRenderers
+    WatchScanner ws;
+    ws.related = related;
+    if (related) related->clear();
+    scan::document(response, ws);
+
     if (!primary) return;
     CT::Video v;
-    const std::string_view pri = findExtent(response, "videoPrimaryInfoRenderer");
+    const std::string_view pri = ws.primary;
     if (!pri.empty()) {
         rj::PrimaryInfo info{};
         readJson(info, pri);
@@ -850,7 +983,7 @@ void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Vid
         }
         v.likeText = findLikeText(pri);
     }
-    const std::string_view sec = findExtent(response, "videoSecondaryInfoRenderer");
+    const std::string_view sec = ws.secondary;
     if (!sec.empty()) {
         const std::string_view owner = findExtent(sec, "videoOwnerRenderer");
         if (!owner.empty()) {
