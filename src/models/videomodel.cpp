@@ -27,6 +27,13 @@ static QList<QByteArray> videoRoles() {
     return r;
 }
 
+// Role indices — MUST stay in lockstep with videoRoles() order above (the roleIdx
+// handed to roleData() is the 0-based position in that list).
+enum VRole { RId, RTitle, RDescription, RThumbnailUrl, RLargeThumbnailUrl, RDate,
+             RDuration, RUrl, RStreamUrl, RUserId, RUsername, RAvatarUrl,
+             RViewCount, RViewText, RDownloadable, RCommentsId, RRelatedVideosId,
+             RSubtitlesId, RVideoRoleCount };
+
 VideoModel::VideoModel(QObject *parent)
     : ServiceListModel(videoRoles(), parent), m_canPage(false) {}
 
@@ -34,17 +41,33 @@ VideoModel::~VideoModel() {
     if (m_request) m_request->deleteLater();
 }
 
-QVariantMap VideoModel::toMap(const CT::Video &v) {
-    QVariantMap m;
-    m["id"] = v.id; m["title"] = v.title; m["description"] = v.description;
-    m["thumbnailUrl"] = v.thumbnailUrl; m["largeThumbnailUrl"] = v.largeThumbnailUrl;
-    m["date"] = v.date; m["duration"] = v.duration; m["url"] = v.url;
-    m["streamUrl"] = v.streamUrl; m["userId"] = v.userId; m["username"] = v.username;
-    m["avatarUrl"] = v.avatarUrl;
-    m["viewCount"] = v.viewCount; m["viewText"] = v.viewText; m["downloadable"] = v.downloadable;
-    m["commentsId"] = v.commentsId; m["relatedVideosId"] = v.relatedVideosId;
-    m["subtitlesId"] = v.subtitlesId;
-    return m;
+int VideoModel::itemCount() const { return m_rows.size(); }
+
+void VideoModel::dropItems() { m_rows.clear(); }
+
+QVariant VideoModel::roleData(int row, int idx) const {
+    const CT::Video &v = m_rows.at(row);
+    switch (idx) {
+    case RId: return v.id;
+    case RTitle: return v.title;
+    case RDescription: return v.description;
+    case RThumbnailUrl: return v.thumbnailUrl;
+    case RLargeThumbnailUrl: return v.largeThumbnailUrl;
+    case RDate: return v.date;
+    case RDuration: return v.duration;
+    case RUrl: return v.url;
+    case RStreamUrl: return v.streamUrl;
+    case RUserId: return v.userId;
+    case RUsername: return v.username;
+    case RAvatarUrl: return v.avatarUrl;
+    case RViewCount: return v.viewCount;
+    case RViewText: return v.viewText;
+    case RDownloadable: return v.downloadable;
+    case RCommentsId: return v.commentsId;
+    case RRelatedVideosId: return v.relatedVideosId;
+    case RSubtitlesId: return v.subtitlesId;
+    }
+    return QVariant();
 }
 
 VideoRequest* VideoModel::newRequest() {
@@ -95,17 +118,23 @@ void VideoModel::cancel() {
 }
 
 void VideoModel::assign(const QList<CT::Video> &videos) {
+    beginResetModel();
+    m_rows = videos;
+    endResetModel();
+    emitCountChanged();
     m_canPage = false;                       // externally supplied — not a pageable feed
-    QList<QVariantMap> maps;
-    for (const CT::Video &v : videos) maps << toMap(v);
-    resetItems(maps, QString());
+    setNext(QString());
     setStatus(ServiceRequest::Ready);
 }
 
 void VideoModel::onReady(const QList<CT::Video> &videos, const QString &next) {
-    QList<QVariantMap> maps;
-    for (const CT::Video &v : videos) maps << toMap(v);
-    appendItems(maps, next);
+    if (!videos.isEmpty()) {
+        beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + videos.size() - 1);
+        m_rows << videos;
+        endInsertRows();
+        emitCountChanged();
+    }
+    setNext(next);
     setStatus(ServiceRequest::Ready);
 }
 
