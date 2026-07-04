@@ -140,16 +140,30 @@ static QList<CT::Subtitle> captionsOf(const pj::PlayerRoot &root)
 // parsePlayer — ONE typed read, all four sections
 // ---------------------------------------------------------------------------
 
-PlayerResult parsePlayer(std::string_view p)
+static PlayerResult parsePlayerRoot(const pj::PlayerRoot &root)
 {
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
     PlayerResult r;
     r.playable = playableOf(root, &r.reason);
     r.streams  = streamsOf(root, &r.cipheredOnly);
     r.details  = detailsOf(root);
     r.captions = captionsOf(root);
     return r;
+}
+
+PlayerResult parsePlayer(std::string_view p)
+{
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    return parsePlayerRoot(root);
+}
+
+// Whole-document overload: *r.body is NUL-terminated, so read via the sentinel
+// path (kInDoc). Behavior-identical to the string_view form (golden diff gate).
+PlayerResult parsePlayer(const std::string &p)
+{
+    pj::PlayerRoot root{};
+    readJsonDoc(root, p);
+    return parsePlayerRoot(root);
 }
 
 // ---------------------------------------------------------------------------
@@ -162,11 +176,23 @@ bool isPlayable(std::string_view p, QString *reason)
     (void)glz::read<kIn>(root, p);
     return playableOf(root, reason);
 }
+bool isPlayable(const std::string &p, QString *reason)
+{
+    pj::PlayerRoot root{};
+    readJsonDoc(root, p);
+    return playableOf(root, reason);
+}
 
 QList<CT::Stream> parseStreams(std::string_view p, bool *sawCipheredOnly)
 {
     pj::PlayerRoot root{};
     (void)glz::read<kIn>(root, p);
+    return streamsOf(root, sawCipheredOnly);
+}
+QList<CT::Stream> parseStreams(const std::string &p, bool *sawCipheredOnly)
+{
+    pj::PlayerRoot root{};
+    readJsonDoc(root, p);
     return streamsOf(root, sawCipheredOnly);
 }
 
@@ -176,11 +202,23 @@ CT::Video parseVideoDetails(std::string_view p)
     (void)glz::read<kIn>(root, p);
     return detailsOf(root);
 }
+CT::Video parseVideoDetails(const std::string &p)
+{
+    pj::PlayerRoot root{};
+    readJsonDoc(root, p);
+    return detailsOf(root);
+}
 
 QList<CT::Subtitle> parseCaptions(std::string_view p)
 {
     pj::PlayerRoot root{};
     (void)glz::read<kIn>(root, p);
+    return captionsOf(root);
+}
+QList<CT::Subtitle> parseCaptions(const std::string &p)
+{
+    pj::PlayerRoot root{};
+    readJsonDoc(root, p);
     return captionsOf(root);
 }
 }

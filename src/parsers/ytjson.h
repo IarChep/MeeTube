@@ -123,6 +123,13 @@ inline void readJson(T &out, std::string_view sv)
     (void)glz::read<kIn>(out, sv);
 }
 
+// Whole-document variant: Reply.body is a std::string, whose data() is
+// guaranteed NUL-terminated — Glaze's sentinel scanning skips per-byte
+// end-pointer checks. Subtree extents MUST keep kIn (they end mid-buffer).
+inline constexpr glz::opts kInDoc{.null_terminated = true, .error_on_unknown_keys = false};
+template <class T>
+inline void readJsonDoc(T &out, const std::string &doc) { (void)glz::read<kInDoc>(out, doc); }
+
 // ---- one-field content wrappers reused across renderers ---------------------
 // {"content": "..."} — lockup titles, metadata parts, attributed descriptions.
 struct ContentText {

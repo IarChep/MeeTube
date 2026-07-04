@@ -2,6 +2,7 @@
 #define YT_RENDERERPARSER_H
 #include <QString>
 #include <QList>
+#include <string>
 #include <string_view>
 #include "servicedatatypes.h"
 namespace yt {
@@ -22,7 +23,10 @@ QList<CT::Comment> parseComments(std::string_view response, QString *nextToken);
 CT::Playlist parsePlaylistRenderer(std::string_view r);
 QList<CT::Playlist> parsePlaylistList(std::string_view response, QString *nextToken);
 // Channel header (c4TabbedHeaderRenderer / pageHeaderRenderer) → CT::User.
+// The response is a whole document; the const std::string & overload reads via
+// the NUL-terminated sentinel path (kInDoc) — production passes *r.body.
 CT::User parseChannel(std::string_view response);
+CT::User parseChannel(const std::string &response);
 CT::User parseUserRenderer(std::string_view r);
 QList<CT::User> parseUserList(std::string_view response, QString *nextToken);
 // account/accounts_list (authed) → the active account's identity. The channel id is

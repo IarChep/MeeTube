@@ -751,10 +751,8 @@ QList<CT::Playlist> parsePlaylistList(std::string_view response, QString *nextTo
     return out;
 }
 
-CT::User parseChannel(std::string_view response)
+static CT::User channelFromRoot(const rj::ChannelRoot &root)
 {
-    rj::ChannelRoot root{};
-    readJson(root, response);
     CT::User u;
     const rj::C4Header *c4 = 0;
     const rj::PageHeader *ph = 0;
@@ -821,6 +819,22 @@ CT::User parseChannel(std::string_view response)
     }
     u.videosId = u.id; u.playlistsId = u.id;
     return u;
+}
+
+CT::User parseChannel(std::string_view response)
+{
+    rj::ChannelRoot root{};
+    readJson(root, response);
+    return channelFromRoot(root);
+}
+
+// Whole-document overload: response is *r.body (NUL-terminated), so read via the
+// sentinel path (kInDoc). Behavior-identical to the string_view form.
+CT::User parseChannel(const std::string &response)
+{
+    rj::ChannelRoot root{};
+    readJsonDoc(root, response);
+    return channelFromRoot(root);
 }
 
 struct UserCollector : CollectorBase {
