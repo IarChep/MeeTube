@@ -41,10 +41,15 @@ private Q_SLOTS:
 protected:
     virtual yt::UserRequest* newRequest();
 
+    // Typed row storage — answers reads with a zero-alloc switch(roleIdx).
+    int itemCount() const;
+    QVariant roleData(int row, int roleIdx) const;
+    void dropItems();
+
 private:
     yt::UserRequest* request();
-    static QVariantMap toMap(const CT::User &u);
 
+    QList<CT::User> m_rows;
     QPointer<yt::UserRequest> m_request;
 };
 

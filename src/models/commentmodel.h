@@ -43,10 +43,15 @@ protected:
     // Test seam (see VideoModel::newRequest()).
     virtual yt::CommentRequest* newRequest();
 
+    // Typed row storage — answers reads with a zero-alloc switch(roleIdx).
+    int itemCount() const;
+    QVariant roleData(int row, int roleIdx) const;
+    void dropItems();
+
 private:
     yt::CommentRequest* request();
-    static QVariantMap toMap(const CT::Comment &c);
 
+    QList<CT::Comment> m_rows;
     QPointer<yt::CommentRequest> m_request;
     QString m_videoId;
 };

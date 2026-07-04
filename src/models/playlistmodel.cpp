@@ -25,6 +25,11 @@ static QList<QByteArray> playlistRoles() {
     return r;
 }
 
+// Role indices — MUST stay in lockstep with playlistRoles() order above (the roleIdx
+// handed to roleData() is the 0-based position in that list).
+enum PRole { RId, RTitle, RDescription, RThumbnailUrl, RVideoCount, RUsername, RVideosId,
+             RPlaylistRoleCount };
+
 PlaylistModel::PlaylistModel(QObject *parent)
     : ServiceListModel(playlistRoles(), parent), m_canPage(false) {}
 
@@ -32,12 +37,22 @@ PlaylistModel::~PlaylistModel() {
     if (m_request) m_request->deleteLater();
 }
 
-QVariantMap PlaylistModel::toMap(const CT::Playlist &p) {
-    QVariantMap m;
-    m["id"] = p.id; m["title"] = p.title; m["description"] = p.description;
-    m["thumbnailUrl"] = p.thumbnailUrl; m["videoCount"] = p.videoCount;
-    m["username"] = p.username; m["videosId"] = p.videosId;
-    return m;
+int PlaylistModel::itemCount() const { return m_rows.size(); }
+
+void PlaylistModel::dropItems() { m_rows.clear(); }
+
+QVariant PlaylistModel::roleData(int row, int idx) const {
+    const CT::Playlist &p = m_rows.at(row);
+    switch (idx) {
+    case RId: return p.id;
+    case RTitle: return p.title;
+    case RDescription: return p.description;
+    case RThumbnailUrl: return p.thumbnailUrl;
+    case RVideoCount: return p.videoCount;
+    case RUsername: return p.username;
+    case RVideosId: return p.videosId;
+    }
+    return QVariant();
 }
 
 PlaylistRequest* PlaylistModel::newRequest() {
@@ -88,9 +103,13 @@ void PlaylistModel::cancel() {
 }
 
 void PlaylistModel::onReady(const QList<CT::Playlist> &playlists, const QString &next) {
-    QList<QVariantMap> maps;
-    for (const CT::Playlist &p : playlists) maps << toMap(p);
-    appendItems(maps, next);
+    if (!playlists.isEmpty()) {
+        beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + playlists.size() - 1);
+        m_rows << playlists;
+        endInsertRows();
+        emitCountChanged();
+    }
+    setNext(next);
     setStatus(ServiceRequest::Ready);
 }
 
