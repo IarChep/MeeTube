@@ -13,5 +13,16 @@ QList<CT::Stream> parseStreams(std::string_view playerResponse, bool *sawCiphere
 CT::Video parseVideoDetails(std::string_view playerResponse);
 QList<CT::Subtitle> parseCaptions(std::string_view playerResponse);
 bool isPlayable(std::string_view playerResponse, QString *reason);
+
+// One typed read of the whole /player document — all four sections at once.
+struct PlayerResult {
+    bool playable = true;               // playabilityStatus.status missing or "OK"
+    QString reason;                     // "<STATUS>: <reason>" when !playable
+    QList<CT::Stream> streams;          // hls first, then non-ciphered progressive
+    bool cipheredOnly = false;          // formats present but every one ciphered
+    QList<CT::Subtitle> captions;
+    CT::Video details;
+};
+PlayerResult parsePlayer(std::string_view playerResponse);
 }
 #endif

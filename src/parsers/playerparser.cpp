@@ -56,10 +56,12 @@ struct PlayerRoot {
 static QString qstr(const std::string &s) { return QString::fromUtf8(s.data(), (int)s.size()); }
 static QString qstr(const std::optional<std::string> &s) { return s ? qstr(*s) : QString(); }
 
-bool isPlayable(std::string_view p, QString *reason)
+// ---------------------------------------------------------------------------
+// Static helpers — each takes an already-parsed root, contains verbatim logic
+// ---------------------------------------------------------------------------
+
+static bool playableOf(const pj::PlayerRoot &root, QString *reason)
 {
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
     if (root.playabilityStatus) {
         const QString st = qstr(root.playabilityStatus->status);
         if (!st.isEmpty() && st != "OK") {
@@ -70,12 +72,10 @@ bool isPlayable(std::string_view p, QString *reason)
     return true;
 }
 
-QList<CT::Stream> parseStreams(std::string_view p, bool *sawCipheredOnly)
+static QList<CT::Stream> streamsOf(const pj::PlayerRoot &root, bool *sawCipheredOnly)
 {
     QList<CT::Stream> out;
     if (sawCipheredOnly) *sawCipheredOnly = false;
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
     if (!root.streamingData) return out;
     const pj::StreamingData &sd = *root.streamingData;
     const QString hls = qstr(sd.hlsManifestUrl);
@@ -100,11 +100,9 @@ QList<CT::Stream> parseStreams(std::string_view p, bool *sawCipheredOnly)
     return out;
 }
 
-CT::Video parseVideoDetails(std::string_view p)
+static CT::Video detailsOf(const pj::PlayerRoot &root)
 {
     CT::Video v;
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
     if (!root.videoDetails) return v;
     const pj::VideoDetails &d = *root.videoDetails;
     v.id = qstr(d.videoId);
@@ -121,11 +119,9 @@ CT::Video parseVideoDetails(std::string_view p)
     return v;
 }
 
-QList<CT::Subtitle> parseCaptions(std::string_view p)
+static QList<CT::Subtitle> captionsOf(const pj::PlayerRoot &root)
 {
     QList<CT::Subtitle> out;
-    pj::PlayerRoot root{};
-    (void)glz::read<kIn>(root, p);
     if (!root.captions || !root.captions->playerCaptionsTracklistRenderer) return out;
     const pj::TracklistR &tl = *root.captions->playerCaptionsTracklistRenderer;
     if (!tl.captionTracks) return out;
@@ -138,5 +134,53 @@ QList<CT::Subtitle> parseCaptions(std::string_view p)
         if (!s.url.isEmpty()) out << s;
     }
     return out;
+}
+
+// ---------------------------------------------------------------------------
+// parsePlayer — ONE typed read, all four sections
+// ---------------------------------------------------------------------------
+
+PlayerResult parsePlayer(std::string_view p)
+{
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    PlayerResult r;
+    r.playable = playableOf(root, &r.reason);
+    r.streams  = streamsOf(root, &r.cipheredOnly);
+    r.details  = detailsOf(root);
+    r.captions = captionsOf(root);
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// Public entry points — thin wrappers, each does its own single read
+// ---------------------------------------------------------------------------
+
+bool isPlayable(std::string_view p, QString *reason)
+{
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    return playableOf(root, reason);
+}
+
+QList<CT::Stream> parseStreams(std::string_view p, bool *sawCipheredOnly)
+{
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    return streamsOf(root, sawCipheredOnly);
+}
+
+CT::Video parseVideoDetails(std::string_view p)
+{
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    return detailsOf(root);
+}
+
+QList<CT::Subtitle> parseCaptions(std::string_view p)
+{
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    return captionsOf(root);
 }
 }

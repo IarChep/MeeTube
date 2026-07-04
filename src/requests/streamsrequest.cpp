@@ -42,15 +42,13 @@ void StreamsRequest::onFinished() {
 
     const bool isLast = (m_client == ClientId::ANDROID);
     if (r.ok) {
-        QString reason;
-        if (isPlayable(*r.body, &reason)) {
-            bool cipheredOnly = false;
-            QList<CT::Stream> s = parseStreams(*r.body, &cipheredOnly);
-            if (!s.isEmpty()) { deliver(s); return; }
+        const PlayerResult pr = parsePlayer(*r.body);
+        if (pr.playable) {
+            if (!pr.streams.isEmpty()) { deliver(pr.streams); return; }
             // Distinguish "every format needs signature decipher (unsupported)" from a
             // plain empty response, so the UI can fall through to a system-handoff.
-            if (isLast && cipheredOnly) { fail("streams require signature decipher (unsupported)"); return; }
-        } else if (isLast) { fail(reason); return; }
+            if (isLast && pr.cipheredOnly) { fail("streams require signature decipher (unsupported)"); return; }
+        } else if (isLast) { fail(pr.reason); return; }
     }
     if (isLast) { fail(r.ok ? "no playable streams" : r.error); return; }
     tryClient(ClientId::ANDROID);   // ANDROID is its own last attempt
