@@ -7,8 +7,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 MeeTube is a **standalone Nokia N9 (MeeGo Harmattan) / Qt 4.7.4 YouTube client**. It is the
 **de-pluginized successor** to the YouTube work in the sibling project `cuteTube2`: that project
 was a plugin host loading service `.so`s; MeeTube collapses YouTube into a single dedicated app
-with **no plugin layer** (no `PluginRegistry`/`PluginHost`/`ServicePlugin`/`QPluginLoader`/worker
-thread). A GUI-thread `yt::Innertube` singleton replaces cuteTube2's worker-threaded `Service`.
+with **no plugin layer** (no `PluginRegistry`/`PluginHost`/`ServicePlugin`/`QPluginLoader`). The
+`yt::Innertube` singleton replaces cuteTube2's plugin `Service`; since the 2026-07-04 backend
+rework it owns a `WorkerHost` that runs all API work — QNAM, JSON parsing, model prep — on a
+**worker thread**, leaving only UI on the GUI thread. Unlike cuteTube2's plugin-host threading the
+one cross-thread seam is a posted-closure bridge guarded by a monotonic `JobToken` protocol.
 
 It carries over the **InnerTube** (YouTube private API) engine + the cuteTube2 runtime, ported onto
 the same **CMake + Conan** build base as the sibling N9 projects `MeeShopGUI` and `cuteTube2`. GPLv3
@@ -45,8 +48,8 @@ toolchain; no package requirements — JSON is the vendored `deps/glaze` submodu
 `project(MeeTubeTests)`, host-only via `if(NOT BUILD_N9)`). The `mt_test()` harness registers them:
 
 ```sh
-source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 5 tests
-# tst_meetube_{parsers,context,requests,model,client}
+source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 7 tests
+# tst_meetube_{parsers,context,chains,model,client,account,threading}
 ```
 
 ### deps/ — bundled third-party libraries ([deps/CMakeLists.txt](deps/CMakeLists.txt))
@@ -108,26 +111,43 @@ the `meetube` executable. The app = `main.cpp` + `qmlapplicationviewer` + `harma
   tree is walked visiting every byte once; matched renderer subtrees hand their extents to typed
   `glz::read` partial structs). `continuation`, `rendererparser`, `playerparser` take raw JSON
   bytes (`std::string_view`) and return `CT::` values. No DOM anywhere (no QJson, no nlohmann).
-- **`innertube/`** — the InnerTube engine:
-  - `clientconfig` (`ClientId`/`clientInfo`, the InnerTube client versions/UAs), `session.h`,
-    `contextbuilder` (the `context` block + consent cookie).
-  - `itransport.h` (`ITransport::post/get(…, QObject *owner = 0)`), `innertubeclient` — the
-    `QNetworkAccessManager`-backed transport, **hardened**: owner-tied callbacks (abort on owner
-    destruction) + a per-request timeout. Subtle lifetime code — covered by `tst_meetube_client`
-    (a real `QTcpServer` loopback).
-  - `innertube.{h,cpp}` — **the engine**: a GUI-thread lazy singleton (`Innertube::instance()`)
-    replacing cuteTube2's `Service`. `createVideoRequest()`/`createStreamsRequest()`/… factories,
-    `session()`, `applySettings(region,language)`, `navEntries()`/`searchTypes()` (hardcoded News/
-    Learning/Live/Sports + the search types). Exposed to QML as the **`innertube` context property**.
-- **`requests/`** — `servicerequest` (the QObject base: `Status` enum, `cancel()`, `setStatus`/`fail`,
-  `statusChanged`/`failed`) + **four concrete classes** `VideoRequest`/`StreamsRequest`/`CommentRequest`/
-  `CategoryRequest`, each inheriting `ServiceRequest` directly. This is the **collapsed** hierarchy:
-  cuteTube2's 9-class (abstract typed bases + `Yt*` concretes) was reduced to one concrete class per
-  kind ("class = function" — no prototype layers for a single-service app). Each passes `this` as the
-  transport `owner` and guards every callback with `if (status() == ServiceRequest::Canceled) return;`.
-- **`models/`** — `servicelistmodel` (the `QAbstractListModel` base), `videomodel` (de-threaded —
-  calls the request slots **directly** on the GUI thread, no worker hop), `servicemetatypes`
-  (`qRegisterMetaType`). Registered as `qmlRegisterType<VideoModel>("MeeTube",1,0,"VideoModel")`.
+- **`core/`** — the Qt-decoupled worker-thread backend (2026-07-04 rework; see
+  `docs/superpowers/specs/2026-07-04-backend-rework-design.md`):
+  - `job.h` (`JobState{atomic<bool>}`/`JobToken`/`live()` — the cancellation token), `status.h`
+    (`core::Status` Null..Failed, the frozen numeric mirror of `js/Status.js`).
+  - `http.{h,cpp}` — `IHttp` + `core::Http`: the `QNetworkAccessManager`-backed **callback**
+    transport. ONE manager-level `finished()` connection, ONE re-armed deadline `QTimer`, md5-key
+    request **coalescing**, TTL response cache + per-client context/header caches, and a single
+    envelope scan (error + visitorData). Replaces the old per-request `TransportReply` QObject zoo.
+    Covered by `tst_meetube_client` (a real `QTcpServer` loopback).
+  - `chains.{h,cpp}` — the request layer as **pure-C++ continuation functions** (`fetchVideoList`/
+    `fetchWatch`/`fetchComments`/`fetchPlayer`/`fetchChannel*`/`fetchPlaylists`/`fetchAccount`/
+    `submitAction`/`oauth*`), each taking `IHttp&` + a `JobToken` + a `done` callback. No QObject,
+    no Glaze in the header. Covered by `tst_meetube_chains`.
+- **`threading/workerhost.{h,cpp}`** — the ONE cross-thread seam: `WorkerHost` posts
+  `std::function` closures via `CallEvent` between the GUI thread and a worker thread
+  (`invoke`/`invokeGui`). Un-started it runs closures inline (tests keep single-threaded);
+  started it posts across threads. Covered by `tst_meetube_threading`.
+- **`innertube/`** — the InnerTube engine + typed helpers:
+  - `clientconfig` (`ClientId`/`clientInfo`), `session.h`, `contextbuilder` (the `context` block +
+    consent cookie — consumed by `core::Http`).
+  - `innertube.{h,cpp}` — **the engine**: a lazy singleton (`Innertube::instance()`) owning the
+    `WorkerHost` + a **worker-thread** `core::Http`. Facades reach the backend via `apiRef()`
+    (`{host, http}`); `session()`, `applySettings(region,language)`, `navEntries()`/`searchTypes()`,
+    `auth()`. `shutdown()` (called from `main` after `exec()`) joins the worker. Exposed to QML as
+    the **`innertube` context property**.
+  - `apiref.h`, `accountmanager` (OAuth device-code login on `core::oauth*` chains), `accountstore`,
+    the API-tree (`videoapi`/`channelapi`/`playlistapi`/`accountapi`) + detail objects
+    (`videodetails`/`channeldetails`/`accountdetails`/`streamset`/`subtitleset`).
+- **`requests/bodies.{h,cpp}`** — the only survivor of the old `requests/`: the Glaze POST-body
+  builders (`browse`/`search`/`player`/…). The 9 QObject request classes + `ITransport`/
+  `InnertubeClient` were **deleted** in the rework (→ `core::chains` + `core::Http`).
+- **`models/`** — `servicelistmodel` (the `QAbstractListModel` base; typed row seam
+  `itemCount`/`roleData`/`dropItems`), the five list models storing **typed `QList<CT::…>`** answered
+  by a zero-alloc `switch(role)` (no `QVariantMap`), `servicemetatypes`. Each facade fires a
+  `core::chain` through `apiRef().host->invoke(...)` and delivers back via `invokeGui`, guarded by
+  the `JobToken` gate (dtor + `cancel()` cancel the token — the cross-thread safety protocol).
+  Registered as `qmlRegisterType<VideoModel>("MeeTube",1,0,"VideoModel")`.
 - **`harmattan/`** — `maskeditem` + `maskeffect`: the Nokia **squircle** avatar. A `MaskedItem`
   `QDeclarativeItem` whose `MaskEffect` (`QGraphicsEffect`) composites children over `avatar-mask.png`
   with `CompositionMode_SourceIn`. Ported from cuteTube2; registered
@@ -185,9 +205,11 @@ When generating or editing any `.qml`, **invoke the `nokia-n9-qml` skill**. Hard
 
 ## Scope / known follow-ups
 
-**Done:** the `meetube-core` backend (Phase 1 — types, parsers, InnerTube engine + hardened transport,
-the collapsed request classes, `VideoModel`), the WebP plugin, the QmlApplicationViewer + booster, the
-device cross-build (armv7hf PIE, verified), and the base QML UI.
+**Done:** the `meetube-core` backend (types, parsers, InnerTube engine, `core::Http` callback
+transport, `core::chains`, the typed list models + detail objects, OAuth), the WebP plugin, the
+QmlApplicationViewer + booster, the device cross-build (armv7hf PIE, verified), and the QML UI.
+The **2026-07-04 backend rework** (perf + pure-C++ chains + worker-thread flip) is complete —
+see `docs/superpowers/specs/2026-07-04-backend-rework-design.md` (Results).
 
 **UI placeholders pending backend** (marked `// TODO Phase 2/3` in the QML): author avatars (no
 `avatarUrl` role yet → bundled placeholder squircle), like/dislike/view counts, comments, suggested
