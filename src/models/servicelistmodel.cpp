@@ -51,21 +51,6 @@ QVariantMap ServiceListModel::itemData(int row) const {
     return map;
 }
 
-// --- Row storage seam: transitional defaults over m_items (removed in Task 9) ---
-
-int ServiceListModel::itemCount() const {
-    return m_items.size();   // transitional: removed once all models are typed (Task 9)
-}
-
-QVariant ServiceListModel::roleData(int row, int roleIdx) const {
-    // transitional: removed once all models are typed (Task 9)
-    return m_items.at(row).value(QString::fromUtf8(m_roles.value(FirstRole + roleIdx)));
-}
-
-void ServiceListModel::dropItems() {
-    m_items.clear();         // transitional: removed once all models are typed (Task 9)
-}
-
 bool ServiceListModel::canFetchMore() const {
     return !m_next.isEmpty() && m_status != yt::ServiceRequest::Loading;
 }
@@ -77,24 +62,6 @@ void ServiceListModel::clear() {
     setNext(QString());
     endResetModel();
     emit countChanged();
-}
-
-void ServiceListModel::resetItems(const QList<QVariantMap> &items, const QString &next) {
-    beginResetModel();
-    m_items = items;
-    m_next = next;
-    endResetModel();
-    emit countChanged();
-}
-
-void ServiceListModel::appendItems(const QList<QVariantMap> &items, const QString &next) {
-    if (!items.isEmpty()) {
-        beginInsertRows(QModelIndex(), m_items.size(), m_items.size() + items.size() - 1);
-        m_items << items;
-        endInsertRows();
-        emit countChanged();
-    }
-    m_next = next;
 }
 
 void ServiceListModel::setStatus(int s) {

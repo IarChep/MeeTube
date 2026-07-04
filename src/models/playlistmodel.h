@@ -43,10 +43,15 @@ private Q_SLOTS:
 protected:
     virtual yt::PlaylistRequest* newRequest();
 
+    // Typed row storage — answers reads with a zero-alloc switch(roleIdx).
+    int itemCount() const;
+    QVariant roleData(int row, int roleIdx) const;
+    void dropItems();
+
 private:
     yt::PlaylistRequest* request();
-    static QVariantMap toMap(const CT::Playlist &p);
 
+    QList<CT::Playlist> m_rows;
     QPointer<yt::PlaylistRequest> m_request;
     QString m_resourceId;
     bool m_canPage;

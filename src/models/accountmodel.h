@@ -36,10 +36,17 @@ protected:
     // Test seam: the backing store. Default is the engine's; tests inject one.
     virtual yt::AccountStore* store();
 
+    // Typed row storage — answers reads with a zero-alloc switch(roleIdx). The
+    // `active` role is derived from (row.id == m_activeId), both snapshotted in reload().
+    int itemCount() const;
+    QVariant roleData(int row, int roleIdx) const;
+    void dropItems();
+
 private:
     yt::AccountStore* boundStore();
-    static QVariantMap toMap(const CT::Account &a, const QString &activeId);
 
+    QList<CT::Account> m_rows;
+    QString m_activeId;
     QPointer<yt::AccountStore> m_store;
 };
 

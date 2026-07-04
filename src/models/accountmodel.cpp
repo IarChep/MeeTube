@@ -25,14 +25,26 @@ static QList<QByteArray> accountRoles() {
     return r;
 }
 
+// Role indices — MUST stay in lockstep with accountRoles() order above (the roleIdx
+// handed to roleData() is the 0-based position in that list).
+enum ARole { RId, RUsername, RThumbnailUrl, RActive, RAccountRoleCount };
+
 AccountModel::AccountModel(QObject *parent)
     : ServiceListModel(accountRoles(), parent) {}
 
-QVariantMap AccountModel::toMap(const CT::Account &a, const QString &activeId) {
-    QVariantMap m;
-    m["id"] = a.id; m["username"] = a.username; m["thumbnailUrl"] = a.thumbnailUrl;
-    m["active"] = (a.id == activeId);
-    return m;
+int AccountModel::itemCount() const { return m_rows.size(); }
+
+void AccountModel::dropItems() { m_rows.clear(); m_activeId.clear(); }
+
+QVariant AccountModel::roleData(int row, int idx) const {
+    const CT::Account &a = m_rows.at(row);
+    switch (idx) {
+    case RId: return a.id;
+    case RUsername: return a.username;
+    case RThumbnailUrl: return a.thumbnailUrl;
+    case RActive: return (a.id == m_activeId);
+    }
+    return QVariant();
 }
 
 AccountStore* AccountModel::store() {
@@ -53,11 +65,12 @@ AccountStore* AccountModel::boundStore() {
 void AccountModel::reload() {
     AccountStore *s = m_store ? m_store.data() : boundStore();
     if (!s) { setError("not supported"); setStatus(ServiceRequest::Failed); return; }
-    const QString activeId = s->activeId();
-    const QList<CT::Account> accounts = s->accounts();
-    QList<QVariantMap> maps;
-    for (const CT::Account &a : accounts) maps << toMap(a, activeId);
-    resetItems(maps, QString());
+    beginResetModel();
+    m_rows = s->accounts();
+    m_activeId = s->activeId();
+    endResetModel();
+    emitCountChanged();
+    setNext(QString());
     setStatus(ServiceRequest::Ready);
 }
 

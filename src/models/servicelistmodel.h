@@ -24,13 +24,10 @@
 #include "requests/servicerequest.h"
 
 // Base for the service-backed list models. Rows are answered through three
-// virtuals — itemCount()/roleData()/dropItems() — so a derived model can store
-// typed CT:: values and satisfy reads with a zero-alloc switch(roleIdx) instead
-// of a per-row QVariantMap. The virtuals ship WITH transitional default bodies
-// that read the legacy QList<QVariantMap> m_items, so models not yet ported keep
-// working through resetItems()/appendItems(). Once every model is typed (Task 9)
-// the defaults + m_items + resetItems/appendItems are removed and the three
-// virtuals become pure.
+// pure virtuals — itemCount()/roleData()/dropItems() — so every derived model
+// stores typed CT:: values and satisfies reads with a zero-alloc switch(roleIdx)
+// instead of a per-row QVariantMap. This class is abstract; the concrete models
+// own their storage and their append-vs-reset semantics.
 class ServiceListModel : public QAbstractListModel {
     Q_OBJECT
     Q_PROPERTY(int count READ rowCount NOTIFY countChanged)
@@ -62,15 +59,10 @@ Q_SIGNALS:
 protected:
     enum { FirstRole = Qt::UserRole + 1 };
 
-    // Row storage seam. Defaults read the legacy m_items; VideoModel (and, in
-    // Task 9, every other model) overrides them with typed CT:: storage.
-    virtual int itemCount() const;
-    virtual QVariant roleData(int row, int roleIdx) const;   // roleIdx = position in roleNamesList
-    virtual void dropItems();                                // clear derived storage (no signals)
-
-    // transitional: removed once all models are typed (Task 9)
-    void resetItems(const QList<QVariantMap> &items, const QString &next);
-    void appendItems(const QList<QVariantMap> &items, const QString &next);
+    // Row storage seam. Each concrete model provides typed CT:: storage.
+    virtual int itemCount() const = 0;
+    virtual QVariant roleData(int row, int roleIdx) const = 0;   // roleIdx = position in roleNamesList
+    virtual void dropItems() = 0;                                // clear derived storage (no signals)
 
     void setStatus(int s);
     void setError(const QString &e);
@@ -79,7 +71,6 @@ protected:
     void emitCountChanged() { emit countChanged(); }
 
 private:
-    QList<QVariantMap> m_items;             // transitional: removed once all models are typed (Task 9)
     QHash<int, QByteArray> m_roles;         // int -> name (setRoleNames)
     QHash<QByteArray, int> m_roleIndex;     // name -> roleIdx (for data(row, name))
     QString m_error;

@@ -25,6 +25,10 @@ static QList<QByteArray> commentRoles() {
     return r;
 }
 
+// Role indices — MUST stay in lockstep with commentRoles() order above (the roleIdx
+// handed to roleData() is the 0-based position in that list).
+enum CRole { RId, RBody, RDate, RUserId, RUsername, RThumbnailUrl, RCommentRoleCount };
+
 CommentModel::CommentModel(QObject *parent)
     : ServiceListModel(commentRoles(), parent) {}
 
@@ -32,11 +36,21 @@ CommentModel::~CommentModel() {
     if (m_request) m_request->deleteLater();
 }
 
-QVariantMap CommentModel::toMap(const CT::Comment &c) {
-    QVariantMap m;
-    m["id"] = c.id; m["body"] = c.body; m["date"] = c.date;
-    m["userId"] = c.userId; m["username"] = c.username; m["thumbnailUrl"] = c.thumbnailUrl;
-    return m;
+int CommentModel::itemCount() const { return m_rows.size(); }
+
+void CommentModel::dropItems() { m_rows.clear(); }
+
+QVariant CommentModel::roleData(int row, int idx) const {
+    const CT::Comment &c = m_rows.at(row);
+    switch (idx) {
+    case RId: return c.id;
+    case RBody: return c.body;
+    case RDate: return c.date;
+    case RUserId: return c.userId;
+    case RUsername: return c.username;
+    case RThumbnailUrl: return c.thumbnailUrl;
+    }
+    return QVariant();
 }
 
 CommentRequest* CommentModel::newRequest() {
@@ -77,9 +91,13 @@ void CommentModel::cancel() {
 }
 
 void CommentModel::onReady(const QList<CT::Comment> &comments, const QString &next) {
-    QList<QVariantMap> maps;
-    for (const CT::Comment &c : comments) maps << toMap(c);
-    appendItems(maps, next);
+    if (!comments.isEmpty()) {
+        beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + comments.size() - 1);
+        m_rows << comments;
+        endInsertRows();
+        emitCountChanged();
+    }
+    setNext(next);
     setStatus(ServiceRequest::Ready);
 }
 

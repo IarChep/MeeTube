@@ -26,6 +26,11 @@ static QList<QByteArray> channelRoles() {
     return r;
 }
 
+// Role indices — MUST stay in lockstep with channelRoles() order above (the roleIdx
+// handed to roleData() is the 0-based position in that list).
+enum ChRole { RId, RUsername, RDescription, RThumbnailUrl, RSubscriberCount,
+              RVideosId, RPlaylistsId, RSubscribed, RChannelRoleCount };
+
 ChannelModel::ChannelModel(QObject *parent)
     : ServiceListModel(channelRoles(), parent) {}
 
@@ -33,12 +38,23 @@ ChannelModel::~ChannelModel() {
     if (m_request) m_request->deleteLater();
 }
 
-QVariantMap ChannelModel::toMap(const CT::User &u) {
-    QVariantMap m;
-    m["id"] = u.id; m["username"] = u.username; m["description"] = u.description;
-    m["thumbnailUrl"] = u.thumbnailUrl; m["subscriberCount"] = u.subscriberCount;
-    m["videosId"] = u.videosId; m["playlistsId"] = u.playlistsId; m["subscribed"] = u.subscribed;
-    return m;
+int ChannelModel::itemCount() const { return m_rows.size(); }
+
+void ChannelModel::dropItems() { m_rows.clear(); }
+
+QVariant ChannelModel::roleData(int row, int idx) const {
+    const CT::User &u = m_rows.at(row);
+    switch (idx) {
+    case RId: return u.id;
+    case RUsername: return u.username;
+    case RDescription: return u.description;
+    case RThumbnailUrl: return u.thumbnailUrl;
+    case RSubscriberCount: return u.subscriberCount;
+    case RVideosId: return u.videosId;
+    case RPlaylistsId: return u.playlistsId;
+    case RSubscribed: return u.subscribed;
+    }
+    return QVariant();
 }
 
 UserRequest* ChannelModel::newRequest() {
@@ -71,9 +87,11 @@ void ChannelModel::cancel() {
 }
 
 void ChannelModel::onReady(const QList<CT::User> &users, const QString &next) {
-    QList<QVariantMap> maps;
-    for (const CT::User &u : users) maps << toMap(u);
-    resetItems(maps, next);
+    beginResetModel();
+    m_rows = users;
+    endResetModel();
+    emitCountChanged();
+    setNext(next);
     setStatus(ServiceRequest::Ready);
 }
 
