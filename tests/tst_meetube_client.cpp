@@ -12,8 +12,7 @@
 using namespace yt;
 using yt::core::Http;
 using yt::core::JobToken;
-// NB: no `using yt::core::Reply` — testutil.h drags in yt::Reply (the legacy
-// TransportReply carrier), so we always qualify yt::core::Reply where needed.
+using yt::core::Reply;
 
 // A trivial loopback HTTP server core::Http::get()/post()/postForm() can hit over
 // plain http://127.0.0.1:<port>. It drives the real transport (manager-level
@@ -97,8 +96,7 @@ private:
 
 // A single captured Reply: the callback records the delivered Reply (by value —
 // its shared_ptr body keeps the payload alive) and bumps a counter, so a test can
-// assert BOTH the payload AND "fired exactly N times". Fully qualified yt::core::Reply
-// to avoid clashing with the (still-present) yt::Reply that testutil.h pulls in.
+// assert BOTH the payload AND "fired exactly N times".
 struct Sink {
     Sink() : calls(0) {}
     int calls;

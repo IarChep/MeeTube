@@ -7,7 +7,6 @@
 #include <QQueue>
 #include <QList>
 #include <string>
-#include "innertube/itransport.h"
 #include "core/http.h"
 #include "core/job.h"
 
@@ -20,81 +19,8 @@ inline std::string loadFixtureRaw(const char *name) {
     return std::string(b.constData(), (size_t)b.size());
 }
 
-// A TransportReply whose finished() is fired on demand by FakeTransport::flush().
-// Deliberately NOT a Q_OBJECT: it only emits the finished() signal inherited from
-// yt::TransportReply, so this header needs no moc.
-class FakeReply : public yt::TransportReply {
-public:
-    FakeReply(const yt::Reply &r, QObject *owner) : yt::TransportReply(owner), m_r(r) {}
-    yt::Reply result() const { return m_r; }
-    void fire() { emit finished(); }
-private:
-    yt::Reply m_r;
-};
-
-// Synchronous in-process transport for tests. post()/get() return a (not yet fired)
-// FakeReply so the request can connect() to it first — exactly like the real client,
-// whose reply arrives via the event loop. flush() then delivers everything.
-// Queued replies and observed bodies are raw JSON strings; assert on `sent`
-// with substring checks (glaze's minified output is deterministic).
-class FakeTransport : public yt::ITransport {
-public:
-    void queue(const QString &endpoint, const std::string &reply) { m_q[endpoint].enqueue(reply); }
-    QStringList sent;                                 // raw JSON bodies posted, for assertions
-    QList<QPair<QString, QMap<QString, QString> > > sentForm;  // (url, fields) of postForm calls
-
-    yt::TransportReply *post(const QString &endpoint, yt::ClientId, const std::string &body, QObject *owner = 0) {
-        sent << QString::fromUtf8(body.data(), (int)body.size());
-        yt::Reply r;
-        if (!m_q[endpoint].isEmpty()) {
-            r.ok = true;
-            r.body = std::make_shared<const std::string>(m_q[endpoint].dequeue());
-        }
-        else { r.ok = false; r.error = "no fixture queued for " + endpoint; }
-        FakeReply *rep = new FakeReply(r, owner);
-        m_pending << rep;
-        return rep;
-    }
-    yt::TransportReply *get(const QString &, QObject *owner = 0) {
-        yt::Reply r; r.ok = false; r.error = "no get fixture";
-        FakeReply *rep = new FakeReply(r, owner);
-        m_pending << rep;
-        return rep;
-    }
-    yt::TransportReply *postForm(const QString &url, const QMap<QString, QString> &fields, QObject *owner = 0) {
-        sentForm << qMakePair(url, fields);
-        yt::Reply r;
-        if (!m_q[url].isEmpty()) {
-            r.ok = true;
-            r.body = std::make_shared<const std::string>(m_q[url].dequeue());
-        }
-        else { r.ok = false; r.error = "no fixture queued for " + url; }
-        FakeReply *rep = new FakeReply(r, owner);
-        m_pending << rep;
-        return rep;
-    }
-
-    // Deliver every queued reply. Drains to completion: a handler that posts the next
-    // step (StreamsRequest's ANDROID fallback, CommentRequest's second /next) enqueues
-    // a new reply, which this loop then delivers too — so one flush() runs a whole
-    // multi-step chain. A request that cancel()s itself before flush() still gets its
-    // reply fired here, but its onFinished() guard (aborted()) short-circuits delivery.
-    void flush() {
-        while (!m_pending.isEmpty()) {
-            QList<FakeReply *> batch = m_pending;
-            m_pending.clear();
-            for (int i = 0; i < batch.size(); ++i)
-                if (batch[i]) batch[i]->fire();
-        }
-    }
-
-private:
-    QMap<QString, QQueue<std::string> > m_q;
-    QList<FakeReply *> m_pending;
-};
-
-// Async in-process core::IHttp for the chain tests — the FakeHttp analogue of
-// FakeTransport. post()/postForm()/get() record the call (raw body in `sent`, or
+// Async in-process core::IHttp for the chain + facade tests. post()/postForm()/get()
+// record the call (raw body in `sent`, or
 // (url,fields) in `sentForm`) and enqueue a pending {job, fn, reply} triple whose
 // callback is delivered LATER by flush() — never re-entrantly, matching the real
 // core::Http contract. flush() drains to completion (a callback that posts the next

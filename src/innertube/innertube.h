@@ -20,7 +20,6 @@
 #include <QObject>
 #include <QVariantList>
 #include <QVariantMap>
-#include "innertube/innertubeclient.h"
 #include "innertube/session.h"
 #include "innertube/accountstore.h"
 #include "innertube/accountmanager.h"
@@ -40,9 +39,8 @@ namespace yt {
 // facades (models/detail objects/api tree) reach the backend via apiRef(); until
 // Task 14 both m_host and m_http stay GUI-affine (m_host un-started → inline).
 //
-// InnertubeClient m_client is kept ONLY as AccountManager's postForm transport
-// (AccountManager is rewired in Task 13); its session/context/cache are otherwise
-// dead — the live session lives on m_http.
+// The whole request layer — AccountManager's OAuth included — now runs on
+// apiRef()/core::Http; the legacy InnertubeClient/ITransport transport is gone.
 class Innertube : public QObject {
     Q_OBJECT
 public:
@@ -94,14 +92,14 @@ private Q_SLOTS:
 private:
     explicit Innertube(QObject *parent = 0);
     static Innertube *self;
-    // Declaration order matters: m_manager is constructed from &m_client and &m_store.
-    InnertubeClient m_client;      // AccountManager's postForm transport only (Task 13)
+    // Declaration order matters: m_manager is constructed from apiRef() = {&m_host,
+    // m_http}, so the transport (m_http) + dispatcher (m_host) + store must all be
+    // constructed before it. m_http is heap-owned so it can move to the worker
+    // thread later (GUI-affine until Task 14).
+    core::Http     *m_http;
+    WorkerHost      m_host;
     AccountStore    m_store;
     AccountManager  m_manager;
-    // The cross-thread dispatcher + the live callback transport (GUI-affine until
-    // Task 14). m_http is heap-owned so it can move to the worker thread later.
-    WorkerHost      m_host;
-    core::Http     *m_http;
     // API-tree groups (lazy; parented to the engine).
     VideoApi    *m_video;
     ChannelApi  *m_channel;

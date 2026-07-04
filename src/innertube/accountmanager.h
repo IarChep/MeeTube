@@ -19,11 +19,17 @@
 
 #include <QObject>
 #include <QString>
-#include "innertube/itransport.h"
+#include "core/job.h"
+#include "innertube/apiref.h"
 
 namespace yt {
 
 class AccountStore;
+namespace core {
+    template <class T> struct Outcome;   // core/chains.h (consumed by the result handlers)
+    struct DeviceCode;
+    struct TokenGrant;
+}
 
 // OAuth 2.0 TV "limited-input device" login (the only headless-friendly YouTube
 // auth). signIn() requests a device/user code, emits userCodeReady() for the UI to
@@ -35,7 +41,8 @@ class AccountManager : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool signedIn READ isSignedIn NOTIFY signedInChanged)
 public:
-    explicit AccountManager(ITransport *t, AccountStore *store, QObject *parent = 0);
+    explicit AccountManager(const ApiRef &api, AccountStore *store, QObject *parent = 0);
+    ~AccountManager();
 
     Q_INVOKABLE void signIn();
     Q_INVOKABLE void cancel();
@@ -57,23 +64,25 @@ Q_SIGNALS:
 
 protected:
     // Test seam: schedule the next poll. Default arms a single-shot QTimer at the
-    // server's interval; tests override to poll() immediately (FakeTransport drains
+    // server's interval; tests override to poll() immediately (FakeHttp drains
     // the whole device->poll->token chain in one flush()).
     virtual void schedulePoll();
 
 protected Q_SLOTS:
     void poll();
 
-private Q_SLOTS:
-    void onDeviceCode();
-    void onToken();
-    void onRefresh();
-
 private:
+    // The chain result sinks (run on the GUI thread, token-guarded). They keep the
+    // exact branch/signal logic of the old onDeviceCode/onToken/onRefresh slots —
+    // the chains now do the JSON parse and hand back typed structs.
+    void handleDeviceCode(const core::Outcome<core::DeviceCode> &o);
+    void handleToken(const core::TokenGrant &g);
+    void handleRefresh(const core::TokenGrant &g);
     void requestRefresh();
-    ITransport *m_t;
+    ApiRef m_api;
+    core::JobToken m_job;                   // canceled by cancel()/dtor; live()-gates every delivery
     AccountStore *m_store;
-    QString m_deviceCode;
+    QString m_deviceCode;                   // flow-done sentinel (distinct from the cancel token)
     int m_interval;
     QString m_bearer;
 };

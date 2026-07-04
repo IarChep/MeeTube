@@ -1,7 +1,7 @@
 #ifndef YT_BODIES_H
 #define YT_BODIES_H
 // Serialized InnerTube POST bodies (WITHOUT the context block — the transport
-// splices that in; see InnertubeClient::post). One function per endpoint body
+// splices that in; see core::Http::post). One function per endpoint body
 // shape so the Glaze include cost is paid once, in bodies.cpp: the requests see
 // only QString -> std::string.
 //

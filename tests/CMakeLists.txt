@@ -28,12 +28,12 @@ mt_test(tst_meetube_chains)
 # Model + ServiceListModel live in meetube-core (linked above), so no extra
 # sources here — listing them again would cause duplicate-symbol link errors.
 mt_test(tst_meetube_model)
-# InnertubeClient lifetime machinery (track/onFinished/onTimeout/
-# onOwnerDestroyed) + the request Canceled guard. Drives the real m_nam over a
-# local QTcpServer loopback (QtNetwork) and the async FakeTransport.
+# core::Http transport: manager-level finish/timeout/coalescing/cancel + the TTL
+# response cache + per-client context cache + visitor sink. Drives the real m_nam
+# over a local QTcpServer loopback (QtNetwork).
 mt_test(tst_meetube_client)
-# Auth: AccountStore (QSettings round-trip) + AccountManager device-code flow over
-# the FakeTransport postForm seam.
+# Auth: AccountStore (QSettings round-trip) + AccountManager device-code flow +
+# AccountDetails identity, all over the FakeHttp seam.
 mt_test(tst_meetube_account)
 # Threading foundation: WorkerHost (cross-thread posted-closure seam, inline when
 # not started), JobToken (cancellation flag), core::Status mirror. Drives a real
