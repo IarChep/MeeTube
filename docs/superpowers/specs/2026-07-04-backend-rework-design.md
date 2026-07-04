@@ -1253,3 +1253,103 @@ ApiRef apiRef() { return ApiRef(&m_host, m_http); }
 - **Binary/compile:** chains/host add little; rendererparser split cuts the 61 s bottleneck
   TU into six ~10–15 s TUs that compile in parallel; moc output shrinks (9 QObject request
   classes + 3 transport QObjects deleted, 2 added).
+
+---
+
+## Results (2026-07-04, rework complete)
+
+All 15 tasks landed. Executed subagent-driven: one implementer + one adversarial opus review
+per task; every commit built clean on **both** targets (sim x86 + N9 armv7hf cross), host
+**ctest green throughout** (6→8 suites), and the parser golden dump stayed **byte-identical**
+across every parser-touching task. The QML layer was **not modified** — the whole rework is
+backend-only, confirmed by live simulator smoke against real YouTube after each UI-facing task.
+
+### Commits (16, on `rework/innertube-backend`)
+
+```
+a4c6dd5 plan   · 7f9d3a9 T2 parsePlayer 1-read · 1249f2e T3 single-pass scans
+f52258e T4 transport 1-scan · d5dd6eb T5 ctx/hdr cache · 2319b2b T6 sentinel reads
+2312354 T7 split rendererparser · 5a405eb T8 typed VideoModel · 90483bb T9 typed siblings
+34348dd T10 WorkerHost+JobToken · 86635df T11 core::Http · 77168ab T12a chains
+ecb3278 T12b facade flip · 5f021f4 T13 AccountManager · bfb866f T14 thread flip
+```
+(+ `771fd9f` docs.)
+
+### What shipped, by stage
+
+- **A — parse/transport path (T2–T7):** `/player` parsed once/response (was 4×); list/watch/
+  comment parses fold the continuation-token scan into the collector (one document scan, was
+  two); transport does ONE envelope scan (dropped `validate_json`, merged the error-envelope
+  and visitorData scans); per-client context/header caches with session-generation
+  invalidation; sentinel-mode (`null_terminated`) whole-document reads; `rendererparser.cpp`
+  split into six per-domain TUs.
+- **B — model storage (T8–T9):** all five list models store typed `QList<CT::…>` and answer
+  reads with a zero-alloc `switch(role)`; the ~40-alloc-per-row `QVariantMap` storage is gone.
+- **C — pure-C++ core (T10–T13):** `WorkerHost` closure bridge + `JobToken`; callback
+  `core::Http` (one manager-level completion, one deadline timer, request coalescing, TTL +
+  context/header caches); the 9 QObject request classes → 14 pure-C++ `core::chains` functions;
+  `AccountManager` on OAuth chains. `ITransport`/`InnertubeClient` **deleted** (−593 net lines).
+- **D — thread flip (T14):** `core::Http` + all parsing + model-prep run on a worker thread;
+  only UI + model row-mutation stay on the GUI thread. Cross-thread seam = posted closures
+  guarded by the monotonic `JobToken` protocol (cancel + delivery both on the GUI thread).
+
+### Throughput (bench_json, parse paths; baseline = the T1 post-Glaze starting point)
+
+| case | host baseline | host final | ARM baseline | ARM final |
+|---|---:|---:|---:|---:|
+| synth_browse ~1M parseVideoList | 255 MB/s | **1021** | 23.2 MB/s | **63.8 (2.75×)** |
+| next_lockup 44K parseVideoList | 284 | **851** | 3.94 | **8.51 (2.16×)** |
+| tiles_history 3K parseVideoList | — | — | 1.12 | **2.41 (2.15×)** |
+| comments 1K parseComments | — | — | 0.64 | **1.12 (1.75×)** |
+| channel_hdr 1.5K parseChannel | — | — | 0.88 | **1.17 (1.33×)** |
+| player_ios 1.2K parseStreams | — | — | 0.48 | **1.16 (2.42×)** |
+
+ARM = qemu-arm of the armv7hf build (same ISA as the N9; not cycle-accurate — it under-rates
+the real cache/malloc pressure, so device gains are likely larger). Big feeds (the ones that
+hurt on device) roughly **doubled on ARM** on top of the earlier Glaze gains — and after T14
+this parse work leaves the GUI thread entirely, so the UI-visible cost of a page load drops to
+delegate instantiation only. Model fill went from ~40 heap allocs/row to ~1; `data()` reads
+from a QString-alloc + string-keyed map walk to a zero-alloc switch.
+
+### Device verification (real N9 RM696 — reachable this session)
+
+First device access across the rework. Confirmed on hardware: the threaded `.deb` builds +
+aegis-installs; the app launches via the applauncherd booster; **the worker-thread QNAM makes
+real HTTPS/TLS requests to YouTube/Google (`…:443`) over the device stack + bundled OpenSSL
+1.0.2** (feed fetched); no segfault/OOM in `dmesg`. A visual on-device screenshot isn't
+grabbable remotely (the N9 composites via GL, not `/dev/fb0`, and ssh-launched GUI apps don't
+hold the foreground) — the full UI (home + VideoPage details/comments/related + auth code) was
+instead confirmed on the **simulator**, which runs the identical threaded code, live against
+real YouTube. On-device `bench_json` numbers remain owed (Aegis blocks loose binaries; would
+need bench_json packaged into its own `.deb`) — the qemu-arm proxy stands in.
+
+### Costs
+
+Stripped armv7 app binary: **2.94 MB** (the T7 split alone was +60 KB — a build-time-only win,
+user-accepted; the chains/threading/transport code net-grew it further, partly offset by
+deleting the 9 request classes + `InnertubeClient`/`ITransport`). Parser compile: the 61 s
+`rendererparser.cpp` bottleneck became six ~10–15 s TUs (~24 s wall parallel).
+
+### Deviations / controller resolutions (all preserve the plan's end state)
+
+1. **T7 size** (+60 KB from per-TU Glaze inlining that this old binutils' `ld` can't fold) —
+   surfaced to the user, who chose **Accept**.
+2. **T8 staged base migration** — `ServiceListModel`'s new virtuals shipped with QVariantMap
+   defaults so the un-ported siblings kept building; T9 removed the scaffolding and made them
+   pure. (The plan's literal pure-virtual header would have broken the "green at every commit"
+   rule.)
+3. **`innertubeclient`/`itransport` deletion moved T12→T13** — `AccountManager` needed the
+   transport until its own rewire (T13). Same end state, one deletion relocated.
+4. **T14 hazard fixes the flip exposed** — `core::Http`'s `QNetworkAccessManager` + deadline
+   `QTimer` needed `setParent(this)` to follow `moveToThread`; `applyBearer` reads the bearer
+   value on the GUI thread before the worker closure.
+
+### Deferred Minors (for a final whole-branch review — none block)
+
+Stale comments (`innertube.h:53-56` "GUI-affine until Task 14"; `innertube.h:61` newXxxRequest;
+two `QTRY_VERIFY` refs); a now-redundant interval clamp in `AccountManager`; unused
+`R*RoleCount` enum sentinels; a `core::Http` deadline edge case (`deadlineMs = now` when
+`m_timeoutMs==0` — unreachable via the fixed-20 s engine, worth `INT64_MAX`); a `fetchMore`
+engine-absent Loading-transient (unreachable); FakeHttp doesn't record `ClientId` so the
+authed-feed→TVHTML5 selection isn't asserted (pre-existing, carried 1:1). None reachable in
+production; all recorded in `.superpowers/sdd/progress.md`.
