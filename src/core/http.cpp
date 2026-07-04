@@ -6,6 +6,7 @@
 #include <QUrl>
 #include <QDateTime>
 #include <QCryptographicHash>
+#include <QThread>
 #include <optional>
 
 namespace yt { namespace core {
@@ -128,9 +129,19 @@ Http::Http(QObject *parent)
     : QObject(parent), m_timeoutMs(kRequestTimeoutMs),
       m_baseUrl(QLatin1String("https://www.youtube.com/youtubei/v1/"))
 {
+    // m_nam and m_deadlineTimer are VALUE members, default-constructed with no parent —
+    // so they take this ctor thread's affinity and, crucially, moveToThread() would NOT
+    // carry them (it moves only QObject CHILDREN). Parent them to `this` here (both are
+    // in this thread now) so the engine's m_http->moveToThread(worker) moves the manager
+    // and the timer onto the worker too; otherwise the worker would drive a GUI-affine
+    // QNAM/QTimer — a data race. (QNetworkReply objects are children of m_nam, created
+    // on the worker inside post()/get(), so they are worker-affine already.)
+    m_nam.setParent(this);
+    m_deadlineTimer.setParent(this);
     // ONE manager-level completion connection for every request this Http issues:
     // no per-reply signal wiring (the old NamReply pattern) — the reply is looked up
-    // in m_pending by pointer inside onFinished().
+    // in m_pending by pointer inside onFinished(). AutoConnection resolves to a direct
+    // call because emitter (m_nam) and receiver (this) share the worker thread.
     connect(&m_nam, SIGNAL(finished(QNetworkReply *)), this, SLOT(onFinished(QNetworkReply *)));
     // ONE shared deadline timer, single-shot, re-armed to the nearest deadline.
     m_deadlineTimer.setSingleShot(true);
@@ -141,6 +152,11 @@ Http::Http(QObject *parent)
 
 void Http::clearCache()
 {
+    // Affinity guard (debug-only): every IHttp entry must run on this object's thread.
+    // After the flip that thread is the worker; all callers reach here through
+    // m_host.invoke() closures, which post to the worker. A GUI-thread call would be a
+    // data race on the caches/session — fail loud in debug builds.
+    Q_ASSERT(thread() == QThread::currentThread());
     m_cache.clear();
     m_cacheOrder.clear();
     // Bearer/locale changed (the engine's applySettings/applyBearer paths): the
@@ -198,6 +214,7 @@ void Http::armDeadline()
 void Http::post(const QString &endpoint, ClientId client, const std::string &bodyJson,
                 const JobToken &job, HttpFn done)
 {
+    Q_ASSERT(thread() == QThread::currentThread());   // must run on the transport's (worker) thread
     // Splice the context into the body: every bodies.h builder emits a JSON object,
     // so the payload is {"context":<ctx>[, <body members>]}. The context is memoized
     // per-client for the session generation; the payload copies it immediately below,
@@ -278,6 +295,7 @@ void Http::post(const QString &endpoint, ClientId client, const std::string &bod
 
 void Http::get(const QString &url, const JobToken &job, HttpFn done)
 {
+    Q_ASSERT(thread() == QThread::currentThread());   // must run on the transport's (worker) thread
     const bool wantVisitor = m_session.visitorData.isEmpty();
     QNetworkReply *reply = m_nam.get(QNetworkRequest(QUrl(url)));
 
@@ -298,6 +316,7 @@ void Http::get(const QString &url, const JobToken &job, HttpFn done)
 void Http::postForm(const QString &url, const QMap<QString, QString> &fields,
                     const JobToken &job, HttpFn done)
 {
+    Q_ASSERT(thread() == QThread::currentThread());   // must run on the transport's (worker) thread
     QByteArray body;
     for (QMap<QString, QString>::const_iterator it = fields.constBegin(); it != fields.constEnd(); ++it) {
         if (!body.isEmpty()) body += '&';
@@ -422,6 +441,7 @@ void Http::onDeliverCached()
 // nobody (onFinished's live(job) check would also drop it; this is the early reap).
 void Http::abort(const JobToken &job)
 {
+    Q_ASSERT(thread() == QThread::currentThread());   // must run on the transport's (worker) thread
     QList<QNetworkReply *> toAbort;
     for (QHash<QNetworkReply *, Pending>::iterator it = m_pending.begin();
          it != m_pending.end(); ++it) {

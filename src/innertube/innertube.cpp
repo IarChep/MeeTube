@@ -21,22 +21,47 @@ namespace yt {
 Innertube *Innertube::self = 0;
 
 Innertube::Innertube(QObject *parent)
-    : QObject(parent), m_http(new core::Http(this)), m_store(QString(), this),
+    : QObject(parent), m_http(new core::Http), m_store(QString(), this),
       m_manager(apiRef(), &m_store, this),
       m_video(0), m_channel(0), m_playlist(0), m_accountApi(0) {
+    // m_http is PARENTLESS (new core::Http, not new core::Http(this)) so it can be
+    // moved to the worker thread below; a Qt parent would forbid moveToThread. It is
+    // still constructed BEFORE m_manager in the init list, so apiRef() = {&m_host,
+    // m_http} is valid when m_manager is built. The engine owns it; shutdown() deletes it.
     if (!self) self = this;
     connect(&m_manager, SIGNAL(bearerChanged()), this, SLOT(applyBearer()));
-    // One stable anonymous identity across launches: seed the transport session with
-    // the persisted visitorData (capture is skipped when non-empty) and store the
-    // server-issued one the first time it ever arrives. Seeding happens before the
-    // first request, so no per-client cache exists yet to go stale.
+    // Configure the transport HERE, on the GUI thread, while m_http still lives here —
+    // BEFORE the moveToThread below. These are the only direct m_http member touches
+    // the engine ever makes; every later mutation goes through m_host.invoke() (which
+    // posts to the worker). One stable anonymous identity across launches: seed the
+    // session with the persisted visitorData (capture is skipped when non-empty) and
+    // store the server-issued one the first time it ever arrives. Seeding happens
+    // before the first request, so no per-client cache exists yet to go stale.
     m_http->session().visitorData = m_store.visitorData();
     // Replaces the old InnertubeClient::visitorDataCaptured signal path: the sink is
-    // invoked on the transport's thread, so hop to the GUI thread before touching
-    // the store (harmless while single-threaded; correct once m_http moves in Task 14).
+    // invoked on the transport's (worker) thread, so its OUTER lambda ONLY posts to the
+    // GUI thread via invokeGui — it must NOT touch m_store or any GUI object directly;
+    // the INNER lambda runs on the GUI thread and writes the store. (Task 12b shape.)
     m_http->setVisitorSink([this](const QString &vd) {
         m_host.invokeGui([this, vd]() { m_store.setVisitorData(vd); });
     });
+    // THE FLIP: push the (parentless) transport onto the worker thread, then start it.
+    // A parentless QObject may be moved to a not-yet-started thread; start() re-homes
+    // the WorkerHost's own worker Dispatcher onto the same thread and starts its loop.
+    // From here on every apiRef().host->invoke() closure — and thus all QNAM I/O +
+    // parsing — runs on the worker, off the GUI thread.
+    m_http->moveToThread(m_host.thread());
+    m_host.start();
+}
+
+// Join the worker thread and destroy the transport. stop() = quit + wait, which
+// joins the worker first, so by the time we delete m_http its thread has finished —
+// deleting a QObject whose thread is no longer running is legal (no cross-thread
+// delete, no live event loop touching it).
+void Innertube::shutdown() {
+    m_host.stop();
+    delete m_http;
+    m_http = 0;
 }
 
 VideoApi* Innertube::videoApi() {
@@ -60,9 +85,12 @@ AccountApi* Innertube::accountApi() {
 }
 
 void Innertube::applyBearer() {
-    // Mutate the transport session on its own thread (inline until Task 14). Sign-in/
-    // sign-out/refresh: cached personalized payloads (authed feeds, accounts_list)
-    // belong to the previous identity — drop them all after seating the new bearer.
+    // HAZARD (the flip): m_manager (AccountManager) is GUI-affine, so read the bearer
+    // VALUE here on the GUI thread and capture it BY VALUE — the invoke() closure runs
+    // on the worker and must never touch m_manager. It mutates only the (worker-affine)
+    // transport session. Sign-in/sign-out/refresh: cached personalized payloads (authed
+    // feeds, accounts_list) belong to the previous identity — drop them all after
+    // seating the new bearer.
     const QString bearer = m_manager.currentBearer();
     core::Http *http = m_http;
     m_host.invoke([http, bearer]() {
@@ -91,7 +119,9 @@ QVariantList Innertube::authedFeeds() const {
 Innertube* Innertube::instance() { return self ? self : self = new Innertube; }
 
 void Innertube::applySettings(const QString &region, const QString &language) {
-    // Mutate the transport session on its own thread (inline until Task 14).
+    // region/language are already VALUES (no GUI object read here) — capture them by
+    // value into the invoke() closure, which runs on the worker and mutates only the
+    // (worker-affine) transport session.
     core::Http *http = m_http;
     m_host.invoke([http, region, language]() {
         if (!region.isEmpty())   http->session().gl = region;
