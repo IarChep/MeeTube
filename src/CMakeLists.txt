@@ -15,8 +15,6 @@ add_library(meetube-core STATIC
     parsers/playerparser.cpp
     innertube/clientconfig.cpp
     innertube/contextbuilder.cpp
-    innertube/itransport.cpp
-    innertube/innertubeclient.cpp
     core/http.cpp
     core/chains.cpp
     requests/bodies.cpp
@@ -41,9 +39,9 @@ add_library(meetube-core STATIC
     models/servicemetatypes.cpp
     threading/workerhost.cpp
 )
-# AUTOMOC: innertube/innertubeclient.h + core/http.h declare Q_OBJECTs (signals/
-# slots for the QNetworkAccessManager-backed transports), as do the models, detail
-# objects, threading/workerhost.h and the Innertube engine, so the lib must be moc'd.
+# AUTOMOC: core/http.h declares a Q_OBJECT (signals/slots for the
+# QNetworkAccessManager-backed transport), as do the models, detail objects,
+# threading/workerhost.h and the Innertube engine, so the lib must be moc'd.
 set_target_properties(meetube-core PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     AUTOMOC ON)

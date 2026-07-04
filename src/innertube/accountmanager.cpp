@@ -16,67 +16,53 @@
 
 #include "accountmanager.h"
 #include "accountstore.h"
-#include "catalog.h"
-#include "parsers/ytjson.h"
+#include "core/chains.h"
 #include <QTimer>
 
 namespace yt {
 
-// OAuth device-code endpoint responses (fixed schemas; unknown keys skipped).
-namespace oj {
-struct DeviceCode {
-    std::optional<std::string> device_code;
-    std::optional<std::string> user_code;
-    std::optional<std::string> verification_url;
-    std::optional<std::string> verification_uri;
-    std::optional<gj::FlexInt> interval;
-};
-struct Token {
-    std::optional<std::string> access_token;
-    std::optional<std::string> refresh_token;
-    std::optional<std::string> error;
-};
-} // namespace oj
+AccountManager::AccountManager(const ApiRef &api, AccountStore *store, QObject *parent)
+    : QObject(parent), m_api(api), m_store(store), m_interval(5) {}
 
-static QString qstr(const std::optional<std::string> &s)
-{
-    return s ? QString::fromUtf8(s->data(), (int)s->size()) : QString();
-}
-
-AccountManager::AccountManager(ITransport *t, AccountStore *store, QObject *parent)
-    : QObject(parent), m_t(t), m_store(store), m_interval(5) {}
+// Cancel the in-flight flow on teardown: drop the token so any still-queued
+// delivery closure short-circuits at its live(job) guard before touching *this.
+AccountManager::~AccountManager() { if (m_job) m_job->canceled.store(true); }
 
 bool AccountManager::isSignedIn() const {
     return m_store && !m_store->activeId().isEmpty();
 }
 
 void AccountManager::signIn() {
-    QMap<QString, QString> f;
-    f["client_id"] = QString::fromLatin1(Catalog::kOAuthClientId);
-    f["scope"]     = QString::fromLatin1(Catalog::kOAuthScope);
-    connect(m_t->postForm(QString::fromLatin1(Catalog::kDeviceCodeUrl), f, this),
-            SIGNAL(finished()), this, SLOT(onDeviceCode()));
+    if (!m_api.host || !m_api.http) return;
+    m_job = core::newJob();
+    const ApiRef api = m_api;
+    const core::JobToken job = m_job;
+    AccountManager *self = this;
+    api.host->invoke([api, job, self]() {
+        core::oauthDeviceCode(*api.http, job,
+            [api, job, self](const core::Outcome<core::DeviceCode> &o) {
+                api.host->invokeGui([job, self, o]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->handleDeviceCode(o);
+                });
+            });
+    });
 }
 
-void AccountManager::onDeviceCode() {
-    TransportReply *rep = qobject_cast<TransportReply *>(sender());
-    if (!rep) return;
-    const Reply r = rep->result();
-    rep->deleteLater();
-    if (!r.ok) { emit authFailed(r.error); return; }
-    oj::DeviceCode dc{};
-    gj::readJsonDoc(dc, *r.body);
-    m_deviceCode = qstr(dc.device_code);
-    const QString userCode = qstr(dc.user_code);
-    QString verifUrl = qstr(dc.verification_url);
-    if (verifUrl.isEmpty()) verifUrl = qstr(dc.verification_uri);
-    m_interval = (int) gj::toInt64(dc.interval);
+// Was onDeviceCode() (accountmanager.cpp:61-81). The chain already resolved the
+// verification_url/uri fallback and clamped a missing interval to 5; here we only
+// clamp a non-positive server interval, reject an empty device/user code, then
+// publish the user code and start polling.
+void AccountManager::handleDeviceCode(const core::Outcome<core::DeviceCode> &o) {
+    if (!o.ok) { emit authFailed(o.error); return; }
+    m_deviceCode = o.value.deviceCode;
+    m_interval = o.value.intervalSecs;
     if (m_interval <= 0) m_interval = 5;
-    if (m_deviceCode.isEmpty() || userCode.isEmpty()) {
+    if (m_deviceCode.isEmpty() || o.value.userCode.isEmpty()) {
         emit authFailed(QString::fromLatin1("device code request failed"));
         return;
     }
-    emit userCodeReady(verifUrl, userCode);
+    emit userCodeReady(o.value.verificationUrl, o.value.userCode);
     schedulePoll();
 }
 
@@ -86,26 +72,30 @@ void AccountManager::schedulePoll() {
 
 void AccountManager::poll() {
     if (m_deviceCode.isEmpty()) return;     // canceled / already done
-    QMap<QString, QString> f;
-    f["client_id"]     = QString::fromLatin1(Catalog::kOAuthClientId);
-    f["client_secret"] = QString::fromLatin1(Catalog::kOAuthClientSecret);
-    f["device_code"]   = m_deviceCode;
-    f["grant_type"]    = QString::fromLatin1("urn:ietf:params:oauth:grant-type:device_code");
-    connect(m_t->postForm(QString::fromLatin1(Catalog::kTokenUrl), f, this),
-            SIGNAL(finished()), this, SLOT(onToken()));
+    if (!m_api.host || !m_api.http) return;
+    const ApiRef api = m_api;
+    const core::JobToken job = m_job;
+    const QString deviceCode = m_deviceCode;
+    AccountManager *self = this;
+    api.host->invoke([api, job, deviceCode, self]() {
+        core::oauthPollToken(*api.http, deviceCode, job,
+            [api, job, self](const core::TokenGrant &g) {
+                api.host->invokeGui([job, self, g]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->handleToken(g);
+                });
+            });
+    });
 }
 
-void AccountManager::onToken() {
-    TransportReply *rep = qobject_cast<TransportReply *>(sender());
-    if (!rep) return;
-    const Reply r = rep->result();
-    rep->deleteLater();
+// Was onToken() (accountmanager.cpp:98-127). Access token -> persist only the
+// refresh_token ("default"/"YouTube" placeholder account) + fire the sign-in
+// signals; authorization_pending/slow_down -> keep polling; anything else -> fail.
+void AccountManager::handleToken(const core::TokenGrant &g) {
     if (m_deviceCode.isEmpty()) return;     // canceled mid-flight
-    oj::Token tok{};
-    gj::readJsonDoc(tok, *r.body);
-    const QString access  = qstr(tok.access_token);
-    const QString refresh = qstr(tok.refresh_token);
-    const QString err     = qstr(tok.error);
+    const QString access  = g.accessToken;
+    const QString refresh = g.refreshToken;
+    const QString err     = g.error;
     if (!access.isEmpty()) {
         m_bearer = access;
         // Persist only the refresh_token. The real account id/name comes from
@@ -123,10 +113,13 @@ void AccountManager::onToken() {
         return;
     }
     m_deviceCode.clear();
-    emit authFailed(err.isEmpty() ? (r.ok ? QString::fromLatin1("authorization failed") : r.error) : err);
+    emit authFailed(err.isEmpty() ? (g.transportOk ? QString::fromLatin1("authorization failed") : g.transportError) : err);
 }
 
-void AccountManager::cancel() { m_deviceCode.clear(); }
+void AccountManager::cancel() {
+    if (m_job) m_job->canceled.store(true);
+    m_deviceCode.clear();
+}
 
 void AccountManager::signOut() {
     if (m_store) {
@@ -142,26 +135,28 @@ void AccountManager::restore() { requestRefresh(); }
 
 void AccountManager::requestRefresh() {
     if (!m_store) return;
+    if (!m_api.host || !m_api.http) return;
     const QString rt = m_store->refreshToken(m_store->activeId());
     if (rt.isEmpty()) return;
-    QMap<QString, QString> f;
-    f["client_id"]     = QString::fromLatin1(Catalog::kOAuthClientId);
-    f["client_secret"] = QString::fromLatin1(Catalog::kOAuthClientSecret);
-    f["refresh_token"] = rt;
-    f["grant_type"]    = QString::fromLatin1("refresh_token");
-    connect(m_t->postForm(QString::fromLatin1(Catalog::kTokenUrl), f, this),
-            SIGNAL(finished()), this, SLOT(onRefresh()));
+    m_job = core::newJob();
+    const ApiRef api = m_api;
+    const core::JobToken job = m_job;
+    AccountManager *self = this;
+    api.host->invoke([api, job, rt, self]() {
+        core::oauthRefresh(*api.http, rt, job,
+            [api, job, self](const core::TokenGrant &g) {
+                api.host->invokeGui([job, self, g]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->handleRefresh(g);
+                });
+            });
+    });
 }
 
-void AccountManager::onRefresh() {
-    TransportReply *rep = qobject_cast<TransportReply *>(sender());
-    if (!rep) return;
-    const Reply r = rep->result();
-    rep->deleteLater();
-    oj::Token tok{};
-    gj::readJsonDoc(tok, *r.body);
-    const QString access = qstr(tok.access_token);
-    if (!access.isEmpty()) { m_bearer = access; emit bearerChanged(); }
+// Was onRefresh() (accountmanager.cpp:156-165): a fresh access token is cached in
+// the bearer (and copied into the session by the engine); nothing else changes.
+void AccountManager::handleRefresh(const core::TokenGrant &g) {
+    if (!g.accessToken.isEmpty()) { m_bearer = g.accessToken; emit bearerChanged(); }
 }
 
 }

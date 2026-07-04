@@ -13,13 +13,17 @@
 
 using namespace yt;
 
-// AccountManager is NOT rewired in this task (Task 13) — it still drives the
-// FakeTransport ITransport seam, so these helpers and their tests are unchanged.
-// Polls immediately instead of arming a timer, so the FakeTransport drains the whole
-// device-code -> poll -> token chain in a single flush().
+// AccountManager now drives the core OAuth chains over apiRef() (Task 13): an inline
+// (un-started) WorkerHost + a FakeHttp are injected through the constructor's ApiRef.
+// Both are constructed by the test BEFORE the manager and handed in as an ApiRef, so
+// there is no construction-order subtlety. schedulePoll() is overridden to poll()
+// immediately, so FakeHttp::flush() drains the whole device-code -> poll -> token
+// chain in a single flush() (the FakeHttp defers delivery to flush(), matching the
+// real core::Http async contract).
 class TestAccountManager : public AccountManager {
 public:
-    TestAccountManager(ITransport *t, AccountStore *s) : AccountManager(t, s) {}
+    TestAccountManager(WorkerHost *host, FakeHttp *fake, AccountStore *s)
+        : AccountManager(ApiRef(host, fake), s) {}
 protected:
     void schedulePoll() { poll(); }
 };
@@ -122,7 +126,7 @@ private slots:
 
     // ---- AccountManager device-code flow ----
     void deviceCodeFlowSucceeds() {
-        FakeTransport t;
+        WorkerHost host; FakeHttp t;
         AccountStore store(iniPath());
         t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
                 "{\"device_code\":\"DC\",\"user_code\":\"ABCD-EFGH\","
@@ -130,7 +134,7 @@ private slots:
         t.queue(QString::fromLatin1(Catalog::kTokenUrl),
                 "{\"access_token\":\"AT\",\"refresh_token\":\"RT\"}");
 
-        TestAccountManager mgr(&t, &store);
+        TestAccountManager mgr(&host, &t, &store);
         QSignalSpy codeSpy(&mgr, SIGNAL(userCodeReady(QString,QString)));
         QSignalSpy authSpy(&mgr, SIGNAL(authenticated()));
         QSignalSpy bearerSpy(&mgr, SIGNAL(bearerChanged()));
@@ -146,13 +150,21 @@ private slots:
         QCOMPARE(mgr.currentBearer(), QString("AT"));
         QCOMPARE(store.refreshToken("default"), QString("RT"));
         QVERIFY(mgr.isSignedIn());
-        // device/code POST + the token POST
+        // device/code POST (client_id+scope) + the token POST (client_id+client_secret
+        // +device_code+grant_type).
         QCOMPARE(t.sentForm.size(), 2);
         QCOMPARE(t.sentForm.at(0).first, QString::fromLatin1(Catalog::kDeviceCodeUrl));
+        QVERIFY(t.sentForm.at(0).second.contains("client_id"));
+        QVERIFY(t.sentForm.at(0).second.contains("scope"));
+        QCOMPARE(t.sentForm.at(1).first, QString::fromLatin1(Catalog::kTokenUrl));
+        QVERIFY(t.sentForm.at(1).second.contains("client_id"));
+        QVERIFY(t.sentForm.at(1).second.contains("client_secret"));
+        QCOMPARE(t.sentForm.at(1).second.value("device_code"), QString("DC"));
+        QVERIFY(t.sentForm.at(1).second.value("grant_type").contains("device_code"));
     }
 
     void deviceCodePollsWhilePending() {
-        FakeTransport t;
+        WorkerHost host; FakeHttp t;
         AccountStore store(iniPath());
         t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
                 "{\"device_code\":\"DC\",\"user_code\":\"WXYZ\",\"interval\":5}");
@@ -160,7 +172,7 @@ private slots:
         t.queue(QString::fromLatin1(Catalog::kTokenUrl),
                 "{\"access_token\":\"AT2\",\"refresh_token\":\"RT2\"}");
 
-        TestAccountManager mgr(&t, &store);
+        TestAccountManager mgr(&host, &t, &store);
         QSignalSpy authSpy(&mgr, SIGNAL(authenticated()));
         QSignalSpy failSpy(&mgr, SIGNAL(authFailed(QString)));
         mgr.signIn();
@@ -173,13 +185,13 @@ private slots:
     }
 
     void signedInPropertyNotifies() {
-        FakeTransport t;
+        WorkerHost host; FakeHttp t;
         AccountStore store(iniPath());
         t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
                 "{\"device_code\":\"DC\",\"user_code\":\"ABCD\",\"interval\":5}");
         t.queue(QString::fromLatin1(Catalog::kTokenUrl),
                 "{\"access_token\":\"AT\",\"refresh_token\":\"RT\"}");
-        TestAccountManager mgr(&t, &store);
+        TestAccountManager mgr(&host, &t, &store);
         QSignalSpy sSpy(&mgr, SIGNAL(signedInChanged()));
         QVERIFY(!mgr.property("signedIn").toBool());
         mgr.signIn();
@@ -192,12 +204,12 @@ private slots:
     }
 
     void deviceCodeDenied() {
-        FakeTransport t;
+        WorkerHost host; FakeHttp t;
         AccountStore store(iniPath());
         t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
                 "{\"device_code\":\"DC\",\"user_code\":\"WXYZ\",\"interval\":5}");
         t.queue(QString::fromLatin1(Catalog::kTokenUrl), "{\"error\":\"access_denied\"}");
-        TestAccountManager mgr(&t, &store);
+        TestAccountManager mgr(&host, &t, &store);
         QSignalSpy authSpy(&mgr, SIGNAL(authenticated()));
         QSignalSpy failSpy(&mgr, SIGNAL(authFailed(QString)));
         mgr.signIn();
@@ -205,6 +217,28 @@ private slots:
         QCOMPARE(authSpy.count(), 0);
         QCOMPARE(failSpy.count(), 1);
         QVERIFY(!mgr.isSignedIn());
+    }
+
+    // restore() mints a fresh bearer from the stored refresh_token (no signals beyond
+    // bearerChanged; isSignedIn is unaffected — it is driven by the store, not the
+    // in-memory bearer).
+    void restoreRefreshesBearer() {
+        WorkerHost host; FakeHttp t;
+        AccountStore store(iniPath());
+        CT::Account acc; acc.id = "default"; acc.username = "YouTube";
+        store.save(acc, "RT_STORED");
+        t.queue(QString::fromLatin1(Catalog::kTokenUrl), "{\"access_token\":\"AT_FRESH\"}");
+        TestAccountManager mgr(&host, &t, &store);
+        QSignalSpy bearerSpy(&mgr, SIGNAL(bearerChanged()));
+        mgr.restore();
+        t.flush();
+        QCOMPARE(bearerSpy.count(), 1);
+        QCOMPARE(mgr.currentBearer(), QString("AT_FRESH"));
+        // refresh POST: refresh_token + grant_type=refresh_token.
+        QCOMPARE(t.sentForm.size(), 1);
+        QCOMPARE(t.sentForm.at(0).first, QString::fromLatin1(Catalog::kTokenUrl));
+        QCOMPARE(t.sentForm.at(0).second.value("refresh_token"), QString("RT_STORED"));
+        QCOMPARE(t.sentForm.at(0).second.value("grant_type"), QString("refresh_token"));
     }
 };
 QTEST_MAIN(TestAccount)
