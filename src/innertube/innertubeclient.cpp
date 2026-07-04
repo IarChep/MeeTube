@@ -41,7 +41,9 @@ struct ErrEnvelope {
 
 // Build a Reply from a finished QNetworkReply. `timedOut` is set by the watchdog
 // path so a timeout is reported distinctly from a transport error / user cancel.
-static Reply makeReply(QNetworkReply *r, bool timedOut)
+// `wantVisitor` (false once the session already has one) gates the responseContext
+// capture so an established session pays nothing for it.
+static Reply makeReply(QNetworkReply *r, bool timedOut, bool wantVisitor)
 {
     Reply out;
     out.timedOut = timedOut;
@@ -57,25 +59,67 @@ static Reply makeReply(QNetworkReply *r, bool timedOut)
         out.error = r->errorString();
         return out;
     }
-    if (glz::validate_json(*out.body)) {         // error_ctx is truthy on failure
-        out.ok = false;
-        out.error = QString::fromLatin1("invalid JSON response");
-        return out;
+    // Cheap validity check replacing a whole-document glz::validate_json pass: skip
+    // leading JSON whitespace; a JSON value must then begin with '{' or '['. An
+    // empty / whitespace-only body, or one starting with anything else (an HTML
+    // error/consent page), is not JSON -> "invalid JSON response". A body that
+    // opens like JSON but is truncated is NOT rejected here: the single-pass
+    // scanner degrades to "nothing collected", so the UI sees an empty result
+    // rather than an error string (documented semantic change).
+    {
+        const std::string_view sv(*out.body);
+        const char *p = gj::scan::skipWs(sv.data(), sv.data() + sv.size());
+        const char *e = sv.data() + sv.size();
+        if (p >= e || (*p != '{' && *p != '[')) {
+            out.ok = false;
+            out.error = QString::fromLatin1("invalid JSON response");
+            return out;
+        }
     }
+    // One structural pass over the top level: capture the "error" extent (envelope
+    // ladder, below) and — only when the session still needs it — the
+    // "responseContext" extent (visitorData, below).
+    struct EnvelopeScan {
+        std::string_view error, responseContext;
+        bool wantVisitor;
+        void enter(int) {}
+        void leave(int) {}
+        gj::scan::Action what(std::string_view k, int depth)
+        {
+            if (depth != 0) return gj::scan::Action::Skip;
+            if (k == "error" && error.empty()) return gj::scan::Action::Capture;
+            if (wantVisitor && k == "responseContext" && responseContext.empty())
+                return gj::scan::Action::Capture;
+            return gj::scan::Action::Skip;
+        }
+        void capture(std::string_view k, std::string_view v, int)
+        { if (k == "error") error = v; else responseContext = v; }
+    } es{ {}, {}, wantVisitor };
+    gj::scan::document(*out.body, es);
+
     // A top-level "error" of ANY type marks the reply failed; the message is
     // used only when it is actually an object with a string message. The body
     // stays populated — OAuth polling reads its error code from a !ok reply.
-    const std::string_view errv = gj::scan::topLevelValue(*out.body, "error");
-    if (!errv.empty()) {
+    if (!es.error.empty()) {
         out.ok = false;
         out.error = QString::fromLatin1("InnerTube error");
-        if (errv.front() == '{') {
-            ErrEnvelope e{};
-            gj::readJson(e, errv);
-            if (e.message)
-                out.error = QString::fromUtf8(e.message->data(), (int) e.message->size());
+        if (es.error.front() == '{') {
+            ErrEnvelope err{};
+            gj::readJson(err, es.error);
+            if (err.message)
+                out.error = QString::fromUtf8(err.message->data(), (int) err.message->size());
         }
         return out;
+    }
+    // visitorData from the captured responseContext extent — same method as the old
+    // captureVisitorData() slot: locate the string, typed-read it, skip on garbage.
+    if (wantVisitor && !es.responseContext.empty() && es.responseContext.front() == '{') {
+        const std::string_view vdv = gj::scan::topLevelValue(es.responseContext, "visitorData");
+        if (!vdv.empty() && vdv.front() == '"') {
+            std::string vd;
+            if (!glz::read<gj::kIn>(vd, vdv))       // non-string / malformed — skip
+                out.visitorData = QString::fromUtf8(vd.data(), (int) vd.size());
+        }
     }
     out.ok = true;
     return out;
@@ -90,8 +134,9 @@ static Reply makeReply(QNetworkReply *r, bool timedOut)
 class NamReply : public TransportReply {
     Q_OBJECT
 public:
-    NamReply(QNetworkReply *reply, int timeoutMs, QObject *owner)
-        : TransportReply(owner), m_reply(reply), m_done(false), m_timedOut(false)
+    NamReply(QNetworkReply *reply, int timeoutMs, QObject *owner, bool wantVisitor = false)
+        : TransportReply(owner), m_reply(reply), m_done(false), m_timedOut(false),
+          m_wantVisitor(wantVisitor)
     {
         connect(m_reply, SIGNAL(finished()), this, SLOT(onReplyFinished()));
         if (timeoutMs > 0) {
@@ -121,7 +166,7 @@ private Q_SLOTS:
         if (m_done)
             return;
         m_done = true;
-        m_result = makeReply(m_reply, m_timedOut);
+        m_result = makeReply(m_reply, m_timedOut, m_wantVisitor);
         m_reply->deleteLater();
         emit finished();
     }
@@ -141,6 +186,7 @@ private:
     Reply m_result;
     bool m_done;
     bool m_timedOut;
+    bool m_wantVisitor;   // capture responseContext.visitorData in makeReply?
 };
 
 // A cache hit. Emits finished() asynchronously (0-timer) so the caller can
@@ -210,8 +256,11 @@ TransportReply *InnertubeClient::post(const QString &endpoint, ClientId client, 
     for (int i = 0; i < hs.size(); ++i)
         req.setRawHeader(hs[i].first, hs[i].second);
 
+    // wantVisitor snapshotted at request-start: only bother scanning responseContext
+    // while the session still lacks a visitorData (the first youtubei reply seeds it).
+    const bool wantVisitor = m_session.visitorData.isEmpty();
     QNetworkReply *reply = m_nam.post(req, QByteArray(payload.data(), (int) payload.size()));
-    TransportReply *rep = new NamReply(reply, m_timeoutMs, owner ? owner : this);
+    TransportReply *rep = new NamReply(reply, m_timeoutMs, owner ? owner : this, wantVisitor);
     connect(rep, SIGNAL(finished()), this, SLOT(captureVisitorData()));
     if (ttl > 0) {
         rep->setProperty("cacheKey", key);
@@ -240,8 +289,9 @@ void InnertubeClient::cacheResponse()
 
 TransportReply *InnertubeClient::get(const QString &url, QObject *owner)
 {
+    const bool wantVisitor = m_session.visitorData.isEmpty();
     QNetworkReply *reply = m_nam.get(QNetworkRequest(QUrl(url)));
-    TransportReply *rep = new NamReply(reply, m_timeoutMs, owner ? owner : this);
+    TransportReply *rep = new NamReply(reply, m_timeoutMs, owner ? owner : this, wantVisitor);
     connect(rep, SIGNAL(finished()), this, SLOT(captureVisitorData()));
     return rep;
 }
@@ -262,26 +312,17 @@ TransportReply *InnertubeClient::postForm(const QString &url, const QMap<QString
 
 void InnertubeClient::captureVisitorData()
 {
-    if (!m_session.visitorData.isEmpty())
-        return;
+    // The transport already extracted responseContext.visitorData in makeReply's one
+    // envelope scan (only for the first reply that carries one, only while the
+    // session lacked it), so this just adopts what the reply carries — no body scan.
     TransportReply *rep = qobject_cast<TransportReply *>(sender());
     if (!rep)
         return;
     const Reply r = rep->result();
-    if (!r.ok)
-        return;
-    const std::string_view rc = gj::scan::topLevelValue(*r.body, "responseContext");
-    if (rc.empty() || rc.front() != '{')
-        return;
-    const std::string_view vdv = gj::scan::topLevelValue(rc, "visitorData");
-    if (vdv.empty() || vdv.front() != '"')
-        return;
-    std::string vd;
-    if (glz::read<gj::kIn>(vd, vdv))            // non-string / malformed — skip
-        return;
-    m_session.visitorData = QString::fromUtf8(vd.data(), (int) vd.size());
-    if (!m_session.visitorData.isEmpty())
+    if (r.ok && m_session.visitorData.isEmpty() && !r.visitorData.isEmpty()) {
+        m_session.visitorData = r.visitorData;
         emit visitorDataCaptured(m_session.visitorData);
+    }
 }
 
 } // namespace yt
