@@ -28,6 +28,10 @@ struct Video {
             streamUrl, userId, username, avatarUrl, likeText, viewText,
             commentsId, relatedVideosId, subtitlesId;
     qint64 viewCount = 0;
+    // Account-tied engagement state (populated only from authed /next; see WS1).
+    int    likeStatus  = 0;    // 0 Indifferent, 1 Liked, 2 Disliked
+    qint64 likeCount   = -1;   // numeric; -1 = unknown
+    qint64 dislikeCount = -1;  // RYD-filled; -1 = unknown
     bool downloadable = false;
 };
 struct Playlist {
