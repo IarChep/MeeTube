@@ -34,8 +34,17 @@ public:
     QStringList sent;                                 // raw JSON bodies posted, for assertions
     QList<QPair<QString, QMap<QString, QString> > > sentForm;  // (url, fields) of postForm calls
 
-    void post(const QString &endpoint, yt::ClientId, const std::string &body,
+    // Routing record: the ClientId each endpoint was last posted with, captured
+    // SYNCHRONOUSLY at post() invocation (not at callback delivery) so routing
+    // tests can assert the client without draining the queue. Returned as an int
+    // to match QCOMPARE against (int)ClientId::X; -1 if the endpoint was never posted.
+    int lastClientFor(const QString &endpoint) const {
+        return m_lastClient.contains(endpoint) ? m_lastClient.value(endpoint) : -1;
+    }
+
+    void post(const QString &endpoint, yt::ClientId client, const std::string &body,
               const yt::core::JobToken &job, yt::core::HttpFn done) {
+        m_lastClient[endpoint] = (int)client;
         sent << QString::fromUtf8(body.data(), (int)body.size());
         enqueue(endpoint, job, done);
     }
@@ -86,6 +95,7 @@ private:
     }
     QMap<QString, QQueue<std::string> > m_q;
     QList<Waiter> m_pending;
+    QMap<QString, int> m_lastClient;                  // endpoint -> last ClientId posted (as int)
     yt::Session m_session;
 };
 #endif
