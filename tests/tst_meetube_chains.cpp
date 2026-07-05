@@ -539,6 +539,41 @@ private slots:
         t.flush();
         QCOMPARE(calls, 0);          // dead-token waiter dropped
     }
+
+    // ---- bearer-aware routing (Task 2) ----
+    // fetchWatch carries like/subscribe state only on the TV client (bearer rides
+    // TVHTML5), so a signed-in watch must POST /next as TVHTML5; anonymous stays WEB.
+    void routing_watch_authed_uses_tv() {
+        FakeHttp http;                                   // records posts
+        http.session().bearer = "tok";                   // signed in
+        core::fetchWatch(http, "vid", core::newJob(), [](const core::Outcome<core::WatchResult>&){});
+        QCOMPARE(http.lastClientFor("next"), (int)ClientId::TVHTML5);
+    }
+    void routing_watch_anon_uses_web() {
+        FakeHttp http;                                   // bearer empty
+        core::fetchWatch(http, "vid", core::newJob(), [](const core::Outcome<core::WatchResult>&){});
+        QCOMPARE(http.lastClientFor("next"), (int)ClientId::WEB);
+    }
+    // FEwhat_to_watch personalizes when signed in → TV with a bearer, WEB without.
+    void routing_recommended_authed_uses_tv() {
+        FakeHttp http; http.session().bearer = "tok";
+        core::VideoListSpec s; s.kind = core::VideoListSpec::Browse; s.browseId = "FEwhat_to_watch";
+        core::fetchVideoList(http, s, core::newJob(), [](const core::Outcome<core::VideoPage>&){});
+        QCOMPARE(http.lastClientFor("browse"), (int)ClientId::TVHTML5);
+    }
+    void routing_recommended_anon_uses_web() {
+        FakeHttp http;                                   // no bearer
+        core::VideoListSpec s; s.kind = core::VideoListSpec::Browse; s.browseId = "FEwhat_to_watch";
+        core::fetchVideoList(http, s, core::newJob(), [](const core::Outcome<core::VideoPage>&){});
+        QCOMPARE(http.lastClientFor("browse"), (int)ClientId::WEB);
+    }
+    // Trending is generic — always WEB, even signed in.
+    void routing_trending_always_web() {
+        FakeHttp http; http.session().bearer = "tok";
+        core::VideoListSpec s; s.kind = core::VideoListSpec::Browse; s.browseId = "FEtrending";
+        core::fetchVideoList(http, s, core::newJob(), [](const core::Outcome<core::VideoPage>&){});
+        QCOMPARE(http.lastClientFor("browse"), (int)ClientId::WEB);
+    }
 };
 QTEST_MAIN(TestChains)
 #include "tst_meetube_chains.moc"

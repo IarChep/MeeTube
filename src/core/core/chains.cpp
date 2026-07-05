@@ -18,7 +18,7 @@
 // port of one old QObject request class's logic onto the callback IHttp seam; the
 // per-chain source map is on each function. The old files (videorequest.cpp,
 // accountmanager.cpp, …) are still live in Task 12a, so this TU defines its OWN
-// copies of their file-static helpers (sortParam / isAuthedFeed / the oj:: OAuth
+// copies of their file-static helpers (sortParam / the browse-routing predicates /
 // response structs) in an anonymous namespace — no ODR clash. 12b deletes the old
 // copies; these stay.
 #include "core/chains.h"
@@ -42,14 +42,26 @@ std::string sortParam(const QString &order) {
     return std::string();   // relevance
 }
 
-// videorequest.cpp:34-38 — the personalized feeds only work on the TV client: the
-// OAuth bearer is minted with the TV device-code credentials, and WEB browse
-// rejects it with 400 INVALID_ARGUMENT. TV responses carry tileRenderer items,
-// which parseVideoList handles.
-bool isAuthedFeed(const QString &resourceId) {
-    return resourceId == QLatin1String("FEhistory")
-        || resourceId == QLatin1String("FEsubscriptions")
-        || resourceId == QLatin1String("FElibrary");
+// Bearer-aware browse routing (Task 2). The OAuth bearer is minted with the TV
+// device-code credentials and rides ONLY the TVHTML5 client (WEB browse rejects it
+// with 400 INVALID_ARGUMENT); TV responses carry tileRenderer items, which
+// parseVideoList handles. Two feed classes:
+//   feedRequiresAuth  — personalized feeds that ALWAYS need the bearer (the UI gates
+//                       them behind sign-in), so route TV unconditionally.
+//   feedPersonalizable — feeds that personalize WHEN signed in but still work
+//                        anonymously (generic): TV iff a bearer is present, else WEB.
+// Everything else (trending, etc.) is generic → WEB.
+static bool feedRequiresAuth(const QString &id) {
+    return id == QLatin1String("FEsubscriptions") || id == QLatin1String("FEhistory")
+        || id == QLatin1String("FElibrary")       || id == QLatin1String("FEchannels");
+}
+static bool feedPersonalizable(const QString &id) {
+    return id == QLatin1String("FEwhat_to_watch");
+}
+static ClientId clientForBrowse(const QString &id, const Session &s) {
+    if (feedRequiresAuth(id)) return ClientId::TVHTML5;
+    if (feedPersonalizable(id) && !s.bearer.isEmpty()) return ClientId::TVHTML5;
+    return ClientId::WEB;
 }
 
 // ---- OAuth device-code endpoint responses (accountmanager.cpp:26-44) ---------
@@ -106,7 +118,7 @@ void fetchVideoList(IHttp &http, const VideoListSpec &spec, const JobToken &job,
             });
         return;
     }
-    const ClientId cid = isAuthedFeed(spec.browseId) ? ClientId::TVHTML5 : ClientId::WEB;
+    const ClientId cid = clientForBrowse(spec.browseId, http.session());
     http.post("browse", cid, bodies::browse(spec.browseId, spec.params, spec.page), job,
         [done](const Reply &r) {
             Outcome<VideoPage> out;
@@ -121,7 +133,10 @@ void fetchVideoList(IHttp &http, const VideoListSpec &spec, const JobToken &job,
 void fetchWatch(IHttp &http, const QString &videoId, const JobToken &job,
                 std::function<void(const Outcome<WatchResult> &)> done)
 {
-    http.post("next", ClientId::WEB, bodies::nextVideo(videoId), job,
+    // Signed-in watch goes TVHTML5: the /next response then carries the viewer's
+    // like/subscribe state (which only the bearer, and thus only TV, surfaces).
+    const ClientId cid = http.session().bearer.isEmpty() ? ClientId::WEB : ClientId::TVHTML5;
+    http.post("next", cid, bodies::nextVideo(videoId), job,
         [videoId, done](const Reply &r) {
             Outcome<WatchResult> out;
             if (!r.ok) { out.error = r.error; done(out); return; }
