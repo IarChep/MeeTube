@@ -268,6 +268,19 @@ private slots:
         QCOMPARE(rel->data(0, QByteArray("id")).toString(), QString("rel1"));
     }
 
+    // RYD dislike count: load() fires fetchDislikes (a plain GET) in parallel with the
+    // watch fetch. Arming the fake get() body with {"dislikes":42} and flushing lands
+    // the count in m_dislikeCount — a SEPARATE member so applyWatch resetting m_primary
+    // never clobbers it. (The /next post has nothing queued -> fetchWatch fails
+    // gracefully; the dislike count still populates.)
+    void videoDetailsDislikeCount() {
+        TestVideoDetails d;
+        d.m_fake.setGetBody("{\"dislikes\":42}");
+        d.load("vid42");
+        d.m_fake.flush();
+        QCOMPARE(d.dislikeCount(), (qint64)42);
+    }
+
     // Guarded optimistic like: state flips synchronously inside like() (Indifferent->
     // Liked, likeCount +1, likeChanged emitted), the action fires on the (inline)
     // worker; queueing an OK reply for like/like confirms it — state stays Liked.
