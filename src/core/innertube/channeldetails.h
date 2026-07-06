@@ -38,7 +38,7 @@ class ChannelDetails : public QObject {
     Q_PROPERTY(QString bannerUrl       READ bannerUrl       NOTIFY loaded)
     Q_PROPERTY(QString handle          READ handle          NOTIFY loaded)
     Q_PROPERTY(QString videoCount      READ videoCount      NOTIFY loaded)
-    Q_PROPERTY(bool    subscribed      READ subscribed      NOTIFY loaded)
+    Q_PROPERTY(bool    subscribed      READ subscribed      NOTIFY subscribedChanged)
     Q_PROPERTY(int     status          READ status          NOTIFY statusChanged)
     Q_PROPERTY(QString errorString     READ errorString     NOTIFY statusChanged)
 public:
@@ -50,6 +50,13 @@ public:
     // The chain's delivery sink (fetchChannelById/ByUrl). Plain public method (not a
     // slot) so the meta-object stays frozen.
     void applyChannel(const yt::core::Outcome<CT::User> &r);
+
+    // Guarded optimistic subscribe/unsubscribe. subscribe() flips subscribed toward
+    // true, unsubscribe() toward false, emits subscribedChanged(), fires the matching
+    // action on the worker and reverts on failure. Gated behind signedIn() (else
+    // needsSignIn()). The subscriber-count display string is left unchanged.
+    Q_INVOKABLE void subscribe();
+    Q_INVOKABLE void unsubscribe();
 
     QString name()            const { return m_user.username; }
     QString description()     const { return m_user.description; }
@@ -67,11 +74,22 @@ public Q_SLOTS:
 Q_SIGNALS:
     void loaded();
     void statusChanged();
+    void subscribedChanged();
+    void needsSignIn();   // subscribe/unsubscribe attempted while signed out — QML shows the sign-in sheet
 protected:
     virtual yt::ApiRef apiRef() const;
+    // Test seam: whether an account is signed in (default reads Innertube's
+    // AccountManager). Overridden in tests to force the gate.
+    virtual bool signedIn() const;
 private:
+    // Optimistic-transition core: flip subscribed toward `desired`, fire the action,
+    // revert on failure. Shared by subscribe()/unsubscribe().
+    void applySubscribe(bool desired);
+    // Fire the action chain on the worker; on !ok restore prevSubscribed.
+    void fireGuarded(yt::core::ActionKind kind, const QString &channelId, bool prevSubscribed);
     void cancelJob();
     yt::core::JobToken m_job;
+    yt::core::JobToken m_actionJob;   // dtor-canceled token guarding the in-flight subscribe/unsubscribe action
     CT::User m_user;
     int m_status;
     QString m_error;
