@@ -85,10 +85,20 @@ protected:
 
 class TestChannelDetails : public ChannelDetails {
 public:
-    WorkerHost m_host; FakeHttp m_fake;
+    WorkerHost m_host; FakeHttp m_fake; bool m_signedIn = true;
+    // Seed m_user.subscribed via the public applyChannel() sink (a successful
+    // Outcome<CT::User> whose value carries id/subscribed).
+    void testSeed(bool subscribed) {
+        core::Outcome<CT::User> o;
+        o.ok = true;
+        o.value.id = "UCabc";
+        o.value.subscribed = subscribed;
+        applyChannel(o);
+    }
 protected:
     ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
                                           const_cast<FakeHttp *>(&m_fake)); }
+    bool signedIn() const { return m_signedIn; }
 };
 
 class TestModel : public QObject { Q_OBJECT
@@ -318,6 +328,56 @@ private slots:
         QCOMPARE(c.subscriberCount(), QString("10K subscribers"));
         QCOMPARE(c.channelId(), QString("UCabc"));
         QCOMPARE((int)c.status(), (int)core::Ready);
+    }
+
+    // Guarded optimistic subscribe: subscribed flips synchronously inside subscribe()
+    // (false->true, subscribedChanged emitted), the action fires on the (inline)
+    // worker; queueing an OK reply for subscription/subscribe confirms it — stays true.
+    void subscribe_optimistic_then_confirmed() {
+        TestChannelDetails c;
+        c.m_signedIn = true;
+        c.testSeed(/*subscribed*/false);
+        QSignalSpy spy(&c, SIGNAL(subscribedChanged()));
+        c.m_fake.queue("subscription/subscribe", "{}");   // action succeeds -> done(true)
+        c.subscribe();
+        // Optimistic (synchronous, pre-flush):
+        QCOMPARE(c.subscribed(), true);
+        QVERIFY(spy.count() >= 1);
+        c.m_fake.flush();                                 // deliver the action callback (ok)
+        // Confirmed: still subscribed, no revert.
+        QCOMPARE(c.subscribed(), true);
+        QVERIFY(c.m_fake.sent.at(0).contains("UCabc"));   // targetId rode the body
+    }
+
+    // Revert-on-failure: queueing NOTHING for subscription/subscribe makes the transport
+    // fail -> done(false); the delivered callback restores the prior subscribed and
+    // re-emits subscribedChanged.
+    void subscribe_reverts_on_failure() {
+        TestChannelDetails c;
+        c.m_signedIn = true;
+        c.testSeed(false);
+        QSignalSpy spy(&c, SIGNAL(subscribedChanged()));
+        // no queue -> FakeHttp answers "no fixture queued" (ok=false)
+        c.subscribe();
+        QCOMPARE(c.subscribed(), true);                   // optimistic first
+        c.m_fake.flush();                                 // deliver failure -> revert
+        QCOMPARE(c.subscribed(), false);
+        QVERIFY(spy.count() >= 2);                        // optimistic + revert
+    }
+
+    // Signed-out gate: subscribe() emits needsSignIn() and makes no optimistic change and
+    // fires no action (nothing posted).
+    void subscribe_signedout_asks_signin() {
+        TestChannelDetails c;
+        c.m_signedIn = false;
+        c.testSeed(false);
+        QSignalSpy spy(&c, SIGNAL(needsSignIn()));
+        QSignalSpy subSpy(&c, SIGNAL(subscribedChanged()));
+        c.subscribe();
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(c.subscribed(), false);                  // unchanged
+        QCOMPARE(subSpy.count(), 0);
+        QCOMPARE(c.m_fake.sent.size(), 0);                // no action fired
     }
 };
 
