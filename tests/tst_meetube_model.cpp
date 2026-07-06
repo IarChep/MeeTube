@@ -336,6 +336,75 @@ private slots:
         QCOMPARE(d.m_fake.sent.size(), 0);   // no action fired
     }
 
+    // Save to Watch Later (add-only): saved flips synchronously inside
+    // saveToWatchLater() (false->true, savedChanged emitted), the editPlaylist action
+    // fires on the (inline) worker; queueing an OK reply for browse/edit_playlist
+    // confirms it — saved stays true, no revert.
+    void save_optimistic_then_confirmed() {
+        TestVideoDetails d;
+        d.m_signedIn = true;
+        d.testSeed(/*likeStatus*/0, /*likeCount*/10);   // seeds m_primary.id = "vid42"
+        QSignalSpy spy(&d, SIGNAL(savedChanged()));
+        d.m_fake.queue("browse/edit_playlist", "{}");   // action succeeds -> done(true)
+        d.saveToWatchLater();
+        // Optimistic (synchronous, pre-flush):
+        QCOMPARE(d.saved(), true);
+        QVERIFY(spy.count() >= 1);
+        d.m_fake.flush();                               // deliver the action callback (ok)
+        // Confirmed: still saved, no revert.
+        QCOMPARE(d.saved(), true);
+        QVERIFY(d.m_fake.sent.at(0).contains("vid42"));   // videoId rode the body
+    }
+
+    // Revert-on-failure: queueing NOTHING for browse/edit_playlist makes the transport
+    // fail -> done(false); the delivered callback clears the optimistic saved and
+    // re-emits savedChanged.
+    void save_reverts_on_failure() {
+        TestVideoDetails d;
+        d.m_signedIn = true;
+        d.testSeed(0, 10);
+        QSignalSpy spy(&d, SIGNAL(savedChanged()));
+        // no queue -> FakeHttp answers "no fixture queued" (ok=false)
+        d.saveToWatchLater();
+        QCOMPARE(d.saved(), true);           // optimistic first
+        d.m_fake.flush();                    // deliver failure -> revert
+        QCOMPARE(d.saved(), false);
+        QVERIFY(spy.count() >= 2);           // optimistic + revert
+    }
+
+    // Add-only no-op: a second saveToWatchLater() while already saved does nothing
+    // (no new post, no extra savedChanged) — removal needs the WL list view handle.
+    void save_idempotent_when_already_saved() {
+        TestVideoDetails d;
+        d.m_signedIn = true;
+        d.testSeed(0, 10);
+        d.m_fake.queue("browse/edit_playlist", "{}");
+        d.saveToWatchLater();
+        d.m_fake.flush();
+        QCOMPARE(d.saved(), true);
+        const int sentBefore = d.m_fake.sent.size();
+        QSignalSpy spy(&d, SIGNAL(savedChanged()));
+        d.saveToWatchLater();                // already saved -> no-op
+        QCOMPARE(d.saved(), true);
+        QCOMPARE(spy.count(), 0);            // no re-emit
+        QCOMPARE(d.m_fake.sent.size(), sentBefore);   // nothing new posted
+    }
+
+    // Signed-out gate: saveToWatchLater() emits needsSignIn() and makes no optimistic
+    // change and fires no action (nothing posted).
+    void save_signedout_asks_signin() {
+        TestVideoDetails d;
+        d.m_signedIn = false;
+        d.testSeed(0, 10);
+        QSignalSpy spy(&d, SIGNAL(needsSignIn()));
+        QSignalSpy saveSpy(&d, SIGNAL(savedChanged()));
+        d.saveToWatchLater();
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(d.saved(), false);          // unchanged
+        QCOMPARE(saveSpy.count(), 0);
+        QCOMPARE(d.m_fake.sent.size(), 0);   // no action fired
+    }
+
     // StreamSet: projects the stream list into hlsUrl.
     void streamSetLoads() {
         TestStreamSet s;

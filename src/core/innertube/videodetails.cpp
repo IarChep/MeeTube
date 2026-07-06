@@ -27,6 +27,7 @@ VideoDetails::VideoDetails(QObject *parent)
 VideoDetails::~VideoDetails() {
     if (m_job) m_job->canceled.store(true);
     if (m_actionJob) m_actionJob->canceled.store(true);
+    if (m_saveJob) m_saveJob->canceled.store(true);
 }
 
 QObject* VideoDetails::related() const { return m_related; }
@@ -40,6 +41,8 @@ void VideoDetails::load(const QString &videoId) {
     cancelJob();
     m_primary = CT::Video();
     m_dislikeCount = -1;   // new video → unknown until RYD replies
+    m_saved = false;       // new video → not (known to be) saved; reset the button
+    emit savedChanged();
     emit loaded();
     m_job = core::newJob();
     m_status = core::Loading;
@@ -74,6 +77,7 @@ void VideoDetails::load(const QString &videoId) {
 
 void VideoDetails::cancelJob() {
     if (m_actionJob) m_actionJob->canceled.store(true);
+    if (m_saveJob) m_saveJob->canceled.store(true);
     if (!m_job) return;
     m_job->canceled.store(true);
     const ApiRef api = apiRef();
@@ -150,6 +154,31 @@ void VideoDetails::fireGuarded(core::ActionKind kind, const QString &videoId,
                     self->m_primary.likeStatus = prevStatus;
                     self->m_primary.likeCount  = prevLikes;
                     emit self->likeChanged();
+                });
+            });
+    });
+}
+
+void VideoDetails::saveToWatchLater() {
+    if (!signedIn()) { emit needsSignIn(); return; }
+    if (m_saved) return;   // add-only; already saved → no-op (removal needs the WL list view handle)
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) return;   // no transport: leave saved false, nothing fired
+    m_saved = true;
+    emit savedChanged();                  // optimistic
+    if (m_saveJob) m_saveJob->canceled.store(true);   // supersede a prior in-flight save
+    m_saveJob = core::newJob();
+    const core::JobToken job = m_saveJob;             // capture THIS (dtor-canceled) token — R8
+    const QString videoId = m_primary.id;
+    VideoDetails *self = this;
+    api.host->invoke([api, videoId, job, self]() {
+        core::editPlaylist(*api.http, QString::fromLatin1("WL"), /*add*/true, videoId, job,
+            [api, job, self](bool ok) {
+                if (ok) return;   // confirmed — the optimistic saved state stands
+                api.host->invokeGui([job, self]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->m_saved = false;
+                    emit self->savedChanged();
                 });
             });
     });

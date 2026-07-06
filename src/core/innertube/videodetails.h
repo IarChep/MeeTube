@@ -48,6 +48,10 @@ class VideoDetails : public QObject {
     Q_PROPERTY(int    likeStatus   READ likeStatus   NOTIFY likeChanged)
     Q_PROPERTY(qint64 likeCount    READ likeCount    NOTIFY likeChanged)
     Q_PROPERTY(qint64 dislikeCount READ dislikeCount NOTIFY likeChanged)
+    // Watch Later "saved" state — optimistic (add-only). Set true by saveToWatchLater()
+    // before the editPlaylist action fires; reverted to false if the action fails, and
+    // reset to false in load() on navigation to a new video.
+    Q_PROPERTY(bool   saved        READ saved        NOTIFY savedChanged)
 public:
     explicit VideoDetails(QObject *parent = 0);
     ~VideoDetails();
@@ -75,6 +79,7 @@ public:
     int     likeStatus()  const { return m_primary.likeStatus; }
     qint64  likeCount()   const { return m_primary.likeCount; }
     qint64  dislikeCount() const { return m_dislikeCount; }
+    bool    saved()       const { return m_saved; }
 
     // Guarded optimistic like/dislike toggles. Each flips m_primary toward the target
     // state (like() toggles Liked<->Indifferent, dislike() Disliked<->Indifferent),
@@ -84,6 +89,12 @@ public:
     Q_INVOKABLE void dislike();
     Q_INVOKABLE void removeLike();
 
+    // Add the current video to the "WL" (Watch Later) playlist. Add-only: a no-op if
+    // already saved (removal needs the setVideoId handle exposed only in the WL list
+    // view). Gated behind signedIn() (else needsSignIn()); flips saved optimistically
+    // and reverts on failure.
+    Q_INVOKABLE void saveToWatchLater();
+
 public Q_SLOTS:
     void cancel();
 
@@ -91,7 +102,8 @@ Q_SIGNALS:
     void loaded();
     void statusChanged();
     void likeChanged();
-    void needsSignIn();   // like/dislike attempted while signed out — QML shows the sign-in sheet
+    void savedChanged();  // Watch Later save state flipped (optimistic set OR revert)
+    void needsSignIn();   // like/dislike/save attempted while signed out — QML shows the sign-in sheet
 
 protected:
     // Test seam (mirrors the model apiRef() pattern).
@@ -110,11 +122,17 @@ private:
     void cancelJob();
     yt::core::JobToken m_job;
     yt::core::JobToken m_actionJob;   // dtor-canceled token guarding the in-flight like/dislike action
+    // R8: independent dtor-canceled token guarding the in-flight Watch Later save. The
+    // save's invokeGui tail captures raw `self`, so it MUST gate on this member token —
+    // kept SEPARATE from m_actionJob so save never supersedes (or is superseded by) a
+    // like/dislike in flight.
+    yt::core::JobToken m_saveJob;
     VideoModel *m_related;
     CT::Video m_primary;
     // The RYD dislike count. Decoupled from m_primary (which applyWatch replaces
     // wholesale) so a fetchWatch delivery can't clobber the RYD count back to -1.
     qint64 m_dislikeCount = -1;
+    bool m_saved = false;   // optimistic Watch Later save state
     int m_status;
     QString m_error;
 };

@@ -373,26 +373,39 @@ Page {
                         }
                     }
                 }
-                // save
+                // save — add the video to Watch Later; brand-red "Saved" once added.
                 Item {
+                    id: saveCell
                     width: parent.width / 4
                     height: parent.height
-                    MouseArea { id: saveMouse; anchors.fill: parent }
+                    // Saved (details.saved) tints the glyph + label brand-red.
+                    property bool isSaved: (details && details.saved) ? true : false
+                    MouseArea {
+                        id: saveMouse
+                        anchors.fill: parent
+                        onClicked: if (details) details.saveToWatchLater()
+                    }
                     Column {
                         anchors.centerIn: parent
                         spacing: UI.PADDING_XSMALL
-                        Image {
+                        MaskedItem {
+                            id: saveIcon
                             anchors.horizontalCenter: parent.horizontalCenter
                             width: UI.SIZE_ICON_DEFAULT; height: UI.SIZE_ICON_DEFAULT
-                            sourceSize.width: UI.SIZE_ICON_DEFAULT; sourceSize.height: UI.SIZE_ICON_DEFAULT
-                            smooth: true
-                            source: "image://theme/icon-m-toolbar-add-white"
                             opacity: saveMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
+                            mask: Image {
+                                width: saveIcon.width; height: saveIcon.height
+                                source: "image://theme/icon-m-toolbar-add-white"; smooth: true
+                            }
+                            Rectangle {
+                                anchors.fill: parent
+                                color: saveCell.isSaved ? UI.COLOR_BRAND_RED : UI.COLOR_INVERTED_FOREGROUND
+                            }
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: "Save"
-                            color: UI.COLOR_SECONDARY_FOREGROUND
+                            text: saveCell.isSaved ? "Saved" : "Save"
+                            color: saveCell.isSaved ? UI.COLOR_BRAND_RED : UI.COLOR_SECONDARY_FOREGROUND
                             font.pixelSize: UI.FONT_XXSMALL
                         }
                     }
