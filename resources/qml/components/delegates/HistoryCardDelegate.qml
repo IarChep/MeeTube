@@ -82,6 +82,7 @@ Item {
                     thumbnailUrl: thumbnailUrl,
                     largeThumbnailUrl: largeThumbnailUrl,
                     avatarUrl: avatarUrl,
+                    userId: userId,
                     id: id
                 }
             });

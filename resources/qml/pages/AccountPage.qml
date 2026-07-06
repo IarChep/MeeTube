@@ -199,6 +199,20 @@ Page {
 
             Rectangle { width: parent.width; height: 1; color: UI.COLOR_DIVIDER }
 
+            // Personal video feeds — VLLL/VLWL are the private Liked / Watch Later
+            // playlists (browsed with the bearer via TVHTML5; see core::chains).
+            NavRow {
+                iconSource: "image://theme/icon-m-content-favourites-inverse"
+                label: "Liked videos"
+                onClicked: pageStack.push(Qt.resolvedUrl("FeedPage.qml"),
+                                          { pageTitle: "Liked videos", feedId: "VLLL" })
+            }
+            NavRow {
+                iconSource: "image://theme/icon-m-common-clock-inverse"
+                label: "Watch Later"
+                onClicked: pageStack.push(Qt.resolvedUrl("FeedPage.qml"),
+                                          { pageTitle: "Watch Later", feedId: "VLWL" })
+            }
             NavRow {
                 iconSource: "image://theme/icon-m-content-feed-inverse"
                 label: "Subscriptions"

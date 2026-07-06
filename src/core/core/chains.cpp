@@ -53,7 +53,10 @@ std::string sortParam(const QString &order) {
 // Everything else (trending, etc.) is generic → WEB.
 static bool feedRequiresAuth(const QString &id) {
     return id == QLatin1String("FEsubscriptions") || id == QLatin1String("FEhistory")
-        || id == QLatin1String("FElibrary")       || id == QLatin1String("FEchannels");
+        || id == QLatin1String("FElibrary")       || id == QLatin1String("FEchannels")
+        // VLLL / VLWL — the signed-in user's PRIVATE Liked (LL) and Watch Later (WL)
+        // playlist feeds (VL + LL / VL + WL); the browse must carry the bearer (TV).
+        || id == QLatin1String("VLLL")            || id == QLatin1String("VLWL");
 }
 static bool feedPersonalizable(const QString &id) {
     return id == QLatin1String("FEwhat_to_watch");
