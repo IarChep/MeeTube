@@ -29,7 +29,16 @@ add_executable(meetube
 # qmlapplicationviewer.h declares Q_OBJECT (the QDeclarativeView subclass), so the
 # app target must be moc'd. (meetube-core is moc'd in core/CMakeLists.txt.) AUTORCC
 # compiles resources/resources.qrc into the binary.
-set_target_properties(meetube PROPERTIES AUTOMOC ON AUTORCC ON)
+#
+# RUNTIME_OUTPUT_DIRECTORY pins the executable to the BUILD ROOT (build-sim/meetube,
+# build-n9/meetube) — the path simulator_env.sh, CLAUDE.md and the run/package workflow
+# expect. This target used to live in the ROOT CMakeLists (→ build root); the src/
+# restructure moved it under src/app/, which made CMake emit it at build-*/src/app/meetube
+# and `build-sim/meetube` silently vanished. Pinning restores the historical location.
+# (bench_json, still added in the root CMakeLists, is already at the build root.)
+set_target_properties(meetube PROPERTIES
+    AUTOMOC ON AUTORCC ON
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 # main.cpp / the harmattan items include their siblings as "harmattan/..." and
 # "qmlapplicationviewer/..." — resolve those from this app/ dir. The backend
