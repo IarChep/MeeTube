@@ -45,6 +45,16 @@ Page {
         page.currentTab = tab;
     }
 
+    // A signed-out subscribe attempt raises needsSignIn() on the ChannelDetails
+    // (no optimistic flip); open the auth sheet. Old-style Connections (onSignal
+    // handler). details is null until Component.onCompleted resolves it — a null
+    // target is a harmless no-op and re-binds once details is assigned.
+    Connections {
+        target: page.details
+        ignoreUnknownSignals: true
+        onNeedsSignIn: appWindow.openAccount()
+    }
+
     // No global header — the banner + identity block are the channel's own header, so
     // the shared HeaderBar collapses (null, like VideoPage) and the banner reaches the
     // top of the page.
@@ -178,12 +188,9 @@ Page {
                             : "image://theme/meegotouch-button-negative-background-pressed"
                     }
                     onClicked: {
-                        if (!innertube.auth().signedIn) { appWindow.openAccount(); return; }
-                        if (page.channelId === "") return;
-                        if (subscribeButton.subscribed)
-                            innertube.channel().unsubscribe(page.channelId);
-                        else
-                            innertube.channel().subscribe(page.channelId);
+                        if (!page.details) return;
+                        if (page.details.subscribed) page.details.unsubscribe();
+                        else page.details.subscribe();
                     }
                 }
             }
