@@ -51,6 +51,17 @@ inline const char *kC4HeaderBanner = R"({"header": {"c4TabbedHeaderRenderer": {
     "banner": {"thumbnails": [
         {"url": "http://b/c4small.jpg"}, {"url": "http://b/c4big.jpg"} ]}}}})";
 
+// Authed WEB channel browse: the c4TabbedHeaderRenderer carries the signed-in
+// user's subscribe state in subscribeButton.subscribeButtonRenderer.subscribed.
+// Only present in AUTHED responses (R1) — absent → subscribed stays false.
+inline const char *kChannelSubscribed = R"({"header": {"c4TabbedHeaderRenderer": {
+    "title": "Cool Channel",
+    "channelId": "UCxyz",
+    "subscriberCountText": {"simpleText": "1.2M subscribers"},
+    "subscribeButton": {"subscribeButtonRenderer": {"subscribed": true}},
+    "avatar": {"thumbnails": [
+        {"url": "https://a/s.jpg"}, {"url": "https://a/l.jpg"} ]}}}})";
+
 inline const char *kPlayableOk = R"({"playabilityStatus":{"status":"OK"}})";
 inline const char *kPlayableLogin =
     R"({"playabilityStatus":{"status":"LOGIN_REQUIRED","reason":"Sign in"}})";

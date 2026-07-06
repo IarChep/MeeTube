@@ -226,12 +226,21 @@ struct PageHeaderContent {
 struct PageHeader {
     std::optional<PageHeaderContent> content;
 };
+// Authed-only: the signed-in user's subscribe state on this channel. Present
+// only in AUTHED WEB responses (R1) — absent → subscribed stays false.
+struct SubscribeButtonR {
+    std::optional<bool> subscribed;
+};
+struct SubscribeButton {
+    std::optional<SubscribeButtonR> subscribeButtonRenderer;
+};
 struct C4Header {
     std::optional<std::variant<std::string, Text>> title;   // c4 uses a plain string title
     std::optional<std::string> channelId;
     std::optional<ThumbSet> avatar;
     std::optional<ThumbSet> banner;
     std::optional<Text> subscriberCountText;
+    std::optional<SubscribeButton> subscribeButton;
 };
 struct HeaderW {
     std::optional<C4Header> c4TabbedHeaderRenderer;
