@@ -54,6 +54,9 @@ void fetchPlaylists(IHttp &, const QString &resourceId, const QString &page, con
 void fetchPlaylistSearch(IHttp &, const QString &query, const JobToken &, std::function<void(const Outcome<PlaylistPage> &)> done);
 void fetchAccount(IHttp &, const JobToken &, std::function<void(const Outcome<CT::Account> &)> done);
 void submitAction(IHttp &, ActionKind, const QString &targetId, const JobToken &, std::function<void(bool ok)> done);
+// Dislike count from returnyoutubedislikeapi.com (YouTube hides it). A plain GET —
+// no context/client — parsed with a local Ryd partial struct in chains.cpp.
+void fetchDislikes(IHttp &, const QString &videoId, const JobToken &, std::function<void(const Outcome<qint64> &)> done);
 // OAuth (device-code flow; postForm — no context):
 struct DeviceCode { QString deviceCode, userCode, verificationUrl; int intervalSecs; };
 void oauthDeviceCode(IHttp &, const JobToken &, std::function<void(const Outcome<DeviceCode> &)> done);

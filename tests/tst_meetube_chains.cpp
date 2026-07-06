@@ -574,6 +574,20 @@ private slots:
         core::fetchVideoList(http, s, core::newJob(), [](const core::Outcome<core::VideoPage>&){});
         QCOMPARE(http.lastClientFor("browse"), (int)ClientId::WEB);
     }
+
+    // fetchDislikes: the dislike count comes from returnyoutubedislikeapi.com (a
+    // non-YouTube JSON body), fetched via IHttp::get and parsed with a local Ryd
+    // partial struct. Confirms Risk R2 too: makeReply passes non-youtubei JSON
+    // through as ok=true with the raw body (no false "InnerTube error").
+    void dislikes_parses_count() {
+        FakeHttp http; http.setGetBody("{\"id\":\"v\",\"likes\":9,\"dislikes\":42}");
+        qint64 got = -1;
+        core::fetchDislikes(http, "v", core::newJob(),
+            [&](const core::Outcome<qint64>& o){ if (o.ok) got = o.value; });
+        http.flush();
+        QCOMPARE(got, (qint64)42);
+        QVERIFY(http.lastGetUrl().contains("returnyoutubedislikeapi.com/votes?videoId=v"));
+    }
 };
 QTEST_MAIN(TestChains)
 #include "tst_meetube_chains.moc"

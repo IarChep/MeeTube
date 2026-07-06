@@ -53,10 +53,19 @@ public:
         sentForm << qMakePair(url, fields);
         enqueue(url, job, done);
     }
+    // get(): records the URL (lastGetUrl) and, if a body was armed via setGetBody(),
+    // defers an ok Reply carrying it — delivered by flush() like post(). With no
+    // armed body it defers a failed Reply (preserves the old "no get fixture" path).
+    void setGetBody(const std::string &b) { m_getBody = b; m_haveGetBody = true; }
+    QString lastGetUrl() const { return m_lastGetUrl; }
     void get(const QString &url, const yt::core::JobToken &job, yt::core::HttpFn done) {
-        yt::core::Reply r; r.ok = false; r.error = "no get fixture";
+        m_lastGetUrl = url;
+        yt::core::Reply r;
+        if (m_haveGetBody) {
+            r.ok = true;
+            r.body = std::make_shared<const std::string>(m_getBody);
+        } else { r.ok = false; r.error = "no get fixture"; }
         m_pending << Waiter(job, done, r);
-        (void)url;
     }
     void abort(const yt::core::JobToken &) {}         // no-op: flush() honors the token gate
     yt::Session &session() { return m_session; }
@@ -97,5 +106,8 @@ private:
     QList<Waiter> m_pending;
     QMap<QString, int> m_lastClient;                  // endpoint -> last ClientId posted (as int)
     yt::Session m_session;
+    std::string m_getBody;                            // canned get() body (setGetBody)
+    bool m_haveGetBody = false;
+    QString m_lastGetUrl;                             // last URL passed to get()
 };
 #endif
