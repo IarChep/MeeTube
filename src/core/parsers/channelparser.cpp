@@ -25,6 +25,10 @@ static CT::User channelFromRoot(const rj::ChannelRoot &root)
         if (c4->avatar)              u.thumbnailUrl = qstr(lastThumbUrl(*c4->avatar));
         if (c4->subscriberCountText) u.subscriberCount = qstr(textOf(*c4->subscriberCountText));
         if (c4->banner)              u.bannerUrl = qstr(lastThumbUrl(*c4->banner));
+        // Authed-only subscribe state; absent (unauthed) leaves subscribed false (R1).
+        if (c4->subscribeButton && c4->subscribeButton->subscribeButtonRenderer
+            && c4->subscribeButton->subscribeButtonRenderer->subscribed)
+            u.subscribed = *c4->subscribeButton->subscribeButtonRenderer->subscribed;
     }
     // --- Current pageHeaderRenderer.content.pageHeaderViewModel (nested view-models):
     // 2024+ WEB channel headers moved name/avatar/subscriberCount here. ---

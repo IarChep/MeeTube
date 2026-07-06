@@ -88,6 +88,14 @@ private slots:
         QCOMPARE(u2.bannerUrl, QString("http://b/c4big.jpg"));
     }
 
+    // Task 4 [A4]: authed WEB channel header carries the subscribe state in
+    // c4TabbedHeaderRenderer.subscribeButton.subscribeButtonRenderer.subscribed.
+    // Absent (unauthed) → left false (see channelHeaderParses, which never sets it).
+    void channel_extracts_subscribed() {
+        CT::User u = parseChannel(std::string_view(payloads::kChannelSubscribed));
+        QVERIFY(u.subscribed);
+    }
+
     // 2024+ WEB channel header: pageHeaderRenderer.content.pageHeaderViewModel with the
     // subscriber count buried in a metadataRows view-model (index not fixed).
     void channelPageHeaderParses() {
