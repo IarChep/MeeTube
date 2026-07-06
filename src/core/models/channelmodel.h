@@ -32,6 +32,15 @@ public:
 
     Q_INVOKABLE void search(const QString &query);
 
+    // Browse a channel-list feed (FEchannels — the manage-subscriptions grid). Like
+    // search() but over core::fetchChannelList; applyUsers RESETs the rows.
+    Q_INVOKABLE void list(const QString &browseId);
+
+    // Optimistically REMOVE the row whose channel id matches, then fire a
+    // fire-and-forget subscription/unsubscribe (empty done — no self-capture, no
+    // token needed; a failed unsubscribe simply reappears on the next reload).
+    Q_INVOKABLE void unsubscribe(const QString &channelId);
+
     // The chain's delivery sink — RESETS the rows. Plain public method (not a slot)
     // so the meta-object stays frozen.
     void applyUsers(const yt::core::Outcome<yt::core::UserPage> &r);

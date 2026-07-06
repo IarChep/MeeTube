@@ -253,6 +253,50 @@ private slots:
         QCOMPARE(model.status(), (int)core::Ready);
     }
 
+    // ChannelModel::list(browseId): the FEchannels subscriptions grid populates
+    // the rows via a browse (the manage-subscriptions feed).
+    void channelModelListBrowses() {
+        TestChannelModel model;
+        model.m_fake.queue("browse",
+            "{\"contents\":[{\"gridChannelRenderer\":{\"channelId\":\"UCsub1\","
+            "\"title\":{\"simpleText\":\"Sub One\"}}},"
+            "{\"gridChannelRenderer\":{\"channelId\":\"UCsub2\","
+            "\"title\":{\"simpleText\":\"Sub Two\"}}}]}");
+        model.list("FEchannels");
+        model.m_fake.flush();
+        QCOMPARE(model.rowCount(), 2);
+        QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("UCsub1"));
+        QVERIFY(model.m_fake.sent.at(0).contains("\"browseId\":\"FEchannels\""));
+        QCOMPARE(model.status(), (int)core::Ready);
+    }
+
+    // ChannelModel::unsubscribe(channelId): optimistically REMOVES the matching row
+    // (count drops by 1) and posts a subscription/unsubscribe carrying the channelId
+    // (fire-and-forget — the empty done captures nothing).
+    void channelModelUnsubscribeRemovesRow() {
+        TestChannelModel model;
+        model.m_fake.queue("browse",
+            "{\"contents\":[{\"gridChannelRenderer\":{\"channelId\":\"UCsub1\","
+            "\"title\":{\"simpleText\":\"Sub One\"}}},"
+            "{\"gridChannelRenderer\":{\"channelId\":\"UCsub2\","
+            "\"title\":{\"simpleText\":\"Sub Two\"}}}]}");
+        model.list("FEchannels");
+        model.m_fake.flush();
+        QCOMPARE(model.rowCount(), 2);
+
+        model.m_fake.queue("subscription/unsubscribe", "{}");
+        model.unsubscribe("UCsub1");
+        // Optimistic (synchronous): the matching row is gone before flush.
+        QCOMPARE(model.rowCount(), 1);
+        QCOMPARE(model.data(0, QByteArray("id")).toString(), QString("UCsub2"));
+        model.m_fake.flush();                     // deliver the (empty-done) action
+        // The unsubscribe was posted with the channelId.
+        const int last = model.m_fake.sent.size() - 1;
+        QVERIFY(model.m_fake.sent.at(last).contains("UCsub1"));
+        QCOMPARE(model.m_fake.lastClientFor("subscription/unsubscribe"),
+                 (int)yt::ClientId::TVHTML5);
+    }
+
     // VideoDetails: scalar props from /next + the nested related VideoModel.
     void videoDetailsLoads() {
         TestVideoDetails d;

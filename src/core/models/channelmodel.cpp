@@ -80,6 +80,53 @@ void ChannelModel::search(const QString &query) {
     });
 }
 
+// Browse a channel-list feed (FEchannels — the subscriptions grid). Mirrors
+// search() but fires core::fetchChannelList; applyUsers RESETs the rows (a single
+// first-page reset — pagination is a follow-up).
+void ChannelModel::list(const QString &browseId) {
+    cancelJob();
+    m_job = core::newJob();
+    clear();
+    setStatus(core::Loading);
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) { core::Outcome<core::UserPage> o; o.error = "not supported"; applyUsers(o); return; }
+    const core::JobToken job = m_job;
+    ChannelModel *self = this;
+    api.host->invoke([api, browseId, job, self]() {
+        core::fetchChannelList(*api.http, browseId, QString(), job,
+            [api, job, self](const core::Outcome<core::UserPage> &r) {
+                api.host->invokeGui([job, self, r]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->applyUsers(r);
+                });
+            });
+    });
+}
+
+// Optimistic unsubscribe: drop the matching row from the visible list (the UI
+// truth) and fire a fire-and-forget subscription/unsubscribe. The done captures
+// NOTHING (empty [](bool){}) — no self-capture, so no cross-thread lifetime hazard
+// and no JobToken gate is needed. A failed unsubscribe simply reappears on the next
+// reload.
+void ChannelModel::unsubscribe(const QString &channelId) {
+    int at = -1;
+    for (int i = 0; i < m_rows.size(); ++i) {
+        if (m_rows.at(i).id == channelId) { at = i; break; }
+    }
+    if (at >= 0) {
+        beginRemoveRows(QModelIndex(), at, at);
+        m_rows.removeAt(at);
+        endRemoveRows();
+        emitCountChanged();
+    }
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) return;
+    const core::JobToken job = core::newJob();   // fresh local token (safe — empty done)
+    api.host->invoke([api, channelId, job]() {
+        core::submitAction(*api.http, core::Unsubscribe, channelId, job, [](bool){});
+    });
+}
+
 void ChannelModel::cancelJob() {
     if (!m_job) return;
     m_job->canceled.store(true);
