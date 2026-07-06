@@ -380,10 +380,13 @@ Page {
                     height: parent.height
                     // Saved (details.saved) tints the glyph + label brand-red.
                     property bool isSaved: (details && details.saved) ? true : false
+                    // Tap = save to Watch Later; press-and-hold = add to a playlist (a
+                    // native N9 idiom). The add-to-playlist sheet lives at page scope.
                     MouseArea {
                         id: saveMouse
                         anchors.fill: parent
                         onClicked: if (details) details.saveToWatchLater()
+                        onPressAndHold: if (details) addToPlaylistSheet.open()
                     }
                     Column {
                         anchors.centerIn: parent
@@ -623,6 +626,14 @@ Page {
     }
 
     CommentsSheet { id: commentsSheet; commentModel: comments }
+
+    // Add-to-playlist sheet, opened by a long-press on Save. channelId is the signed-in
+    // user's channel (its playlists are the add targets).
+    AddToPlaylistSheet {
+        id: addToPlaylistSheet
+        videoDetails: details
+        channelId: innertube.account().details().channelId
+    }
 
     ToolBarLayout {
         id: videoTools

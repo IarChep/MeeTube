@@ -405,6 +405,40 @@ private slots:
         QCOMPARE(d.m_fake.sent.size(), 0);   // no action fired
     }
 
+    // Add to a named playlist: addToPlaylist(playlistId) fires editPlaylist(add) on the
+    // (inline) worker; queueing an OK reply for browse/edit_playlist confirms it and
+    // emits addedToPlaylist(playlistId). The body carries the target playlistId + the
+    // ACTION_ADD_VIDEO action + the current videoId (m_primary.id).
+    void addToPlaylist_confirmed_fires_signal() {
+        TestVideoDetails d;
+        d.m_signedIn = true;
+        d.testSeed(/*likeStatus*/0, /*likeCount*/10);   // seeds m_primary.id = "vid42"
+        QSignalSpy spy(&d, SIGNAL(addedToPlaylist(QString)));
+        d.m_fake.queue("browse/edit_playlist", "{}");   // action succeeds -> done(true)
+        d.addToPlaylist("PLxyz");
+        d.m_fake.flush();                               // deliver the action callback (ok)
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(spy.at(0).at(0).toString(), QString("PLxyz"));
+        QCOMPARE(d.m_fake.sent.size(), 1);
+        QVERIFY(d.m_fake.sent.at(0).contains("\"playlistId\":\"PLxyz\""));
+        QVERIFY(d.m_fake.sent.at(0).contains("ACTION_ADD_VIDEO"));
+        QVERIFY(d.m_fake.sent.at(0).contains("vid42"));   // the current videoId rode the body
+    }
+
+    // Signed-out gate: addToPlaylist() emits needsSignIn() and fires no action (nothing
+    // posted, no addedToPlaylist).
+    void addToPlaylist_signedout_asks_signin() {
+        TestVideoDetails d;
+        d.m_signedIn = false;
+        d.testSeed(0, 10);
+        QSignalSpy spy(&d, SIGNAL(needsSignIn()));
+        QSignalSpy addSpy(&d, SIGNAL(addedToPlaylist(QString)));
+        d.addToPlaylist("PLxyz");
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(addSpy.count(), 0);
+        QCOMPARE(d.m_fake.sent.size(), 0);   // no action fired
+    }
+
     // StreamSet: projects the stream list into hlsUrl.
     void streamSetLoads() {
         TestStreamSet s;

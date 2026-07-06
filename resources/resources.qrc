@@ -33,6 +33,7 @@
 
         <!-- components: sheets -->
         <file>qml/components/sheets/CommentsSheet.qml</file>
+        <file>qml/components/sheets/AddToPlaylistSheet.qml</file>
         <file>qml/components/sheets/AuthorisationSheet.qml</file>
 
         <!-- shared js -->

@@ -184,4 +184,27 @@ void VideoDetails::saveToWatchLater() {
     });
 }
 
+void VideoDetails::addToPlaylist(const QString &playlistId) {
+    if (!signedIn()) { emit needsSignIn(); return; }
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) return;   // no transport: nothing fired
+    // Reuse the (dtor-canceled) Watch Later save token — add-to-playlist is the same
+    // class of action as Save; a fresh call supersedes a prior in-flight one.
+    if (m_saveJob) m_saveJob->canceled.store(true);
+    m_saveJob = core::newJob();
+    const core::JobToken job = m_saveJob;             // capture THIS (dtor-canceled) token — R8
+    const QString videoId = m_primary.id;
+    VideoDetails *self = this;
+    api.host->invoke([api, playlistId, videoId, job, self]() {
+        core::editPlaylist(*api.http, playlistId, /*add*/true, videoId, job,
+            [api, job, self, playlistId](bool ok) {
+                if (!ok) return;   // failed — no confirmation signal (fire-and-confirm)
+                api.host->invokeGui([job, self, playlistId]() {
+                    if (!core::live(job)) return;   // MUST be first — closure derefs self (R8)
+                    emit self->addedToPlaylist(playlistId);
+                });
+            });
+    });
+}
+
 }
