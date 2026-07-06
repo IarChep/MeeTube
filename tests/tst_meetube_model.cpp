@@ -53,13 +53,26 @@ protected:
                                           const_cast<FakeHttp *>(&m_fake)); }
 };
 
-// Detail objects (plain QObjects) — same apiRef() seam.
+// Detail objects (plain QObjects) — same apiRef() seam. VideoDetails also carries a
+// settable signedIn() override (the guarded like/dislike gate) mirroring the apiRef()
+// seam — no global auth singleton is touched.
 class TestVideoDetails : public VideoDetails {
 public:
-    WorkerHost m_host; FakeHttp m_fake;
+    WorkerHost m_host; FakeHttp m_fake; bool m_signedIn = true;
+    // Seed m_primary's like state via the public applyWatch() sink (a successful
+    // Outcome<WatchResult> whose primary carries likeStatus/likeCount).
+    void testSeed(int likeStatus, qint64 likeCount) {
+        core::Outcome<core::WatchResult> o;
+        o.ok = true;
+        o.value.primary.id = "vid42";
+        o.value.primary.likeStatus = likeStatus;
+        o.value.primary.likeCount  = likeCount;
+        applyWatch(o);
+    }
 protected:
     ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
                                           const_cast<FakeHttp *>(&m_fake)); }
+    bool signedIn() const { return m_signedIn; }
 };
 
 class TestStreamSet : public StreamSet {
@@ -226,6 +239,61 @@ private slots:
         QVERIFY(rel != 0);
         QCOMPARE(rel->rowCount(), 1);
         QCOMPARE(rel->data(0, QByteArray("id")).toString(), QString("rel1"));
+    }
+
+    // Guarded optimistic like: state flips synchronously inside like() (Indifferent->
+    // Liked, likeCount +1, likeChanged emitted), the action fires on the (inline)
+    // worker; queueing an OK reply for like/like confirms it — state stays Liked.
+    void like_optimistic_then_confirmed() {
+        TestVideoDetails d;
+        d.m_signedIn = true;
+        d.testSeed(/*likeStatus*/0, /*likeCount*/10);
+        QSignalSpy spy(&d, SIGNAL(likeChanged()));
+        d.m_fake.queue("like/like", "{}");   // action succeeds -> done(true)
+        d.like();
+        // Optimistic (synchronous, pre-flush):
+        QCOMPARE(d.likeStatus(), 1);
+        QCOMPARE(d.likeCount(), (qint64)11);
+        QVERIFY(spy.count() >= 1);
+        d.m_fake.flush();                    // deliver the action callback (ok)
+        // Confirmed: still Liked, no revert.
+        QCOMPARE(d.likeStatus(), 1);
+        QCOMPARE(d.likeCount(), (qint64)11);
+        QVERIFY(d.m_fake.sent.at(0).contains("vid42"));   // targetId rode the body
+    }
+
+    // Revert-on-failure: queueing NOTHING for like/like makes the transport fail ->
+    // done(false); the delivered callback restores the prior likeStatus/likeCount and
+    // re-emits likeChanged.
+    void like_reverts_on_failure() {
+        TestVideoDetails d;
+        d.m_signedIn = true;
+        d.testSeed(0, 10);
+        QSignalSpy spy(&d, SIGNAL(likeChanged()));
+        // no queue -> FakeHttp answers "no fixture queued" (ok=false)
+        d.like();
+        QCOMPARE(d.likeStatus(), 1);         // optimistic first
+        QCOMPARE(d.likeCount(), (qint64)11);
+        d.m_fake.flush();                    // deliver failure -> revert
+        QCOMPARE(d.likeStatus(), 0);
+        QCOMPARE(d.likeCount(), (qint64)10);
+        QVERIFY(spy.count() >= 2);           // optimistic + revert
+    }
+
+    // Signed-out gate: like() emits needsSignIn() and makes no optimistic change and
+    // fires no action (nothing posted).
+    void like_signedout_asks_signin() {
+        TestVideoDetails d;
+        d.m_signedIn = false;
+        d.testSeed(0, 10);
+        QSignalSpy spy(&d, SIGNAL(needsSignIn()));
+        QSignalSpy likeSpy(&d, SIGNAL(likeChanged()));
+        d.like();
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(d.likeStatus(), 0);         // unchanged
+        QCOMPARE(d.likeCount(), (qint64)10);
+        QCOMPARE(likeSpy.count(), 0);
+        QCOMPARE(d.m_fake.sent.size(), 0);   // no action fired
     }
 
     // StreamSet: projects the stream list into hlsUrl.

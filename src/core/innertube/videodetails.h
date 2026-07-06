@@ -42,6 +42,12 @@ class VideoDetails : public QObject {
     Q_PROPERTY(int     status      READ status      NOTIFY statusChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY statusChanged)
     Q_PROPERTY(QObject* related    READ related     CONSTANT)   // a VideoModel* for the Repeater
+    // Like/dislike state (0 Indifferent, 1 Liked, 2 Disliked) + tallies. Mutated
+    // optimistically by like()/dislike()/removeLike(); NOTIFY likeChanged fires on the
+    // optimistic flip AND on any revert.
+    Q_PROPERTY(int    likeStatus   READ likeStatus   NOTIFY likeChanged)
+    Q_PROPERTY(qint64 likeCount    READ likeCount    NOTIFY likeChanged)
+    Q_PROPERTY(qint64 dislikeCount READ dislikeCount NOTIFY likeChanged)
 public:
     explicit VideoDetails(QObject *parent = 0);
     ~VideoDetails();
@@ -62,6 +68,17 @@ public:
     int     status()      const { return m_status; }
     QString errorString() const { return m_error; }
     QObject* related()    const;
+    int     likeStatus()  const { return m_primary.likeStatus; }
+    qint64  likeCount()   const { return m_primary.likeCount; }
+    qint64  dislikeCount() const { return m_primary.dislikeCount; }
+
+    // Guarded optimistic like/dislike toggles. Each flips m_primary toward the target
+    // state (like() toggles Liked<->Indifferent, dislike() Disliked<->Indifferent),
+    // adjusts the like tally, emits likeChanged(), fires the matching action on the
+    // worker and reverts on failure. Gated behind signedIn() (else needsSignIn()).
+    Q_INVOKABLE void like();
+    Q_INVOKABLE void dislike();
+    Q_INVOKABLE void removeLike();
 
 public Q_SLOTS:
     void cancel();
@@ -69,12 +86,23 @@ public Q_SLOTS:
 Q_SIGNALS:
     void loaded();
     void statusChanged();
+    void likeChanged();
+    void needsSignIn();   // like/dislike attempted while signed out — QML shows the sign-in sheet
 
 protected:
     // Test seam (mirrors the model apiRef() pattern).
     virtual yt::ApiRef apiRef() const;
+    // Test seam: whether an account is signed in (default reads Innertube's
+    // AccountManager). Overridden in tests to force the gate.
+    virtual bool signedIn() const;
 
 private:
+    // Optimistic-transition core: flip toward `desired`, fire the action, revert on
+    // failure. Shared by like()/dislike()/removeLike().
+    void applyLike(int desired);
+    // Fire the action chain on the worker; on !ok restore prevStatus/prevLikes.
+    void fireGuarded(yt::core::ActionKind kind, const QString &videoId,
+                     int prevStatus, qint64 prevLikes);
     void cancelJob();
     yt::core::JobToken m_job;
     VideoModel *m_related;
