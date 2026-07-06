@@ -31,10 +31,19 @@ protected:
 
 class TestCommentModel : public CommentModel {
 public:
-    WorkerHost m_host; FakeHttp m_fake;
+    WorkerHost m_host; FakeHttp m_fake; bool m_signedIn = true;
+    // Seed m_createCommentParams via the public applyComments() sink (a successful
+    // Outcome<CommentPage> whose page carries createCommentParams).
+    void testSeedParams(const QString &params) {
+        core::Outcome<core::CommentPage> o;
+        o.ok = true;
+        o.value.createCommentParams = params;
+        applyComments(o);
+    }
 protected:
     ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
                                           const_cast<FakeHttp *>(&m_fake)); }
+    bool signedIn() const { return m_signedIn; }
 };
 
 class TestPlaylistModel : public PlaylistModel {
@@ -227,6 +236,49 @@ private slots:
         QVERIFY(!model.data(0, QByteArray("body")).toString().isEmpty());
         QVERIFY(model.canFetchMore());     // comments_page has a continuation token
         QCOMPARE(model.status(), (int)core::Ready);
+    }
+
+    // post(): signed in + a queued OK reply → the comment is PREPENDED optimistically
+    // (count grows, row 0 body == the text) BEFORE flush, and stays put after flush
+    // (the OK reply confirms it — no revert).
+    void commentModelPostOptimistic() {
+        TestCommentModel model;
+        model.testSeedParams("PARAMS");                 // seed createCommentParams
+        model.m_signedIn = true;
+        model.m_fake.queue("comment/create_comment", "{}");
+        model.post("hi");
+        QCOMPARE(model.rowCount(), 1);                  // optimistic prepend pre-flush
+        QCOMPARE(model.data(0, QByteArray("body")).toString(), QString("hi"));
+        model.m_fake.flush();
+        QCOMPARE(model.rowCount(), 1);                  // OK reply → stays
+        QCOMPARE(model.data(0, QByteArray("body")).toString(), QString("hi"));
+        QVERIFY(model.m_fake.sent.at(0).contains("\"commentText\":\"hi\""));
+        QVERIFY(model.m_fake.sent.at(0).contains("\"createCommentParams\":\"PARAMS\""));
+    }
+
+    // Revert: no reply queued → the post fails → flush() removes the optimistic row.
+    void commentModelPostReverts() {
+        TestCommentModel model;
+        model.testSeedParams("PARAMS");
+        model.m_signedIn = true;
+        // nothing queued → the create_comment post fails
+        model.post("oops");
+        QCOMPARE(model.rowCount(), 1);                  // optimistic prepend
+        model.m_fake.flush();
+        QCOMPARE(model.rowCount(), 0);                  // failure → row removed (revert)
+    }
+
+    // Signed-out gate: post() emits needsSignIn(), adds no row and posts nothing.
+    void commentModelPostSignedOut() {
+        TestCommentModel model;
+        model.testSeedParams("PARAMS");
+        model.m_signedIn = false;
+        QSignalSpy spy(&model, SIGNAL(needsSignIn()));
+        model.post("nope");
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(model.rowCount(), 0);                  // no optimistic row
+        model.m_fake.flush();
+        QVERIFY(model.m_fake.sent.isEmpty());           // nothing posted
     }
 
     void playlistModelPopulates() {

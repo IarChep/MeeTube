@@ -239,6 +239,34 @@ private slots:
         QVERIFY(out.ok);
     }
 
+    // ---- postComment (comment/create_comment) ----
+    // POSTs createCommentParams + commentText on TVHTML5 (the write needs the
+    // bearer, which rides only the TV client); done(true) on an OK reply.
+    void postCommentSucceeds() {
+        FakeHttp t;
+        t.queue("comment/create_comment", "{}");
+        JobToken job = newJob();
+        bool ok = false; int calls = 0;
+        postComment(t, "PARAMS", "hi", job, [&](bool o) { ok = o; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(ok);
+        QVERIFY(t.sent.at(0).contains("\"createCommentParams\":\"PARAMS\""));
+        QVERIFY(t.sent.at(0).contains("\"commentText\":\"hi\""));
+        QCOMPARE(t.lastClientFor("comment/create_comment"), (int)ClientId::TVHTML5);
+    }
+
+    // A transport failure surfaces as done(false).
+    void postCommentTransportFails() {
+        FakeHttp t;   // nothing queued → the post fails
+        JobToken job = newJob();
+        bool ok = true; int calls = 0;
+        postComment(t, "PARAMS", "hi", job, [&](bool o) { ok = o; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(!ok);
+    }
+
     // ---- fetchPlaylistSearch (was PlaylistRequest::search) ----
     void playlistSearch() {
         FakeHttp t;

@@ -44,6 +44,10 @@ struct Target {
 struct Like {
     Target target;
 };
+struct CreateComment {
+    std::string createCommentParams;
+    std::string commentText;
+};
 struct EditAction {
     std::string action;
     std::optional<std::string> addedVideoId;   // omitted when nullopt (add only)
@@ -133,6 +137,14 @@ std::string likeTarget(const QString &videoId)
 {
     bj::Like b;
     b.target.videoId = videoId.toStdString();
+    return dump(b);
+}
+
+std::string createComment(const QString &createCommentParams, const QString &text)
+{
+    bj::CreateComment b;
+    b.createCommentParams = createCommentParams.toStdString();
+    b.commentText = text.toStdString();
     return dump(b);
 }
 

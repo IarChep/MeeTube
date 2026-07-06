@@ -32,6 +32,10 @@ public:
 
     Q_INVOKABLE void list(const QString &videoId);
     Q_INVOKABLE void fetchMore();
+    // Post a top-level comment. Guarded by signedIn() (else needsSignIn()); ignores
+    // empty text. Optimistically PREPENDs a locally-built comment at row 0 and reverts
+    // it if the create_comment post fails.
+    Q_INVOKABLE void post(const QString &text);
 
     // The chain's delivery sink — APPENDs (ok+empty ⇒ Ready = comments disabled).
     // Plain public method (not a slot) so the meta-object stays frozen.
@@ -40,9 +44,15 @@ public:
 public Q_SLOTS:
     void cancel();
 
+Q_SIGNALS:
+    // Raised by post() when not signed in — the UI opens the auth sheet.
+    void needsSignIn();
+
 protected:
     // Test seam (see VideoModel::apiRef()).
     virtual yt::ApiRef apiRef() const;
+    // Sign-in gate — reads the global AccountManager. Overridable in tests.
+    virtual bool signedIn() const;
 
     // Typed row storage — answers reads with a zero-alloc switch(roleIdx).
     int itemCount() const;
@@ -53,8 +63,10 @@ private:
     void cancelJob();
 
     QList<CT::Comment> m_rows;
-    yt::core::JobToken m_job;
+    yt::core::JobToken m_job;      // list/fetchMore
+    yt::core::JobToken m_postJob;  // post() — dtor-canceled; the revert closure gates on it (R8)
     QString m_videoId;
+    QString m_createCommentParams; // the create-comment box's submit token (R4)
 };
 
 #endif // COMMENTMODEL_H

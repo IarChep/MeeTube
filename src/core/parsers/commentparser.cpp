@@ -17,11 +17,20 @@ struct CommentScanner : CollectorBase {
     QList<CT::Comment> *out;
     std::string_view onRRE;          // first top-level onResponseReceivedEndpoints extent
     std::string outsideToken;        // first token found outside the onRRE extent
+    std::string createParams;        // first createCommentParams string found (R4)
+    bool haveCreateParams = false;
 
     scan::Action what(std::string_view key, int d)
     {
         if (consumed()) return scan::Action::Skip;
         if (key == "commentEntityPayload") { consume(); return scan::Action::Capture; }
+        // R4 best-effort: the create-comment box's submit token. It rides in the
+        // comments-section create-comment command (commentSimpleboxRenderer /
+        // ...createCommentEndpoint) as a plain string field named createCommentParams.
+        // The exact host renderer is unverified on-device — scrape the first field of
+        // that name anywhere in the response. It sits OUTSIDE any commentEntityPayload
+        // subtree, so the leaf guard above never masks it.
+        if (!haveCreateParams && key == "createCommentParams") return scan::Action::Capture;
         // Capture the top-level onRRE extent once (depth 0 = immediate child of root).
         if (d == 0 && key == "onResponseReceivedEndpoints" && onRRE.empty())
             return scan::Action::Capture;
@@ -39,6 +48,14 @@ struct CommentScanner : CollectorBase {
             if (!c.body.isEmpty()) *out << c;
             return;
         }
+        if (!haveCreateParams && key == "createCommentParams") {
+            // The captured extent is the raw JSON string literal (with quotes);
+            // Glaze reads+unescapes it into std::string.
+            std::string s;
+            readJson(s, value);
+            if (!s.empty()) { createParams = s; haveCreateParams = true; }
+            return;
+        }
         if (d == 0 && key == "onResponseReceivedEndpoints" && onRRE.empty()) {
             onRRE = value;
             return;
@@ -50,7 +67,8 @@ struct CommentScanner : CollectorBase {
     }
 };
 
-QList<CT::Comment> parseComments(std::string_view response, QString *nextToken)
+QList<CT::Comment> parseComments(std::string_view response, QString *nextToken,
+                                 QString *createCommentParams)
 {
     QList<CT::Comment> out;
     CommentScanner s;
@@ -65,6 +83,8 @@ QList<CT::Comment> parseComments(std::string_view response, QString *nextToken)
             t = QString::fromUtf8(s.outsideToken.data(), (int)s.outsideToken.size());
         *nextToken = t;
     }
+    if (createCommentParams)   // R4: empty when the create-comment box wasn't present
+        *createCommentParams = QString::fromUtf8(s.createParams.data(), (int)s.createParams.size());
     return out;
 }
 

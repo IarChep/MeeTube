@@ -19,7 +19,11 @@ CT::Video parseLockupViewModel(std::string_view lm);
 // arrive TV-shaped because the OAuth bearer is only honored by the TV client.
 CT::Video parseTileRenderer(std::string_view t);
 QList<CT::Video> parseVideoList(std::string_view response, QString *nextToken);
-QList<CT::Comment> parseComments(std::string_view response, QString *nextToken);
+// createCommentParams (out, nullable): the create-comment box's submit token, scraped
+// best-effort from the comments-section create-comment command (R4 — exact source
+// unverified; left empty when absent). Threaded into CommentPage so the model can post.
+QList<CT::Comment> parseComments(std::string_view response, QString *nextToken,
+                                 QString *createCommentParams = 0);
 CT::Playlist parsePlaylistRenderer(std::string_view r);
 QList<CT::Playlist> parsePlaylistList(std::string_view response, QString *nextToken);
 // Channel header (c4TabbedHeaderRenderer / pageHeaderRenderer) → CT::User.

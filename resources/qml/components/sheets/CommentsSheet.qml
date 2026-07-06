@@ -31,12 +31,25 @@ Sheet {
         font.family: UI.FONT_FAMILY
     }
 
+    // A signed-out send raises needsSignIn() on the CommentModel: close this sheet
+    // and open the auth flow (mirrors VideoPage's like/subscribe gate).
+    Connections {
+        target: sheet.commentModel
+        onNeedsSignIn: {
+            sheet.reject();
+            appWindow.openAccount();
+        }
+    }
+
     content: Item {
         anchors.fill: parent
 
         ListView {
             id: list
-            anchors.fill: parent
+            anchors {
+                left: parent.left; right: parent.right; top: parent.top
+                bottom: composeRow.top
+            }
             clip: true
             model: sheet.commentModel
             delegate: Item {
@@ -106,6 +119,10 @@ Sheet {
             text: "Loading comments…"
         }
         EmptyState {
+            anchors {
+                left: parent.left; right: parent.right; top: parent.top
+                bottom: composeRow.top
+            }
             iconSource: "image://theme/icon-l-content-avatar-placeholder"
             visible: sheet.commentModel
                      ? (sheet.commentModel.count === 0
@@ -113,6 +130,46 @@ Sheet {
                      : false
             title: "No comments yet"
             hint: "Be the first to comment."
+        }
+
+        // Compose row: type a comment + Send. A signed-out send routes through
+        // needsSignIn() (the Connections above) instead of posting.
+        Item {
+            id: composeRow
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: UI.FIELD_DEFAULT_HEIGHT + UI.PADDING_XLARGE * 2
+
+            Rectangle {
+                anchors { left: parent.left; right: parent.right; top: parent.top }
+                height: 1
+                color: UI.COLOR_DIVIDER
+            }
+
+            TextField {
+                id: field
+                anchors {
+                    left: parent.left; leftMargin: UI.DEFAULT_MARGIN
+                    right: sendButton.left; rightMargin: UI.PADDING_LARGE
+                    verticalCenter: parent.verticalCenter
+                }
+                placeholderText: "Add a comment…"
+            }
+
+            Button {
+                id: sendButton
+                anchors {
+                    right: parent.right; rightMargin: UI.DEFAULT_MARGIN
+                    verticalCenter: parent.verticalCenter
+                }
+                text: "Send"
+                enabled: field.text.length > 0
+                onClicked: {
+                    if (sheet.commentModel) {
+                        sheet.commentModel.post(field.text);
+                        field.text = "";
+                    }
+                }
+            }
         }
     }
 }
