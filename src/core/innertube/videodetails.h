@@ -58,6 +58,10 @@ public:
     // meta-object stays frozen.
     void applyWatch(const yt::core::Outcome<yt::core::WatchResult> &r);
 
+    // The RYD chain's delivery sink (fetchDislikes). Stores the count in the SEPARATE
+    // m_dislikeCount member so applyWatch resetting m_primary can never clobber it.
+    void applyDislikes(const yt::core::Outcome<qint64> &r);
+
     QString title()       const { return m_primary.title; }
     QString description() const { return m_primary.description; }
     QString likeText()    const { return m_primary.likeText; }
@@ -70,7 +74,7 @@ public:
     QObject* related()    const;
     int     likeStatus()  const { return m_primary.likeStatus; }
     qint64  likeCount()   const { return m_primary.likeCount; }
-    qint64  dislikeCount() const { return m_primary.dislikeCount; }
+    qint64  dislikeCount() const { return m_dislikeCount; }
 
     // Guarded optimistic like/dislike toggles. Each flips m_primary toward the target
     // state (like() toggles Liked<->Indifferent, dislike() Disliked<->Indifferent),
@@ -108,6 +112,9 @@ private:
     yt::core::JobToken m_actionJob;   // dtor-canceled token guarding the in-flight like/dislike action
     VideoModel *m_related;
     CT::Video m_primary;
+    // The RYD dislike count. Decoupled from m_primary (which applyWatch replaces
+    // wholesale) so a fetchWatch delivery can't clobber the RYD count back to -1.
+    qint64 m_dislikeCount = -1;
     int m_status;
     QString m_error;
 };

@@ -335,10 +335,10 @@ Page {
                                 color: dislikeCell.disliked ? UI.COLOR_BRAND_RED : UI.COLOR_INVERTED_FOREGROUND
                             }
                         }
-                        // Dislike COUNT is Phase D — keep the glyph label as-is (no fabricated number).
+                        // RYD dislike count when known (returnyoutubedislikeapi.com), else the glyph label.
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: "Dislike"
+                            text: (details && details.dislikeCount >= 0) ? formatCount(details.dislikeCount) : "Dislike"
                             color: dislikeCell.disliked ? UI.COLOR_BRAND_RED : UI.COLOR_SECONDARY_FOREGROUND
                             font.pixelSize: UI.FONT_XXSMALL
                         }

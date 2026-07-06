@@ -39,6 +39,7 @@ ApiRef VideoDetails::apiRef() const {
 void VideoDetails::load(const QString &videoId) {
     cancelJob();
     m_primary = CT::Video();
+    m_dislikeCount = -1;   // new video → unknown until RYD replies
     emit loaded();
     m_job = core::newJob();
     m_status = core::Loading;
@@ -53,6 +54,19 @@ void VideoDetails::load(const QString &videoId) {
                 api.host->invokeGui([job, self, r]() {
                     if (!core::live(job)) return;   // MUST be first
                     self->applyWatch(r);
+                });
+            });
+    });
+    // In parallel: the RYD dislike count (a plain GET, usually faster than /next).
+    // Reuses the SAME load token (m_job) so it's dtor/cancelJob-canceled — capturing
+    // self in the delivery is R8-safe; its landing in m_dislikeCount is decoupled from
+    // applyWatch's m_primary reset.
+    api.host->invoke([api, videoId, job, self]() {
+        core::fetchDislikes(*api.http, videoId, job,
+            [api, job, self](const core::Outcome<qint64> &r) {
+                api.host->invokeGui([job, self, r]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->applyDislikes(r);
                 });
             });
     });
@@ -82,6 +96,12 @@ void VideoDetails::applyWatch(const core::Outcome<core::WatchResult> &r) {
     m_status = core::Ready;
     emit loaded();
     emit statusChanged();
+}
+
+void VideoDetails::applyDislikes(const core::Outcome<qint64> &r) {
+    if (!r.ok) return;   // transport error / 404 → leave the count unknown (-1)
+    m_dislikeCount = r.value;
+    emit likeChanged();
 }
 
 bool VideoDetails::signedIn() const {
