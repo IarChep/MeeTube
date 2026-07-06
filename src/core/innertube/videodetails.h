@@ -105,6 +105,7 @@ private:
                      int prevStatus, qint64 prevLikes);
     void cancelJob();
     yt::core::JobToken m_job;
+    yt::core::JobToken m_actionJob;   // dtor-canceled token guarding the in-flight like/dislike action
     VideoModel *m_related;
     CT::Video m_primary;
     int m_status;
