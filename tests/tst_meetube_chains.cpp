@@ -662,6 +662,14 @@ private slots:
         core::fetchVideoList(http, s, core::newJob(), [](const core::Outcome<core::VideoPage>&){});
         QCOMPARE(http.lastClientFor("browse"), (int)ClientId::WEB);
     }
+    // VLLL / VLWL — the private Liked / Watch Later playlist feeds always need the
+    // bearer (feedRequiresAuth), so a signed-in browse must POST as TVHTML5.
+    void routing_liked_authed_uses_tv() {
+        FakeHttp http; http.session().bearer = "tok";
+        core::VideoListSpec s; s.kind = core::VideoListSpec::Browse; s.browseId = "VLLL";
+        core::fetchVideoList(http, s, core::newJob(), [](const core::Outcome<core::VideoPage>&){});
+        QCOMPARE(http.lastClientFor("browse"), (int)ClientId::TVHTML5);
+    }
 
     // fetchDislikes: the dislike count comes from returnyoutubedislikeapi.com (a
     // non-YouTube JSON body), fetched via IHttp::get and parsed with a local Ryd
