@@ -16,6 +16,7 @@
 
 #include "videodetails.h"
 #include "innertube/innertube.h"
+#include "innertube/accountmanager.h"
 #include "models/videomodel.h"
 
 namespace yt {
@@ -77,6 +78,55 @@ void VideoDetails::applyWatch(const core::Outcome<core::WatchResult> &r) {
     m_status = core::Ready;
     emit loaded();
     emit statusChanged();
+}
+
+bool VideoDetails::signedIn() const {
+    Innertube *e = Innertube::instance();
+    if (!e) return false;
+    AccountManager *m = qobject_cast<AccountManager *>(e->auth());
+    return m && m->isSignedIn();
+}
+
+void VideoDetails::like()       { applyLike(m_primary.likeStatus == 1 ? 0 : 1); }
+void VideoDetails::dislike()    { applyLike(m_primary.likeStatus == 2 ? 0 : 2); }
+void VideoDetails::removeLike() { applyLike(0); }
+
+void VideoDetails::applyLike(int desired) {
+    if (!signedIn()) { emit needsSignIn(); return; }
+    const int prevStatus = m_primary.likeStatus;
+    const qint64 prevLikes = m_primary.likeCount;
+    if (prevStatus == desired) return;
+    // Optimistic like-count delta (only the like tally moves, and only when known).
+    if (m_primary.likeCount >= 0) {
+        if (prevStatus == 1 && desired != 1) m_primary.likeCount -= 1;   // leaving Liked
+        if (prevStatus != 1 && desired == 1) m_primary.likeCount += 1;   // entering Liked
+    }
+    m_primary.likeStatus = desired;
+    emit likeChanged();
+    const core::ActionKind kind =
+        desired == 1 ? core::Like : desired == 2 ? core::Dislike : core::RemoveLike;
+    const QString videoId = m_primary.id;
+    fireGuarded(kind, videoId, prevStatus, prevLikes);
+}
+
+void VideoDetails::fireGuarded(core::ActionKind kind, const QString &videoId,
+                               int prevStatus, qint64 prevLikes) {
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) return;   // no transport: the optimistic state stands
+    const core::JobToken job = core::newJob();
+    VideoDetails *self = this;
+    api.host->invoke([api, kind, videoId, job, self, prevStatus, prevLikes]() {
+        core::submitAction(*api.http, kind, videoId, job,
+            [api, job, self, prevStatus, prevLikes](bool ok) {
+                if (ok) return;   // confirmed — the optimistic state stands
+                api.host->invokeGui([job, self, prevStatus, prevLikes]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->m_primary.likeStatus = prevStatus;
+                    self->m_primary.likeCount  = prevLikes;
+                    emit self->likeChanged();
+                });
+            });
+    });
 }
 
 }
