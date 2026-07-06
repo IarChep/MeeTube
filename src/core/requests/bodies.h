@@ -21,6 +21,8 @@ std::string resolveUrl(const QString &url);
 std::string accountsList();                            // {accountReadMask:{returnOwner:true}}
 std::string subscribeChannels(const QString &channelId);
 std::string likeTarget(const QString &videoId);
+// {createCommentParams, commentText} — a top-level comment post (create_comment).
+std::string createComment(const QString &createCommentParams, const QString &text);
 // add=true → ACTION_ADD_VIDEO (id = videoId); add=false → ACTION_REMOVE_VIDEO
 // (id = the per-entry setVideoId position handle). playlistId is WL|LL|PL….
 std::string editPlaylist(const QString &playlistId, bool add, const QString &id);

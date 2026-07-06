@@ -161,8 +161,10 @@ static void fetchCommentsPage(IHttp &http, const QString &token, const JobToken 
         [done](const Reply &r) {
             Outcome<CommentPage> out;
             if (!r.ok) { out.error = r.error; done(out); return; }
-            QString next; QList<CT::Comment> c = parseComments(*r.body, &next);
+            QString next, createParams;
+            QList<CT::Comment> c = parseComments(*r.body, &next, &createParams);
             out.ok = true; out.value.items = c; out.value.next = next;
+            out.value.createCommentParams = createParams;   // R4 best-effort (may be empty)
             done(out);
         });
 }
@@ -384,6 +386,18 @@ void submitAction(IHttp &http, ActionKind kind, const QString &targetId, const J
     const std::string body = spec.channel ? bodies::subscribeChannels(targetId)
                                           : bodies::likeTarget(targetId);
     http.post(QString::fromLatin1(spec.endpoint), ClientId::TVHTML5, body, job,
+        [done](const Reply &r) { done(r.ok); });
+}
+
+// ---- postComment — comment/create_comment -----------------------------------
+// TVHTML5 like submitAction: comment writes need the Bearer, which rides only on
+// the TV client. done(true) on an OK reply — the created comment isn't parsed back
+// (the model prepends a locally-built comment optimistically).
+void postComment(IHttp &http, const QString &createCommentParams, const QString &text,
+                 const JobToken &job, std::function<void(bool ok)> done)
+{
+    http.post("comment/create_comment", ClientId::TVHTML5,
+              bodies::createComment(createCommentParams, text), job,
         [done](const Reply &r) { done(r.ok); });
 }
 

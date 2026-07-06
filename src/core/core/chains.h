@@ -25,7 +25,7 @@ namespace yt { namespace core {
 template <class T> struct Outcome { bool ok; QString error; T value; Outcome() : ok(false) {} };
 struct VideoPage    { QList<CT::Video> items; QString next; };
 struct WatchResult  { CT::Video primary; QList<CT::Video> related; };
-struct CommentPage  { QList<CT::Comment> items; QString next; };
+struct CommentPage  { QList<CT::Comment> items; QString next; QString createCommentParams; };
 struct PlaylistPage { QList<CT::Playlist> items; QString next; };
 struct UserPage     { QList<CT::User> items; QString next; };
 struct PlayerOutcome {
@@ -58,6 +58,10 @@ void fetchPlaylists(IHttp &, const QString &resourceId, const QString &page, con
 void fetchPlaylistSearch(IHttp &, const QString &query, const JobToken &, std::function<void(const Outcome<PlaylistPage> &)> done);
 void fetchAccount(IHttp &, const JobToken &, std::function<void(const Outcome<CT::Account> &)> done);
 void submitAction(IHttp &, ActionKind, const QString &targetId, const JobToken &, std::function<void(bool ok)> done);
+// Post a top-level comment: POST comment/create_comment on TVHTML5 (the bearer
+// write) with {createCommentParams, commentText}. done(true) on an OK reply —
+// the created comment is not parsed back (the model prepends optimistically).
+void postComment(IHttp &, const QString &createCommentParams, const QString &text, const JobToken &, std::function<void(bool ok)> done);
 // Add (add=true, id=videoId) or remove (add=false, id=setVideoId handle) a video
 // to/from a playlist (WL|LL|PL…) via browse/edit_playlist, TVHTML5 (bearer write).
 void editPlaylist(IHttp &, const QString &playlistId, bool add, const QString &id, const JobToken &, std::function<void(bool ok)> done);

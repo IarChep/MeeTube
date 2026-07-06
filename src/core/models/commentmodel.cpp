@@ -16,6 +16,7 @@
 
 #include "commentmodel.h"
 #include "innertube/innertube.h"
+#include "innertube/accountmanager.h"
 
 using namespace yt;
 
@@ -32,7 +33,10 @@ enum CRole { RId, RBody, RDate, RUserId, RUsername, RThumbnailUrl, RCommentRoleC
 CommentModel::CommentModel(QObject *parent)
     : ServiceListModel(commentRoles(), parent) {}
 
-CommentModel::~CommentModel() { if (m_job) m_job->canceled.store(true); }
+CommentModel::~CommentModel() {
+    if (m_job) m_job->canceled.store(true);
+    if (m_postJob) m_postJob->canceled.store(true);   // the revert closure gates on this (R8)
+}
 
 int CommentModel::itemCount() const { return m_rows.size(); }
 
@@ -93,6 +97,7 @@ void CommentModel::fetchMore() {
 }
 
 void CommentModel::cancelJob() {
+    if (m_postJob) m_postJob->canceled.store(true);   // supersede any in-flight post revert (R8)
     if (!m_job) return;
     m_job->canceled.store(true);
     const ApiRef api = apiRef();
@@ -102,11 +107,23 @@ void CommentModel::cancelJob() {
     m_job.reset();
 }
 
+bool CommentModel::signedIn() const {
+    Innertube *e = Innertube::instance();
+    if (!e) return false;
+    AccountManager *m = qobject_cast<AccountManager *>(e->auth());
+    return m && m->isSignedIn();
+}
+
 void CommentModel::cancel() { cancelJob(); setStatus(core::Canceled); }
 
 // APPEND; ok with empty items ⇒ Ready (comments disabled), NOT Failed.
 void CommentModel::applyComments(const core::Outcome<core::CommentPage> &r) {
     if (!r.ok) { setError(r.error); setStatus(core::Failed); return; }
+    // Keep the create-comment token from the page that carries one; a later
+    // continuation page (no box) leaves the stored token untouched (only overwrite
+    // when non-empty).
+    if (!r.value.createCommentParams.isEmpty())
+        m_createCommentParams = r.value.createCommentParams;
     if (!r.value.items.isEmpty()) {
         beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + r.value.items.size() - 1);
         m_rows << r.value.items;
@@ -115,4 +132,43 @@ void CommentModel::applyComments(const core::Outcome<core::CommentPage> &r) {
     }
     setNext(r.value.next);
     setStatus(core::Ready);
+}
+
+// Post a top-level comment. Guarded by signedIn(); optimistically PREPENDs a
+// locally-built comment at row 0 and reverts it if the create_comment post fails.
+void CommentModel::post(const QString &text) {
+    if (!signedIn()) { emit needsSignIn(); return; }
+    if (text.isEmpty()) return;
+
+    // Optimistic prepend at row 0.
+    CT::Comment c;
+    c.body = text;
+    c.username = QString::fromLatin1("You");
+    c.date = QString::fromLatin1("Just now");
+    beginInsertRows(QModelIndex(), 0, 0);
+    m_rows.prepend(c);
+    endInsertRows();
+    emitCountChanged();
+
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) return;   // no transport: the optimistic row stands
+    if (m_postJob) m_postJob->canceled.store(true);   // supersede a prior in-flight post
+    m_postJob = core::newJob();
+    const core::JobToken job = m_postJob;             // capture THIS (dtor-canceled) token (R8)
+    const QString params = m_createCommentParams;
+    CommentModel *self = this;
+    api.host->invoke([api, params, text, job, self]() {
+        core::postComment(*api.http, params, text, job,
+            [api, job, self](bool ok) {
+                if (ok) return;   // confirmed — the optimistic row stands
+                api.host->invokeGui([job, self]() {
+                    if (!core::live(job)) return;   // MUST be first (R8)
+                    if (self->m_rows.isEmpty()) return;
+                    self->beginRemoveRows(QModelIndex(), 0, 0);
+                    self->m_rows.removeAt(0);
+                    self->endRemoveRows();
+                    self->emitCountChanged();
+                });
+            });
+    });
 }
