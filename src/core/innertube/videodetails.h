@@ -95,6 +95,12 @@ public:
     // and reverts on failure.
     Q_INVOKABLE void saveToWatchLater();
 
+    // Add the current video to the given playlist (add-only). Gated behind signedIn()
+    // (else needsSignIn()). No optimistic per-playlist state — fire + a confirmation
+    // signal (addedToPlaylist) on the action's success. Reuses the dtor-canceled
+    // m_saveJob token (same class of action as Save).
+    Q_INVOKABLE void addToPlaylist(const QString &playlistId);
+
 public Q_SLOTS:
     void cancel();
 
@@ -103,6 +109,7 @@ Q_SIGNALS:
     void statusChanged();
     void likeChanged();
     void savedChanged();  // Watch Later save state flipped (optimistic set OR revert)
+    void addedToPlaylist(const QString &playlistId);  // addToPlaylist() action confirmed
     void needsSignIn();   // like/dislike/save attempted while signed out — QML shows the sign-in sheet
 
 protected:
