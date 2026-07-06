@@ -118,6 +118,13 @@ private slots:
         QVERIFY(related.size() >= 1);
         QCOMPARE(related.first().id, QString("rel1"));
     }
+    // Authed /next: the like toggle's state + count feed likeStatus/likeCount.
+    void watch_extracts_like_state() {
+        CT::Video primary; QList<CT::Video> related;
+        parseWatchPage(std::string_view(payloads::kNextLikedWeb), &primary, &related);
+        QCOMPARE(primary.likeStatus, 1);       // Liked
+        QCOMPARE(primary.likeCount, (qint64)1234);
+    }
     void recursionDepthGuarded() {
         // A 500-deep nest with the token buried past the depth cap: the walks
         // must give up and return safely, not overflow the device stack.

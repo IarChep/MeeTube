@@ -31,6 +31,77 @@ static QString findLikeText(std::string_view primaryInfo)
     return QString();
 }
 
+// A button title is a real count only when it is a plain formatted integer
+// ("1,234" / "1 234" / "1234"); abbreviated forms ("1.2K") stay in likeText and
+// leave likeCount unknown. Returns -1 when the text carries no numeric count.
+static qint64 countFromTitle(const QString &title)
+{
+    if (title.isEmpty()) return -1;
+    if (!title.contains(QRegExp("[0-9]"))) return -1;         // pure label ("Like")
+    if (title.contains(QRegExp("[A-Za-z]"))) return -1;       // abbreviated ("1.2K")
+    return digitsOf(title);                                   // strips ',' / spaces
+}
+
+// Account-tied engagement state (authed /next only): the like/dislike toggle.
+// Modern WEB shape — segmentedLikeDislikeButtonViewModel nests like/dislike
+// ButtonViewModels, each wrapping a toggleButtonViewModel with `isToggled`; the
+// like side's button title carries the count. Legacy shape — a toggleButtonRenderer
+// pair (first=like, second=dislike) each with `isToggled` + `defaultText`.
+// Defensive: unfound shapes leave likeStatus=0 / likeCount=-1 (Risk R1).
+static void findLikeState(std::string_view primaryInfo, int *likeStatus, qint64 *likeCount)
+{
+    *likeStatus = 0;
+    *likeCount = -1;
+
+    // -- Modern: like/dislikeButtonViewModel (under segmentedLikeDislikeButtonViewModel).
+    const std::string_view likeVM = findExtent(primaryInfo, "likeButtonViewModel");
+    const std::string_view dislikeVM = findExtent(primaryInfo, "dislikeButtonViewModel");
+    if (!likeVM.empty() || !dislikeVM.empty()) {
+        bool disliked = false, liked = false;
+        if (!dislikeVM.empty()) {
+            const std::string_view tvm = findExtent(dislikeVM, "toggleButtonViewModel");
+            rj::ToggleStateVM s{};
+            readJson(s, tvm.empty() ? dislikeVM : tvm);
+            disliked = s.isToggled && *s.isToggled;
+        }
+        if (!likeVM.empty()) {
+            const std::string_view tvm = findExtent(likeVM, "toggleButtonViewModel");
+            rj::ToggleStateVM s{};
+            readJson(s, tvm.empty() ? likeVM : tvm);
+            liked = s.isToggled && *s.isToggled;
+            const std::string_view bvm = findExtent(likeVM, "buttonViewModel");
+            if (!bvm.empty()) {
+                rj::ButtonVM b{};
+                readJson(b, bvm);
+                *likeCount = countFromTitle(qstr(b.title));
+            }
+        }
+        *likeStatus = disliked ? 2 : (liked ? 1 : 0);
+        return;
+    }
+
+    // -- Legacy: the toggleButtonRenderer pair. First = like, second = dislike.
+    const std::string_view menu = findExtent(primaryInfo, "menuRenderer");
+    if (menu.empty()) return;
+    rj::TogglePair mr{};
+    readJson(mr, menu);
+    if (!mr.topLevelButtons) return;
+    int idx = 0;
+    for (const std::map<std::string, rj::ToggleButton> &btn : *mr.topLevelButtons) {
+        std::map<std::string, rj::ToggleButton>::const_iterator it = btn.find("toggleButtonRenderer");
+        if (it == btn.end()) { ++idx; continue; }
+        const rj::ToggleButton &tb = it->second;
+        const bool on = tb.isToggled && *tb.isToggled;
+        if (idx == 0) {                                    // like button
+            if (on) *likeStatus = 1;
+            if (tb.defaultText) *likeCount = countFromTitle(qstr(textOf(*tb.defaultText)));
+        } else if (idx == 1 && on) {                       // dislike button
+            *likeStatus = 2;
+        }
+        ++idx;
+    }
+}
+
 // WatchScanner — single-pass scan for parseWatchPage:
 //   (a) VideoCollector logic (consume semantics) → related list
 //   (b) first videoPrimaryInfoRenderer extent captured (no consume — siblings
@@ -106,6 +177,7 @@ void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Vid
             if (r.viewCount) v.viewText = qstr(textOf(*r.viewCount));
         }
         v.likeText = findLikeText(pri);
+        findLikeState(pri, &v.likeStatus, &v.likeCount);
     }
     const std::string_view sec = ws.secondary;
     if (!sec.empty()) {
