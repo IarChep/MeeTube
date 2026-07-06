@@ -418,6 +418,40 @@ private slots:
         QVERIFY(t.sent.at(0).contains("\"target\":{\"videoId\":\"vid3\"}"));
     }
 
+    // ---- editPlaylist (browse/edit_playlist) ----
+    // Add: ACTION_ADD_VIDEO carries only addedVideoId; TVHTML5 (bearer write).
+    void editPlaylistAdd() {
+        FakeHttp t;
+        t.queue("browse/edit_playlist", "{}");
+        JobToken job = newJob();
+        bool ok = false; int calls = 0;
+        editPlaylist(t, "WL", true, "vid42", job, [&](bool o) { ok = o; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(ok);
+        QVERIFY(t.sent.at(0).contains("\"playlistId\":\"WL\""));
+        QVERIFY(t.sent.at(0).contains("ACTION_ADD_VIDEO"));
+        QVERIFY(t.sent.at(0).contains("\"addedVideoId\":\"vid42\""));
+        QVERIFY(!t.sent.at(0).contains("setVideoId"));
+        QCOMPARE(t.lastClientFor("browse/edit_playlist"), (int)ClientId::TVHTML5);
+    }
+
+    // Remove: ACTION_REMOVE_VIDEO carries only the setVideoId position handle.
+    void editPlaylistRemove() {
+        FakeHttp t;
+        t.queue("browse/edit_playlist", "{}");
+        JobToken job = newJob();
+        bool ok = false; int calls = 0;
+        editPlaylist(t, "PLabc", false, "setVid", job, [&](bool o) { ok = o; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(ok);
+        QVERIFY(t.sent.at(0).contains("\"playlistId\":\"PLabc\""));
+        QVERIFY(t.sent.at(0).contains("ACTION_REMOVE_VIDEO"));
+        QVERIFY(t.sent.at(0).contains("\"setVideoId\":\"setVid\""));
+        QVERIFY(!t.sent.at(0).contains("addedVideoId"));
+    }
+
     // A transport failure surfaces as done(false).
     void actionTransportFails() {
         FakeHttp t;   // nothing queued → the post fails

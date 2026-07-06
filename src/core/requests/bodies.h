@@ -21,6 +21,9 @@ std::string resolveUrl(const QString &url);
 std::string accountsList();                            // {accountReadMask:{returnOwner:true}}
 std::string subscribeChannels(const QString &channelId);
 std::string likeTarget(const QString &videoId);
+// add=true → ACTION_ADD_VIDEO (id = videoId); add=false → ACTION_REMOVE_VIDEO
+// (id = the per-entry setVideoId position handle). playlistId is WL|LL|PL….
+std::string editPlaylist(const QString &playlistId, bool add, const QString &id);
 }
 }
 #endif

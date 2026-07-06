@@ -369,6 +369,17 @@ void submitAction(IHttp &http, ActionKind kind, const QString &targetId, const J
         [done](const Reply &r) { done(r.ok); });
 }
 
+// ---- editPlaylist — browse/edit_playlist ------------------------------------
+// TVHTML5 like submitAction: playlist writes need the Bearer, which only rides
+// on the TV client. The caller supplies the right id (videoId to add; the
+// per-entry setVideoId position handle to remove).
+void editPlaylist(IHttp &http, const QString &playlistId, bool add, const QString &id,
+                  const JobToken &job, std::function<void(bool ok)> done)
+{
+    http.post("browse/edit_playlist", ClientId::TVHTML5, bodies::editPlaylist(playlistId, add, id), job,
+        [done](const Reply &r) { done(r.ok); });
+}
+
 // ---- OAuth — accountmanager.cpp:53-58, 87-96, 143-154 -----------------------
 void oauthDeviceCode(IHttp &http, const JobToken &job,
                      std::function<void(const Outcome<DeviceCode> &)> done)
