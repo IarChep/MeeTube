@@ -20,6 +20,14 @@ Page {
     // avatarUrl is empty until it loads, so the Avatar shows its placeholder meanwhile.
     property variant accountDetails: innertube.account().details()
 
+    // Refresh the cached AccountDetails on sign-in: re-calling details() re-loads it, so
+    // avatarUrl populates and the toolbar squircle swaps from placeholder to the real
+    // avatar (fixes the stale-placeholder-after-sign-in gap).
+    Connections {
+        target: appWindow
+        onSignedInChanged: if (appWindow.signedIn) page.accountDetails = innertube.account().details()
+    }
+
     // --- Global header content: "<b>MeeTube:</b> <category>" + a chevron, clickable
     // (opens the category dialog). currentCategoryLabel lives on appWindow.
     property Component pageHeader: Component {
@@ -61,13 +69,46 @@ Page {
     // Shared red brand gradient (defined once in main.qml).
     property Component pageHeaderBackground: appWindow.stdHeaderBackground
 
-    ListView {
-        id: list
-        // Sit below the global HeaderBar (it overlays the top of the page area) and
-        // above the toolbar. headerBar.height animates 72 <-> 0, so the list tracks it.
+    // --- Segmented feed selector (Home / Trending / Subscriptions). A native-reading
+    // strip of adjacent checkable Buttons, populated from innertube.feedSections(). Each
+    // button drives appWindow.setFeed() (gated: Subscriptions sends signed-out users to
+    // the account flow); the active button reflects appWindow.currentCategoryId. Sits
+    // below the animated global HeaderBar, above the list.
+    Row {
+        id: feedStrip
         anchors {
             top: parent.top
-            topMargin: headerBar.height
+            topMargin: headerBar.height + UI.PADDING_MEDIUM
+            left: parent.left; leftMargin: UI.MARGIN_XLARGE
+            right: parent.right; rightMargin: UI.MARGIN_XLARGE
+        }
+        spacing: UI.PADDING_SMALL
+
+        Repeater {
+            id: feedRepeater
+            model: innertube.feedSections()
+
+            Button {
+                width: (feedStrip.width - feedStrip.spacing * (feedRepeater.count - 1))
+                       / feedRepeater.count
+                text: modelData.label
+                checkable: true
+                // Bound to the single current-feed id — reasserted after the internal
+                // toggle when setFeed() reassigns currentCategoryId.
+                checked: appWindow.currentCategoryId === modelData.id
+                onClicked: appWindow.setFeed(modelData.id, modelData.requiresAuth, modelData.label)
+            }
+        }
+    }
+
+    ListView {
+        id: list
+        // Sit below the segmented strip (which sits below the animated global HeaderBar)
+        // and above the toolbar. headerBar.height animates 72 <-> 0, so the strip and
+        // list track it.
+        anchors {
+            top: feedStrip.bottom
+            topMargin: UI.PADDING_MEDIUM
             left: parent.left
             right: parent.right
             bottom: parent.bottom

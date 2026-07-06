@@ -31,6 +31,20 @@ PageStackWindow {
             appWindow.feed = innertube.video().feed(currentCategoryId);
     }
 
+    // Switch to a feed section (Home/Trending/Subscriptions) — shared by the segmented
+    // strip on MainPage and the Home default in Component.onCompleted. Gated: a
+    // personalized section (requiresAuth) sends signed-out users to the account flow.
+    // Sets the single current-feed id + header label the strip and header both read.
+    function setFeed(id, requiresAuth, label) {
+        if (requiresAuth && !appWindow.signedIn) {
+            appWindow.openAccount();
+            return;
+        }
+        appWindow.currentCategoryId = id;
+        appWindow.currentCategoryLabel = label;
+        appWindow.feed = innertube.video().feed(id);
+    }
+
     // Switch to nav category `idx` — shared by the category dialog, the home chips row,
     // and the initial load. Updates the header label + the top-level feed.
     function selectCategory(idx) {
@@ -116,7 +130,15 @@ PageStackWindow {
     // Old-style handler (not `function onSignedInChanged()`), per the Qt 4.7 JS engine.
     Connections {
         target: innertube.auth()
-        onSignedInChanged: appWindow.signedIn = innertube.auth().signedIn
+        onSignedInChanged: {
+            appWindow.signedIn = innertube.auth().signedIn;
+            // Just signed in on a personalized feed? Re-fetch it so the generic feed
+            // becomes personalized (same idiom as reloadFeed()).
+            if (appWindow.signedIn
+                && (appWindow.currentCategoryId === "FEwhat_to_watch"
+                    || appWindow.currentCategoryId === "FEsubscriptions"))
+                appWindow.feed = innertube.video().feed(appWindow.currentCategoryId);
+        }
     }
 
     // Populate the category list once + load the first category.
@@ -128,12 +150,16 @@ PageStackWindow {
 
         appWindow.signedIn = innertube.auth().signedIn;
 
+        // The category dialog stays for the nav categories (News/Learning/Live/Sports).
         var nav = innertube.navEntries();
         var i;
         for (i = 0; i < nav.length; ++i)
             categoryListModel.append({ name: nav[i].label });
-        if (nav.length > 0)
-            appWindow.selectCategory(0);
+
+        // Home default: the recommended feed (Home = FEwhat_to_watch) — generic while
+        // signed out, personalized once the user signs in (refreshed below).
+        var secs = innertube.feedSections();
+        appWindow.setFeed(secs[0].id, secs[0].requiresAuth, secs[0].label);
         __updateHeader();
     }
 
