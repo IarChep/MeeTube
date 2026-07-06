@@ -44,6 +44,15 @@ struct Target {
 struct Like {
     Target target;
 };
+struct EditAction {
+    std::string action;
+    std::optional<std::string> addedVideoId;   // omitted when nullopt (add only)
+    std::optional<std::string> setVideoId;     // omitted when nullopt (remove only)
+};
+struct EditPlaylist {
+    std::string playlistId;
+    std::vector<EditAction> actions;
+};
 
 } // namespace bj
 
@@ -124,6 +133,22 @@ std::string likeTarget(const QString &videoId)
 {
     bj::Like b;
     b.target.videoId = videoId.toStdString();
+    return dump(b);
+}
+
+std::string editPlaylist(const QString &playlistId, bool add, const QString &id)
+{
+    bj::EditAction a;
+    if (add) {
+        a.action = "ACTION_ADD_VIDEO";
+        a.addedVideoId = id.toStdString();
+    } else {
+        a.action = "ACTION_REMOVE_VIDEO";
+        a.setVideoId = id.toStdString();
+    }
+    bj::EditPlaylist b;
+    b.playlistId = playlistId.toStdString();
+    b.actions.push_back(a);
     return dump(b);
 }
 
