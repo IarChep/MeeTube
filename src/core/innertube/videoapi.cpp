@@ -21,24 +21,10 @@
 #include "innertube/streamset.h"
 #include "innertube/subtitleset.h"
 #include "innertube/innertube.h"
-#include "core/chains.h"
 
 namespace yt {
 
 VideoApi::VideoApi(QObject *parent) : QObject(parent) {}
-
-// Fire a fire-and-forget action chain via the engine's transport. A fresh token +
-// empty done (QML ignores the outcome); posted on the transport thread (inline now).
-static void fireAction(core::ActionKind kind, const QString &targetId) {
-    Innertube *e = Innertube::instance();
-    if (!e) return;
-    const ApiRef api = e->apiRef();
-    if (!api.host || !api.http) return;
-    const core::JobToken job = core::newJob();
-    api.host->invoke([api, kind, targetId, job]() {
-        core::submitAction(*api.http, kind, targetId, job, [](bool) {});
-    });
-}
 
 QObject* VideoApi::feed(const QString &navId) {
     VideoModel *m = qobject_cast<VideoModel *>(m_feeds.value(navId).data());
@@ -81,9 +67,5 @@ QObject* VideoApi::subtitles(const QString &videoId) {
     s->load(videoId);
     return s;
 }
-
-void VideoApi::like(const QString &videoId)       { fireAction(core::Like, videoId); }
-void VideoApi::dislike(const QString &videoId)    { fireAction(core::Dislike, videoId); }
-void VideoApi::removeLike(const QString &videoId) { fireAction(core::RemoveLike, videoId); }
 
 }

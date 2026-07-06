@@ -19,23 +19,10 @@
 #include "models/videomodel.h"
 #include "innertube/channeldetails.h"
 #include "innertube/innertube.h"
-#include "core/chains.h"
 
 namespace yt {
 
 ChannelApi::ChannelApi(QObject *parent) : QObject(parent) {}
-
-// Fire a fire-and-forget action chain via the engine's transport (see VideoApi).
-static void fireChannelAction(core::ActionKind kind, const QString &channelId) {
-    Innertube *e = Innertube::instance();
-    if (!e) return;
-    const ApiRef api = e->apiRef();
-    if (!api.host || !api.http) return;
-    const core::JobToken job = core::newJob();
-    api.host->invoke([api, kind, channelId, job]() {
-        core::submitAction(*api.http, kind, channelId, job, [](bool) {});
-    });
-}
 
 QObject* ChannelApi::byId(const QString &channelId) {
     ChannelDetails *d = qobject_cast<ChannelDetails *>(m_details.data());
@@ -66,8 +53,5 @@ QObject* ChannelApi::videos(const QString &channelId) {
     m->list(channelId, QLatin1String("EgZ2aWRlb3PyBgQKAjoA"));
     return m;
 }
-
-void ChannelApi::subscribe(const QString &channelId)   { fireChannelAction(core::Subscribe, channelId); }
-void ChannelApi::unsubscribe(const QString &channelId) { fireChannelAction(core::Unsubscribe, channelId); }
 
 }

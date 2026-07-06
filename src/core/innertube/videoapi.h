@@ -25,11 +25,11 @@ namespace yt {
 
 // The `video` node of the InnerTube API tree — reached from QML as innertube.video().
 // Each method returns exactly the right shape for the data: a list model (feed /
-// searchVideos / comments), a plain detail object (details / streams / subtitles), or
-// a fire-and-forget action (like / ...). Returned objects are parented here
-// (CppOwnership) and reused per kind, so QML can bind them to a `property variant`
-// without the returned-QObject GC pitfall. The models/detail objects now self-serve
-// the backend via their apiRef() seam, so this node holds no transport.
+// searchVideos / comments) or a plain detail object (details / streams / subtitles).
+// Returned objects are parented here (CppOwnership) and reused per kind, so QML can
+// bind them to a `property variant` without the returned-QObject GC pitfall. The
+// models/detail objects now self-serve the backend via their apiRef() seam, so this
+// node holds no transport. Actions (like/dislike/subscribe) are on the detail objects.
 class VideoApi : public QObject {
     Q_OBJECT
 public:
@@ -41,11 +41,6 @@ public:
     Q_INVOKABLE QObject* details(const QString &videoId);                           // VideoDetails* (plain)
     Q_INVOKABLE QObject* streams(const QString &videoId);                           // StreamSet* (plain)
     Q_INVOKABLE QObject* subtitles(const QString &videoId);                         // SubtitleSet* (plain)
-    // Fire-and-forget actions — POST via core::submitAction (no-op until auth). QML
-    // ignores the return (VideoPage.qml:244/275), so they are plain void.
-    Q_INVOKABLE void like(const QString &videoId);
-    Q_INVOKABLE void dislike(const QString &videoId);
-    Q_INVOKABLE void removeLike(const QString &videoId);
 
 private:
     // One cached VideoModel per feed id — the home feed, the History carousel and
