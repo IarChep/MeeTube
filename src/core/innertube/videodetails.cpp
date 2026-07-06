@@ -24,7 +24,10 @@ namespace yt {
 VideoDetails::VideoDetails(QObject *parent)
     : QObject(parent), m_related(new VideoModel(this)), m_status(core::Null) {}
 
-VideoDetails::~VideoDetails() { if (m_job) m_job->canceled.store(true); }
+VideoDetails::~VideoDetails() {
+    if (m_job) m_job->canceled.store(true);
+    if (m_actionJob) m_actionJob->canceled.store(true);
+}
 
 QObject* VideoDetails::related() const { return m_related; }
 
@@ -56,6 +59,7 @@ void VideoDetails::load(const QString &videoId) {
 }
 
 void VideoDetails::cancelJob() {
+    if (m_actionJob) m_actionJob->canceled.store(true);
     if (!m_job) return;
     m_job->canceled.store(true);
     const ApiRef api = apiRef();
@@ -113,7 +117,9 @@ void VideoDetails::fireGuarded(core::ActionKind kind, const QString &videoId,
                                int prevStatus, qint64 prevLikes) {
     const ApiRef api = apiRef();
     if (!api.host || !api.http) return;   // no transport: the optimistic state stands
-    const core::JobToken job = core::newJob();
+    if (m_actionJob) m_actionJob->canceled.store(true);   // supersede a prior in-flight action
+    m_actionJob = core::newJob();
+    const core::JobToken job = m_actionJob;                // capture THIS (dtor-canceled) token
     VideoDetails *self = this;
     api.host->invoke([api, kind, videoId, job, self, prevStatus, prevLikes]() {
         core::submitAction(*api.http, kind, videoId, job,
