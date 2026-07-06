@@ -19,6 +19,11 @@ PageStackWindow {
     property string currentCategoryLabel: ""
     property string currentCategoryId: ""
 
+    // App-level sign-in state, mirrored from AccountManager (innertube.auth()). Seeded
+    // in Component.onCompleted and kept live by the Connections block below, so the
+    // chrome (e.g. the toolbar account control) reacts to sign-in/out reactively.
+    property bool signedIn: false
+
     // Re-request the current category's feed (Retry from an error state). feed() reuses
     // the cached VideoModel, so this just re-lists it.
     function reloadFeed() {
@@ -107,12 +112,21 @@ PageStackWindow {
         id: authSheet
     }
 
+    // Keep appWindow.signedIn in step with AccountManager (sign-in/out at runtime).
+    // Old-style handler (not `function onSignedInChanged()`), per the Qt 4.7 JS engine.
+    Connections {
+        target: innertube.auth()
+        onSignedInChanged: appWindow.signedIn = innertube.auth().signedIn
+    }
+
     // Populate the category list once + load the first category.
     Component.onCompleted: {
         // Dark (inverted) theme app-wide: flips the window background to black and
         // restyles every com.nokia.meego component (Label/Button/Sheet/BusyIndicator/…)
         // and auto-whitens standard ToolIcons.
         theme.inverted = true;
+
+        appWindow.signedIn = innertube.auth().signedIn;
 
         var nav = innertube.navEntries();
         var i;

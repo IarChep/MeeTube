@@ -1,5 +1,6 @@
 import QtQuick 1.1
 import com.nokia.meego 1.0
+import "../components"
 import "../components/delegates"
 import "../components/ui"
 import "../js/UIConstants.js" as UI
@@ -13,6 +14,11 @@ Page {
     orientationLock: PageOrientation.LockPortrait
 
     tools: mainTools
+
+    // Cached AccountDetails (innertube.account().details()) — stored once so the toolbar
+    // avatar binds to a single object rather than re-invoking details() per binding.
+    // avatarUrl is empty until it loads, so the Avatar shows its placeholder meanwhile.
+    property variant accountDetails: innertube.account().details()
 
     // --- Global header content: "<b>MeeTube:</b> <category>" + a chevron, clickable
     // (opens the category dialog). currentCategoryLabel lives on appWindow.
@@ -120,8 +126,25 @@ Page {
                 onClicked: pageStack.push(Qt.resolvedUrl("SearchPage.qml"))
             }
             TabButton {
-                iconSource: "image://theme/icon-m-toolbar-contact-white"
+                id: accountButton
+                // Signed out: the contact glyph. Signed in: the glyph is cleared and a
+                // squircle Avatar (below) is overlaid, so the toolbar shows the user's
+                // avatar. The tap target is the TabButton either way.
+                iconSource: appWindow.signedIn
+                            ? ""
+                            : "image://theme/icon-m-toolbar-contact-white"
                 onClicked: appWindow.openAccount()
+
+                // Signed-in avatar, sized to the toolbar icon and centered over the
+                // button. Non-interactive so taps fall through to the TabButton above.
+                Avatar {
+                    anchors.centerIn: parent
+                    width: UI.SIZE_ICON_LARGE
+                    height: UI.SIZE_ICON_LARGE
+                    visible: appWindow.signedIn
+                    interactive: false
+                    source: page.accountDetails ? page.accountDetails.avatarUrl : ""
+                }
             }
         }
     }
