@@ -16,6 +16,7 @@
 #include "tokenscan.h"
 #include "jsonscan.h"
 #include <QRegExp>
+#include <map>
 #include <vector>
 
 namespace yt {
@@ -297,9 +298,21 @@ struct ViewCountR {
 };
 struct ToggleButton {
     std::optional<Text> defaultText;
+    std::optional<bool> isToggled;            // authed /next: true when this side is engaged
 };
 struct ButtonVM {
     std::optional<std::string> title;
+};
+// Modern like/dislike toggle state: segmentedLikeDislikeButtonViewModel nests a
+// like/dislikeButtonViewModel, each wrapping a toggleButtonViewModel carrying the
+// engaged flag. Read from the toggleButtonViewModel extent.
+struct ToggleStateVM {
+    std::optional<bool> isToggled;
+};
+// Legacy like/dislike: menuRenderer.topLevelButtons[] — [0]=like, [1]=dislike,
+// each a {"toggleButtonRenderer": {...}} object (mapped by its single key).
+struct TogglePair {
+    std::optional<std::vector<std::map<std::string, ToggleButton>>> topLevelButtons;
 };
 struct OwnerR {
     std::optional<Text> title;
