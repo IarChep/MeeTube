@@ -34,10 +34,6 @@ public:
     Q_INVOKABLE QObject* resolve(const QString &handleUrl);      // ChannelDetails* (@handle → header)
     Q_INVOKABLE QObject* searchChannels(const QString &query);   // ChannelModel* (list)
     Q_INVOKABLE QObject* videos(const QString &channelId);       // VideoModel* (channel uploads)
-    // Fire-and-forget actions — POST via core::submitAction (no-op until auth). QML
-    // ignores the return (ChannelPage.qml:184, VideoPage.qml:445), so plain void.
-    Q_INVOKABLE void subscribe(const QString &channelId);
-    Q_INVOKABLE void unsubscribe(const QString &channelId);
 
 private:
     QPointer<QObject> m_details;   // reused ChannelDetails
