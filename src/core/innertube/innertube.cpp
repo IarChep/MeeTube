@@ -99,6 +99,24 @@ void Innertube::applyBearer() {
     });
 }
 
+QVariantList Innertube::feedSections() const {
+    QVariantList out;
+    struct S { const char *label; const char *id; bool auth; };
+    const S rows[] = {
+        { "Home",          "FEwhat_to_watch", false },
+        { "Trending",      "FEtrending",      false },
+        { "Subscriptions", "FEsubscriptions", true  },
+    };
+    for (const S &s : rows) {
+        QVariantMap m;
+        m["label"] = QString::fromLatin1(s.label);
+        m["id"]    = QString::fromLatin1(s.id);
+        m["requiresAuth"] = s.auth;
+        out << m;
+    }
+    return out;
+}
+
 QVariantList Innertube::authedFeeds() const {
     QVariantList out;
     struct { const char *label; const char *id; } feeds[] = {
