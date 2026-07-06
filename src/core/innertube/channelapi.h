@@ -33,11 +33,13 @@ public:
     Q_INVOKABLE QObject* byId(const QString &channelId);         // ChannelDetails* (plain header)
     Q_INVOKABLE QObject* resolve(const QString &handleUrl);      // ChannelDetails* (@handle → header)
     Q_INVOKABLE QObject* searchChannels(const QString &query);   // ChannelModel* (list)
+    Q_INVOKABLE QObject* subscribedChannels();                   // ChannelModel* (FEchannels grid)
     Q_INVOKABLE QObject* videos(const QString &channelId);       // VideoModel* (channel uploads)
 
 private:
     QPointer<QObject> m_details;   // reused ChannelDetails
     QPointer<QObject> m_search;
+    QPointer<QObject> m_subscriptions;   // reused ChannelModel over FEchannels
     QPointer<QObject> m_videos;
 };
 

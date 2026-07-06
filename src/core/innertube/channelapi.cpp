@@ -45,6 +45,13 @@ QObject* ChannelApi::searchChannels(const QString &query) {
     return m;
 }
 
+QObject* ChannelApi::subscribedChannels() {
+    ChannelModel *m = qobject_cast<ChannelModel *>(m_subscriptions.data());
+    if (!m) { m = new ChannelModel(this); m_subscriptions = m; }
+    m->list(QLatin1String("FEchannels"));   // the manage-subscriptions grid
+    return m;
+}
+
 QObject* ChannelApi::videos(const QString &channelId) {
     VideoModel *m = qobject_cast<VideoModel *>(m_videos.data());
     if (!m) { m = new VideoModel(this); m_videos = m; }

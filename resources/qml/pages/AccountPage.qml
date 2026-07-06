@@ -212,6 +212,11 @@ Page {
                 onClicked: pageStack.push(Qt.resolvedUrl("PlaylistsPage.qml"),
                                           { channelId: page.details.channelId })
             }
+            NavRow {
+                iconSource: "image://theme/icon-m-content-settings-inverse"
+                label: "Manage subscriptions"
+                onClicked: pageStack.push(Qt.resolvedUrl("ManageSubscriptionsPage.qml"))
+            }
         }
     }
 

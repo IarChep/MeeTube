@@ -255,6 +255,32 @@ private slots:
         QVERIFY(t.sent.at(0).contains("\"params\":"));
     }
 
+    // ---- fetchChannelList (browse FEchannels grid) ----
+    // A gridChannelRenderer grid (the FEchannels feed shape) parses into a
+    // QList<CT::User>; a signed-in browse routes TVHTML5 (the FEchannels feed
+    // always needs the bearer, which rides only the TV client).
+    void channelListBrowsesGrid() {
+        FakeHttp t;
+        t.session().bearer = "tok";                  // signed in
+        t.queue("browse",
+                "{\"contents\":[{\"gridChannelRenderer\":{\"channelId\":\"UCsub1\","
+                "\"title\":{\"simpleText\":\"Sub One\"}}},"
+                "{\"gridChannelRenderer\":{\"channelId\":\"UCsub2\","
+                "\"title\":{\"simpleText\":\"Sub Two\"}}}]}");
+        JobToken job = newJob();
+        Outcome<UserPage> out; int calls = 0;
+        fetchChannelList(t, "FEchannels", QString(), job,
+                         [&](const Outcome<UserPage> &r) { out = r; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(out.ok);
+        QCOMPARE(out.value.items.size(), 2);
+        QCOMPARE(out.value.items[0].id, QString("UCsub1"));
+        QCOMPARE(out.value.items[0].username, QString("Sub One"));
+        QVERIFY(t.sent.at(0).contains("\"browseId\":\"FEchannels\""));
+        QCOMPARE(t.lastClientFor("browse"), (int)ClientId::TVHTML5);
+    }
+
     // fetchPlaylists (browse) — params/continuation shape.
     void playlistBrowse() {
         FakeHttp t;

@@ -50,6 +50,10 @@ void fetchPlayer(IHttp &, const QString &videoId, const JobToken &, std::functio
 void fetchChannelById(IHttp &, const QString &channelId, const JobToken &, std::function<void(const Outcome<CT::User> &)> done);
 void fetchChannelByUrl(IHttp &, const QString &handleUrl, const JobToken &, std::function<void(const Outcome<CT::User> &)> done);
 void fetchUserSearch(IHttp &, const QString &query, const JobToken &, std::function<void(const Outcome<UserPage> &)> done);
+// Browse a channel-list feed (FEchannels — the manage-subscriptions grid). Mirrors
+// fetchVideoList's browse arm but parses channel renderers; clientForBrowse routes
+// FEchannels to TVHTML5+bearer. `page` is the continuation token (empty = first page).
+void fetchChannelList(IHttp &, const QString &browseId, const QString &page, const JobToken &, std::function<void(const Outcome<UserPage> &)> done);
 void fetchPlaylists(IHttp &, const QString &resourceId, const QString &page, const QString &params, const JobToken &, std::function<void(const Outcome<PlaylistPage> &)> done);
 void fetchPlaylistSearch(IHttp &, const QString &query, const JobToken &, std::function<void(const Outcome<PlaylistPage> &)> done);
 void fetchAccount(IHttp &, const JobToken &, std::function<void(const Outcome<CT::Account> &)> done);

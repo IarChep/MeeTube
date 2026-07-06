@@ -311,6 +311,24 @@ void fetchUserSearch(IHttp &http, const QString &query, const JobToken &job,
         });
 }
 
+// ---- fetchChannelList — browse a channel-list feed (FEchannels grid) --------
+// Mirrors fetchVideoList's browse arm but for channels: clientForBrowse routes
+// FEchannels (feedRequiresAuth) to TVHTML5+bearer, and parseUserList handles the
+// grid channel renderer (channelRenderer/gridChannelRenderer).
+void fetchChannelList(IHttp &http, const QString &browseId, const QString &page,
+                      const JobToken &job, std::function<void(const Outcome<UserPage> &)> done)
+{
+    const ClientId cid = clientForBrowse(browseId, http.session());
+    http.post("browse", cid, bodies::browse(browseId, QString(), page), job,
+        [done](const Reply &r) {
+            Outcome<UserPage> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            QString token; QList<CT::User> u = parseUserList(*r.body, &token);
+            out.ok = true; out.value.items = u; out.value.next = token;
+            done(out);
+        });
+}
+
 // ---- fetchPlaylists — playlistrequest.cpp:23-27, 35-43 ----------------------
 void fetchPlaylists(IHttp &http, const QString &resourceId, const QString &page, const QString &params,
                     const JobToken &job, std::function<void(const Outcome<PlaylistPage> &)> done)
