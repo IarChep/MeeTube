@@ -67,6 +67,38 @@ Page {
         return false;
     }
 
+    // Abbreviate a count like YouTube: 1_500_000 -> "1.5M", 12_300 -> "12.3K",
+    // else the plain integer. Old JS engine: var/function only, no arrow fns.
+    function formatCount(n) {
+        if (n === undefined || n === null || n < 0)
+            return "";
+        var v;
+        if (n >= 1000000) {
+            v = n / 1000000;
+            return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + "M";
+        }
+        if (n >= 1000) {
+            v = n / 1000;
+            return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + "K";
+        }
+        return "" + n;
+    }
+
+    // Signed-out like/dislike/subscribe attempts raise needsSignIn() on the detail
+    // objects; open the auth sheet. Old-style Connections (onSignal handlers).
+    // channel may be null until details resolves — a null target is a harmless
+    // no-op and re-binds when channel is assigned.
+    Connections {
+        target: details
+        ignoreUnknownSignals: true
+        onNeedsSignIn: appWindow.openAccount()
+    }
+    Connections {
+        target: channel
+        ignoreUnknownSignals: true
+        onNeedsSignIn: appWindow.openAccount()
+    }
+
     Flickable {
         id: flick
         anchors.fill: parent
@@ -236,12 +268,15 @@ Page {
 
                 // like
                 Item {
+                    id: likeCell
                     width: parent.width / 4
                     height: parent.height
+                    // Liked (likeStatus === 1) tints the icon + label brand-red.
+                    property bool liked: (details && details.likeStatus === 1) ? true : false
                     MouseArea {
                         id: likeMouse
                         anchors.fill: parent
-                        onClicked: if (videoData) innertube.video().like(videoData.id)
+                        onClicked: if (details) details.like()
                     }
                     Column {
                         anchors.centerIn: parent
@@ -255,24 +290,32 @@ Page {
                                 width: likeIcon.width; height: likeIcon.height
                                 source: "image://theme/icon-s-common-like"; smooth: true
                             }
-                            Rectangle { anchors.fill: parent; color: UI.COLOR_INVERTED_FOREGROUND }
+                            Rectangle {
+                                anchors.fill: parent
+                                color: likeCell.liked ? UI.COLOR_BRAND_RED : UI.COLOR_INVERTED_FOREGROUND
+                            }
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: (details && details.likeText) ? details.likeText : "Like"
-                            color: UI.COLOR_SECONDARY_FOREGROUND
+                            // Numeric like count when known, else the API string, else "Like".
+                            text: (details && details.likeCount >= 0) ? formatCount(details.likeCount)
+                                  : ((details && details.likeText) ? details.likeText : "Like")
+                            color: likeCell.liked ? UI.COLOR_BRAND_RED : UI.COLOR_SECONDARY_FOREGROUND
                             font.pixelSize: UI.FONT_XXSMALL
                         }
                     }
                 }
                 // dislike — the like glyph flipped 180
                 Item {
+                    id: dislikeCell
                     width: parent.width / 4
                     height: parent.height
+                    // Disliked (likeStatus === 2) tints the glyph brand-red.
+                    property bool disliked: (details && details.likeStatus === 2) ? true : false
                     MouseArea {
                         id: dislikeMouse
                         anchors.fill: parent
-                        onClicked: if (videoData) innertube.video().dislike(videoData.id)
+                        onClicked: if (details) details.dislike()
                     }
                     Column {
                         anchors.centerIn: parent
@@ -287,12 +330,16 @@ Page {
                                 width: dislikeIcon.width; height: dislikeIcon.height
                                 source: "image://theme/icon-s-common-like"; smooth: true
                             }
-                            Rectangle { anchors.fill: parent; color: UI.COLOR_INVERTED_FOREGROUND }
+                            Rectangle {
+                                anchors.fill: parent
+                                color: dislikeCell.disliked ? UI.COLOR_BRAND_RED : UI.COLOR_INVERTED_FOREGROUND
+                            }
                         }
+                        // Dislike COUNT is Phase D — keep the glyph label as-is (no fabricated number).
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
                             text: "Dislike"
-                            color: UI.COLOR_SECONDARY_FOREGROUND
+                            color: dislikeCell.disliked ? UI.COLOR_BRAND_RED : UI.COLOR_SECONDARY_FOREGROUND
                             font.pixelSize: UI.FONT_XXSMALL
                         }
                     }
@@ -441,9 +488,9 @@ Page {
                             : "image://theme/meegotouch-button-negative-background-pressed"
                     }
                     onClicked: {
-                        if (!channel || !details || !details.channelId) return;
-                        if (channel.subscribed) innertube.channel().unsubscribe(details.channelId);
-                        else                    innertube.channel().subscribe(details.channelId);
+                        if (!channel) return;
+                        if (channel.subscribed) channel.unsubscribe();
+                        else                    channel.subscribe();
                     }
                 }
 
