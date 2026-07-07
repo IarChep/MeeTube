@@ -4,7 +4,7 @@
 
 namespace yt { namespace net {
 
-CurlEngine::CurlEngine(QObject *parent) : QObject(parent), m_multi(0), m_running(0)
+CurlEngine::CurlEngine(QObject *parent) : QObject(parent), m_multi(0)
 {
     m_multi = curl_multi_init();
     curl_multi_setopt(m_multi, CURLMOPT_SOCKETFUNCTION, &CurlEngine::socketCb);
@@ -92,7 +92,8 @@ void CurlEngine::onTimeout()               { socketAction(CURL_SOCKET_TIMEOUT, 0
 
 void CurlEngine::socketAction(curl_socket_t s, int evBitmask)
 {
-    curl_multi_socket_action(m_multi, s, evBitmask, &m_running);
+    int running = 0;   // write-only out-param of curl_multi_socket_action (never read)
+    curl_multi_socket_action(m_multi, s, evBitmask, &running);
     checkCompletions();
 }
 

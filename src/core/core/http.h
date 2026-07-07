@@ -1,6 +1,7 @@
 #ifndef YT_CORE_HTTP_H
 #define YT_CORE_HTTP_H
-// Callback-based QNetworkAccessManager transport — the successor to the
+// Callback-based transport over a QNetworkAccessManager — now the libcurl-backed
+// net::CurlNetworkAccessManager (still a QNetworkAccessManager). The successor to the
 // per-request TransportReply/NamReply/CachedReply zoo. It folds every handle's job
 // into MANAGER-level bookkeeping:
 //   - ONE QNetworkAccessManager::finished(QNetworkReply*) connection dispatches all
