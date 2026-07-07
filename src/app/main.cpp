@@ -3,6 +3,7 @@
 #include <QTextCodec>
 #include <QSslConfiguration>
 #include <QSslCertificate>
+#include <QSslSocket>
 #include <QDir>
 #include <QPluginLoader>
 #include <QImageReader>
@@ -46,6 +47,17 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
         QSslConfiguration::setDefaultConfiguration(cfg);
     }
 #endif
+
+    // Force OpenSSL initialization + its process-global thread-locking callbacks onto
+    // the MAIN thread NOW, before the backend's worker-thread QNAM (Innertube, below)
+    // issues any TLS. Qt 4.7 installs OpenSSL's CRYPTO locking callbacks lazily on the
+    // FIRST QSslSocket use; the backend runs its QNAM on a worker thread (Task 14), so
+    // if that worker races the GUI image-loader QNAM to the first SSL handshake, OpenSSL
+    // 1.0.2 (NOT thread-safe until those callbacks are set) heap-corrupts under concurrent
+    // handshakes/teardown — random SIGSEGV deep in X509/ASN1 free. Touching supportsSsl()
+    // here runs ensureInitialized() up front, on the main thread, so the callbacks are in
+    // place before any worker-thread TLS.
+    (void) QSslSocket::supportsSsl();
 
 #ifdef WEBP_PLUGIN_DIR
     app->addLibraryPath(QLatin1String(WEBP_PLUGIN_DIR));

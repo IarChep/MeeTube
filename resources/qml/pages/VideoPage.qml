@@ -30,9 +30,13 @@ Page {
     // From the API tree: details() (one /next → description, like/view text + a nested
     // related VideoModel), comments(), and — once details resolves — the channel header
     // (subscriber count + subscribe state). All C++-owned, bound here.
-    property variant details
-    property variant comments
-    property variant channel
+    // Default to null (not undefined): these are used as Connections `target:` (a
+    // QObject*), and binding an undefined variant to a QObject* target logs
+    // "Unable to assign [undefined] to QObject* target". null is a valid no-op target
+    // that re-binds when the real object is assigned.
+    property variant details: null
+    property variant comments: null
+    property variant channel: null
     Component.onCompleted: {
         if (videoData && videoData.id) {
             details = innertube.video().details(videoData.id);

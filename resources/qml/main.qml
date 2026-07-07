@@ -139,6 +139,17 @@ PageStackWindow {
                     || appWindow.currentCategoryId === "FEsubscriptions"))
                 appWindow.feed = innertube.video().feed(appWindow.currentCategoryId);
         }
+        // The bearer is minted ASYNC (restore() at launch, or a token refresh). signedIn is
+        // already true from the persisted refresh token, so signedInChanged does NOT fire when
+        // the bearer finally lands — yet the initial Home/Subscriptions fetch already went out
+        // anonymously (FEwhat_to_watch returns an EMPTY grid for anonymous requests). Re-fetch
+        // the current personalized feed once the bearer exists, so Home fills in on launch
+        // instead of staying "Nothing here yet" until the user switches categories.
+        onBearerChanged: {
+            if (appWindow.currentCategoryId === "FEwhat_to_watch"
+                || appWindow.currentCategoryId === "FEsubscriptions")
+                appWindow.feed = innertube.video().feed(appWindow.currentCategoryId);
+        }
     }
 
     // Populate the category list once + load the first category.
