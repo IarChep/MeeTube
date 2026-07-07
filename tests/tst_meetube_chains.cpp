@@ -677,11 +677,12 @@ private slots:
     // through as ok=true with the raw body (no false "InnerTube error").
     void dislikes_parses_count() {
         FakeHttp http; http.setGetBody("{\"id\":\"v\",\"likes\":9,\"dislikes\":42}");
-        qint64 got = -1;
+        qint64 likes = -1, dislikes = -1;
         core::fetchDislikes(http, "v", core::newJob(),
-            [&](const core::Outcome<qint64>& o){ if (o.ok) got = o.value; });
+            [&](const core::Outcome<core::RydVotes>& o){ if (o.ok) { likes = o.value.likes; dislikes = o.value.dislikes; } });
         http.flush();
-        QCOMPARE(got, (qint64)42);
+        QCOMPARE(dislikes, (qint64)42);
+        QCOMPARE(likes, (qint64)9);
         QVERIFY(http.lastGetUrl().contains("returnyoutubedislikeapi.com/votes?videoId=v"));
     }
 };
