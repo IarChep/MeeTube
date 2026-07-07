@@ -78,6 +78,14 @@ public:
         o.value.primary.likeCount  = likeCount;
         applyWatch(o);
     }
+    // Seed the /next subscribe state (the authed owner block) via the same applyWatch sink.
+    void testSeedSubscribed(bool subscribed) {
+        core::Outcome<core::WatchResult> o;
+        o.ok = true;
+        o.value.primary.id = "vid42";
+        o.value.primary.subscribed = subscribed;
+        applyWatch(o);
+    }
 protected:
     ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
                                           const_cast<FakeHttp *>(&m_fake)); }
@@ -372,6 +380,18 @@ private slots:
         // The authed TV /next has no like count -> RYD's fills likeCount (fetchWatch
         // here fails gracefully, so the RYD fallback is the only source).
         QCOMPARE(d.likeCount(), (qint64)100);
+    }
+
+    // Regression: applyWatch (the /next delivery) carries the owner's subscribe state,
+    // so it MUST emit subscribedChanged() — otherwise the QML VideoPage button, bound to
+    // details.subscribed (NOTIFY subscribedChanged), never re-evaluates after the async
+    // load and stays "Subscribe" for a channel the viewer is subscribed to.
+    void videoDetailsSubscribeNotifiesOnLoad() {
+        TestVideoDetails d;
+        QSignalSpy spy(&d, SIGNAL(subscribedChanged()));
+        d.testSeedSubscribed(true);
+        QVERIFY(d.subscribed());        // state loaded from the /next owner
+        QVERIFY(spy.count() >= 1);      // AND notified so the binding updates — the fix
     }
 
     // Guarded optimistic like: state flips synchronously inside like() (Indifferent->
