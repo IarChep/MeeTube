@@ -80,8 +80,8 @@ public:
     // Authed personalized feeds (FE browseIds): only meaningful when signed in. The
     // UI feeds these to a VideoModel, whose browse carries the Bearer (WEB client).
     Q_INVOKABLE QVariantList authedFeeds() const;
-    // Home/Trending/Subscriptions strip — the three top-level feed sections.
-    // Home and Trending are public; Subscriptions requires authentication.
+    // Home/Subscriptions strip — the two top-level feed sections.
+    // Home is public; Subscriptions requires authentication.
     Q_INVOKABLE QVariantList feedSections() const;
 
     AccountStore*   accountStore()   { return &m_store; }

@@ -170,21 +170,15 @@ private slots:
         Innertube::instance()->shutdown();
     }
 
-    void feedSectionsReturnsThreeEntries() {
+    void feedSectionsReturnsTwoEntries() {
         QVariantList sections = Innertube::instance()->feedSections();
-        QCOMPARE(sections.size(), 3);
-        // ids in order
+        QCOMPARE(sections.size(), 2);
         QCOMPARE(sections.at(0).toMap().value("id").toString(), QString("FEwhat_to_watch"));
-        QCOMPARE(sections.at(1).toMap().value("id").toString(), QString("FEtrending"));
-        QCOMPARE(sections.at(2).toMap().value("id").toString(), QString("FEsubscriptions"));
-        // labels
+        QCOMPARE(sections.at(1).toMap().value("id").toString(), QString("FEsubscriptions"));
         QCOMPARE(sections.at(0).toMap().value("label").toString(), QString("Home"));
-        QCOMPARE(sections.at(1).toMap().value("label").toString(), QString("Trending"));
-        QCOMPARE(sections.at(2).toMap().value("label").toString(), QString("Subscriptions"));
-        // requiresAuth
+        QCOMPARE(sections.at(1).toMap().value("label").toString(), QString("Subscriptions"));
         QCOMPARE(sections.at(0).toMap().value("requiresAuth").toBool(), false);
-        QCOMPARE(sections.at(1).toMap().value("requiresAuth").toBool(), false);
-        QCOMPARE(sections.at(2).toMap().value("requiresAuth").toBool(), true);
+        QCOMPARE(sections.at(1).toMap().value("requiresAuth").toBool(), true);
     }
 
     void listPopulatesModel() {
