@@ -60,7 +60,8 @@ Item {
         }
     }
 
-    // ---- Avatar + [title / metadata] -----------------------------------------
+    // ---- Title / metadata ----------------------------------------------------
+    // No channel avatar: the signed-in (TVHTML5) home feed carries none.
     Row {
         id: infoRow
         anchors {
@@ -68,18 +69,9 @@ Item {
             left: parent.left; right: parent.right
             leftMargin: UI.DEFAULT_MARGIN; rightMargin: UI.DEFAULT_MARGIN
         }
-        spacing: UI.PADDING_XLARGE
-
-        // Channel avatar, top-aligned with the title (empty url -> placeholder).
-        Avatar {
-            id: avatar
-            width: UI.SIZE_ICON_LARGE
-            height: UI.SIZE_ICON_LARGE
-            source: avatarUrl ? avatarUrl : ""
-        }
 
         Column {
-            width: parent.width - avatar.width - UI.PADDING_XLARGE
+            width: parent.width
             spacing: UI.PADDING_XSMALL
 
             Text {
@@ -148,24 +140,6 @@ Item {
                     userId: userId,
                     id: id
                 }
-            });
-        }
-    }
-
-    // Sits above the root MouseArea, exactly over the avatar (cross-hierarchy
-    // position binding — anchors can't target a non-sibling): tapping the channel
-    // avatar opens the channel page; the rest of the row still opens the video.
-    MouseArea {
-        x: infoRow.x + avatar.x
-        y: infoRow.y + avatar.y
-        width: avatar.width
-        height: avatar.height
-        onClicked: {
-            if (!userId || userId === "") return;
-            pageStack.push(Qt.resolvedUrl("../../pages/ChannelPage.qml"), {
-                channelId: userId,
-                channelName: username ? username : "",
-                channelAvatar: avatarUrl ? avatarUrl : ""
             });
         }
     }
