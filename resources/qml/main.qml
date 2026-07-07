@@ -31,7 +31,7 @@ PageStackWindow {
             appWindow.feed = innertube.video().feed(currentCategoryId);
     }
 
-    // Switch to a feed section (Home/Trending/Subscriptions) — shared by the segmented
+    // Switch to a feed section (Home/Subscriptions) — shared by the segmented
     // strip on MainPage and the Home default in Component.onCompleted. Gated: a
     // personalized section (requiresAuth) sends signed-out users to the account flow.
     // Sets the single current-feed id + header label the strip and header both read.

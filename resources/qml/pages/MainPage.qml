@@ -69,7 +69,7 @@ Page {
     // Shared red brand gradient (defined once in main.qml).
     property Component pageHeaderBackground: appWindow.stdHeaderBackground
 
-    // --- Segmented feed selector (Home / Trending / Subscriptions). A native-reading
+    // --- Segmented feed selector (Home / Subscriptions). A native-reading
     // strip of adjacent checkable Buttons, populated from innertube.feedSections(). Each
     // button drives appWindow.setFeed() (gated: Subscriptions sends signed-out users to
     // the account flow); the active button reflects appWindow.currentCategoryId. Sits

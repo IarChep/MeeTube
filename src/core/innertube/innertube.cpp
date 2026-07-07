@@ -104,7 +104,6 @@ QVariantList Innertube::feedSections() const {
     struct S { const char *label; const char *id; bool auth; };
     const S rows[] = {
         { "Home",          "FEwhat_to_watch", false },
-        { "Trending",      "FEtrending",      false },
         { "Subscriptions", "FEsubscriptions", true  },
     };
     for (const S &s : rows) {
