@@ -105,6 +105,15 @@ void VideoDetails::applyWatch(const core::Outcome<core::WatchResult> &r) {
     m_status = core::Ready;
     emit loaded();
     emit statusChanged();
+    // The /next also loads the account-tied engagement state into m_primary — the
+    // like state AND the viewer's subscribe state. Those Q_PROPERTYs NOTIFY on
+    // likeChanged/subscribedChanged (NOT loaded), so fire them or QML bindings on
+    // details.likeStatus/likeCount and details.subscribed never re-evaluate after this
+    // async delivery. (Without subscribedChanged the VideoPage Subscribe button stays
+    // "Subscribe" for a channel the viewer is subscribed to; likeChanged was previously
+    // masked by applyDislikes firing it after RYD.)
+    emit likeChanged();
+    emit subscribedChanged();
 }
 
 void VideoDetails::applyDislikes(const core::Outcome<core::RydVotes> &r) {
