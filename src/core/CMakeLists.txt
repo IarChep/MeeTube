@@ -62,6 +62,13 @@ target_link_libraries(meetube-core PUBLIC
 # and nothing else in the app pays the template-heavy include.
 target_link_libraries(meetube-core PRIVATE glaze)
 
+# libcurl: host only for now; device linking comes in Task 8.
+if(NOT BUILD_N9)
+    find_package(CURL REQUIRED)
+    target_link_libraries(meetube-core PUBLIC ${CURL_LIBRARIES})
+    target_include_directories(meetube-core PUBLIC ${CURL_INCLUDE_DIRS})
+endif()
+
 # The test harness lives in its own subproject — see tests/CMakeLists.txt,
 # wired from the root (NOT BUILD_N9, after this core/ subdir). The GUI app is
 # likewise its own subproject in app/.
