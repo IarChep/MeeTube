@@ -230,3 +230,78 @@ model and the affinity guards in `core::Http`.
   grid. Fix = drop the row + update `tst_meetube_model.cpp::feedSectionsReturnsThreeEntries` (→ two
   entries) + comment hygiene in `main.qml`/`MainPage.qml`/`innertube.h`. A ~15-line change,
   landable independently of this migration.
+
+## Results
+
+Shipped on branch `feat/libcurl-transport` (off `b99335b`, master), subagent-driven, 10 tasks.
+Every app HTTP(S) call — youtubei API POSTs, OAuth form-POSTs, the RYD dislike GET, **and** QML
+`Image` thumbnails — now goes through libcurl + OpenSSL 3.x. Qt 4.7.4's `QNetworkAccessManager` /
+`QSslSocket` and the bundled OpenSSL 1.0.2 are gone; **Qt performs no TLS.**
+
+**What landed (by phase):**
+
+- **P0 — deps, host** (`ecfdbd8`): link the *system* libcurl into `meetube-core`
+  (`find_package(CURL)`).
+- **P1 — custom QNAM** (`c7479e0` + hardening `d18d4ac`, tests `2c5bd42`): `src/core/net/` —
+  `CurlEngine` (per-thread libcurl-`multi` on the Qt event loop via `QSocketNotifier`+`QTimer`),
+  `CurlNetworkReply : QNetworkReply` (QIODevice adapter over one easy handle), `CurlNetworkAccessManager
+  : QNetworkAccessManager` (`createRequest` → `CurlNetworkReply`). Hardened beyond the design:
+  **HTTP/HTTPS-only** schemes (SSRF guard on remote-JSON URLs), **no follow-redirect** when the
+  request carries `Authorization`/`Cookie` (prevents cross-origin credential replay — libcurl re-sends
+  `CURLOPT_HTTPHEADER` verbatim and doesn't strip `Cookie`), bounded `MAXREDIRS` otherwise, and
+  strictly-async completion. `curl_global_init/cleanup` bracketed into `main.cpp` here (needed before
+  the worker thread touches libcurl). New `tst_meetube_curlnam` (6 subtests: GET body+status, blocked
+  scheme, POST body+content-type, response headers, connection-refused, abort→cancel).
+- **P2 — swap `core::Http::m_nam`** (`62d5eb3`): the member type became
+  `net::CurlNetworkAccessManager`; **all** transport logic (coalescing / TTL cache / context+header
+  caches / envelope scan / deadline / `JobToken` gating / worker-thread affinity) is byte-for-byte
+  unchanged. `tst_meetube_client` retained green over the new NAM.
+- **P3 — QML image factory** (`be0834c`): `src/app/curlnamfactory.*`
+  (`QDeclarativeNetworkAccessManagerFactory`) installed on the QML engine before `setSource()`; no
+  thumbnail URL changes.
+- **P4 — drop Qt SSL** (`f1233be` main.cpp, `ad6b470` host deps): the `QSslConfiguration` /
+  `AnyProtocol` / CA-load block deleted; the `openssl102` ExternalProject + all `OSSL_*` vars removed
+  (grep-empty). CA bundle now feeds `CURLOPT_CAINFO` (host `${CACERT_PEM}`, device
+  `/opt/meetube/ssl/cert.pem`), reconciled onto one path across `meetube-core` + `meetube`. Host `ldd`
+  shows OpenSSL 3 only.
+- **P5 — device cross-build** (`c5a5985`): submodules pinned **`openssl-3.0.21`** + **`curl-8_21_0`**;
+  both cross-built armv7hf and bundled to `/opt/meetube/lib` (`libssl.so.3` / `libcrypto.so.3` /
+  `libcurl.so.4` = `libcurl.so.4.8.0`) with their own `DT_RPATH`; no 1.0.2 anywhere. ELF load-chain +
+  rpath verified statically.
+- **Carve-out — Trending removal** (`31f79a7`, "Related work" above): `FEtrending` → HTTP 400 row
+  dropped; `feedSections()` is now **two** entries (Home + Subscriptions);
+  `feedSectionsReturnsTwoEntries` RED→GREEN.
+- **P6 — docs** (this task): CLAUDE.md + this Results section.
+
+**Two device-build deltas** (both from the aged Harmattan sysroot / cross-toolchain, neither in the
+original design):
+- libcurl built **`--without-zlib`** — the sysroot zlib predates 1.2.5.2, so curl's
+  `content_encoding.c` won't compile against it. Harmless: it only drops HTTP transfer-encoding
+  decompression, and the reply sets `CURLOPT_ACCEPT_ENCODING ""` (bandwidth-only, no functional
+  loss).
+- **`libatomic.so.1`** is bundled to `/opt/meetube/lib` too — GCC-14's armv7 OpenSSL 3 emits 64-bit
+  `__atomic_*` calls, so `libssl.so.3`/`libcrypto.so.3` `NEED` libatomic, which the device sysroot
+  lacks (only the cross-toolchain ships it). Without it, OpenSSL 3 fails to load on device.
+
+**`.deb` bundled libs (device):** `libcurl.so.4.8.0`, `libssl.so.3`, `libcrypto.so.3`,
+`libatomic.so.1`, `cert.pem` — alongside the pre-existing `libpng12`/`libjpeg.so.62`/`libwebp`. **No
+OpenSSL 1.0.2.**
+
+**Deviation from the spec:** the design's phase 0 called for a *host cross-build* of OpenSSL 3 +
+libcurl; we instead link the **system** libcurl on the host (`find_package(CURL)` → libcurl 8.20 over
+OpenSSL 3.6). This matches the existing **libwebp precedent** (host takes the system copy, device
+cross-builds + bundles) and keeps the host build lean; the device path builds + bundles exactly as
+designed. The design's OpenSSL **1.1.1 fallback** was not needed — OpenSSL 3.0.21 cross-compiles
+cleanly on the Harmattan GCC-14 toolchain.
+
+**RYD root cause confirmed:** as re-diagnosed in "Context & problem", the blocker was Qt 4.7.4's TLS
+ClientHello (rejected by ECDSA-only Google Cloud endpoints), NOT an OpenSSL-1.0.2 limit — the same
+bundled 1.0.2 driven raw succeeds. Modern libcurl + OpenSSL 3 fixes it end-to-end.
+
+**Tests:** host suite **8/8** (`tst_meetube_{parsers,context,chains,model,client,account,threading,curlnam}`)
+green throughout; `tst_meetube_chains` (FakeHttp) and the other suites unaffected.
+
+**Deferred — on-device runtime verification (N9 unreachable this session):** confirm the RYD dislike
+count loads, thumbnails render, `netstat -tn | grep :443` shows libcurl reaching Google/RYD, `dmesg`
+is clean, and `libatomic.so.1` / OpenSSL 3 load OK on device (per the `n9-device-deploy` loop). All
+static ELF/rpath checks passed; only the live run remains.

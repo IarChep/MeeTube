@@ -57,10 +57,17 @@ source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 7 tes
 `deps/` are **git submodules built by CMake** via `ExternalProject_Add(SOURCE_DIR …)` with
 `DOWNLOAD_COMMAND ""` — **not** FetchContent, no network fetch of the sources:
 
-- **OpenSSL 1.0.2u** — both targets. Qt 4.7.4 dlopen's OpenSSL at runtime and is ABI-compatible
-  only with the 1.0.x branch; the N9's system 0.9.8 and modern hosts' 3.x both fail. Bundled; Qt
-  picks it up via `LD_LIBRARY_PATH` / DT_RPATH. Builds **in-source** in the shared submodule, so
-  the block prepends `git clean -xfdq` to wipe stale objects on a host↔device switch.
+- **libcurl + OpenSSL 3.x** — the app's HTTP(S) transport (see `src/core/net/` below). **Qt no
+  longer does any TLS**, so the old bundled OpenSSL 1.0.2 is gone. **Host:** links the *system*
+  libcurl (`find_package(CURL)`; here libcurl 8.20 over OpenSSL 3.6) — like libwebp, the host takes
+  the system copy rather than cross-building. **Device:** OpenSSL **3.0.21** (`libssl.so.3` /
+  `libcrypto.so.3`) + libcurl **8.21** (`libcurl.so.4`) are cross-built armv7hf and **bundled to
+  `/opt/meetube/lib`** with their own `DT_RPATH` (so libcurl finds its OpenSSL 3 at load); both
+  build **in-source** in their submodules, so the blocks prepend `git clean -xfdq` on a host↔device
+  switch. Two device-build quirks: libcurl is built **`--without-zlib`** (the Harmattan sysroot's
+  zlib predates 1.2.5.2 and won't compile curl's `content_encoding.c`; harmless since the reply sets
+  `CURLOPT_ACCEPT_ENCODING ""`), and **`libatomic.so.1`** is bundled too (GCC-14's armv7 OpenSSL 3
+  emits `__atomic_*` calls the device sysroot can't satisfy).
 - **libpng12** + **libjpeg-turbo** (→ `libjpeg.so.62`) — **both targets**. Host: the Simulator's
   `libQtGui` needs `png_*@PNG12_0` symbols and the `qjpeg` plugin needs the IJG v6b ABI
   (`libjpeg.so.62`), neither present on modern hosts. Device: cross-built armv7hf and **bundled to
@@ -70,11 +77,11 @@ source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 7 tes
 - **qrcodegen** — static PIC lib (for the eventual auth QR flow).
 
 **CA certificates:** each `./configure` downloads the **latest Mozilla CA bundle** from
-`https://curl.se/ca/cacert.pem` (TLS-verified + sha256-checked, offline-resilient), embeds it into
-the OpenSSL install (`…/ssl/cert.pem`) and bundles it to `/opt/meetube/ssl` on device. Qt 4 does
-**not** read OpenSSL's default store, so [src/app/main.cpp](src/app/main.cpp) loads the bundle into
-`QSslConfiguration::defaultConfiguration()` at startup (path via the `MEETUBE_CA_BUNDLE` compile def)
-and sets `QSsl::AnyProtocol` so Qt 4.7 negotiates **TLS 1.2** with the bundled OpenSSL 1.0.2.
+`https://curl.se/ca/cacert.pem` (TLS-verified + sha256-checked, offline-resilient), exported as
+`${CACERT_PEM}` in the build tree and bundled to `/opt/meetube/ssl/cert.pem` on device. libcurl
+reads it via **`CURLOPT_CAINFO`**, seeded from the `MEETUBE_CA_BUNDLE` compile def (the build-tree
+`cacert.pem` on host, `/opt/meetube/ssl/cert.pem` on device) — `core::Http` for API/OAuth/RYD and
+`CurlNamFactory` for QML thumbnails.
 
 ### CMake layout
 
@@ -105,7 +112,9 @@ in dependency order, each with its own CMakeLists:
 - **Booster** `-pie -rdynamic -lmdeclarativecache` + `HARMATTAN_BOOSTER` define + the device sysroot's
   `qdeclarative-boostable.pc` — the app launches through `applauncherd` (PIE / ELF type DYN).
 - `-Wl,-rpath,/opt/meetube/lib -Wl,--disable-new-dtags` — DT_RPATH (inherited by transitively-loaded
-  Qt image plugins) so the bundled libpng12/libjpeg/openssl/libwebp win. Install prefix `/opt/meetube`.
+  Qt image plugins) so the bundled libpng12/libjpeg/libwebp + libcurl/libssl.so.3/libcrypto.so.3/
+  libatomic.so.1 win. Install prefix `/opt/meetube`. (libcurl carries the same rpath so it resolves
+  its OpenSSL 3 from `/opt/meetube/lib`.)
 
 ## Architecture
 
@@ -125,15 +134,40 @@ in dependency order, each with its own CMakeLists:
   `docs/superpowers/specs/2026-07-04-backend-rework-design.md`):
   - `job.h` (`JobState{atomic<bool>}`/`JobToken`/`live()` — the cancellation token), `status.h`
     (`core::Status` Null..Failed, the frozen numeric mirror of `js/Status.js`).
-  - `http.{h,cpp}` — `IHttp` + `core::Http`: the `QNetworkAccessManager`-backed **callback**
-    transport. ONE manager-level `finished()` connection, ONE re-armed deadline `QTimer`, md5-key
-    request **coalescing**, TTL response cache + per-client context/header caches, and a single
-    envelope scan (error + visitorData). Replaces the old per-request `TransportReply` QObject zoo.
-    Covered by `tst_meetube_client` (a real `QTcpServer` loopback).
+  - `http.{h,cpp}` — `IHttp` + `core::Http`: the **callback** transport over a
+    `net::CurlNetworkAccessManager m_nam` (the libcurl NAM — see `net/` below). ONE manager-level
+    `finished()` connection, ONE re-armed deadline `QTimer`, md5-key request **coalescing**, TTL
+    response cache + per-client context/header caches, and a single envelope scan (error +
+    visitorData). Replaces the old per-request `TransportReply` QObject zoo. Its logic is
+    NAM-agnostic (only `m_nam`'s type changed in the libcurl migration). Covered by
+    `tst_meetube_client` (a real `QTcpServer` loopback).
   - `chains.{h,cpp}` — the request layer as **pure-C++ continuation functions** (`fetchVideoList`/
     `fetchWatch`/`fetchComments`/`fetchPlayer`/`fetchChannel*`/`fetchPlaylists`/`fetchAccount`/
     `submitAction`/`oauth*`), each taking `IHttp&` + a `JobToken` + a `done` callback. No QObject,
     no Glaze in the header. Covered by `tst_meetube_chains`.
+- **`net/`** — the **libcurl + OpenSSL 3.x** transport (2026-07-07 migration; see
+  `docs/superpowers/specs/2026-07-07-libcurl-transport-design.md`). ALL app HTTP(S) — youtubei
+  API, OAuth, RYD, **and** QML `Image` thumbnails — flows through it; Qt 4.7.4's `QSslSocket` no
+  longer runs (its TLS ClientHello was rejected by ECDSA-only Google endpoints, which broke RYD —
+  NOT an OpenSSL limit; modern libcurl/OpenSSL 3 fixes it). A drop-in custom QNAM:
+  - `curlengine.{h,cpp}` — `net::CurlEngine`: one **per-thread** libcurl-`multi` driver on the
+    owning thread's Qt event loop (`CURLMOPT_SOCKETFUNCTION` → a `QSocketNotifier` map,
+    `CURLMOPT_TIMERFUNCTION` → a `QTimer`); on activation → `curl_multi_socket_action` →
+    `curl_multi_info_read` routes `CURLMSG_DONE` back to the owning reply. No curl handle crosses
+    threads (GUI engine for images, worker engine for `core::Http`).
+  - `curlnetworkreply.{h,cpp}` — `net::CurlNetworkReply : QNetworkReply`: a QIODevice adapter over
+    one libcurl easy handle. Hardened: **HTTP/HTTPS schemes only** (SSRF guard on remote URLs),
+    **no follow-redirect** when the request carries `Authorization`/`Cookie` (else libcurl replays
+    credentials cross-origin), bounded `MAXREDIRS` on credential-free GETs, `CURLcode` →
+    `QNetworkReply::NetworkError` mapping, always-async completion. (`isFinished()` is a no-op under
+    the Qt 4.7.4 SDK — consumers use the `finished()` signal.)
+  - `curlnetworkaccessmanager.{h,cpp}` — `net::CurlNetworkAccessManager : QNetworkAccessManager`:
+    `createRequest()` → a `CurlNetworkReply` on this NAM's `CurlEngine`; `finished(QNetworkReply*)`
+    re-emitted by the base `postProcess()` wiring. `core::Http`'s `m_nam` is one of these; the QML
+    engine gets one via `src/app/curlnamfactory.*`. `setCaBundle()` seeds `CURLOPT_CAINFO`.
+  - New `tst_meetube_curlnam` (6 subtests: GET body+status, blocked scheme, POST body+content-type,
+    response headers, connection-refused, abort→cancel) covers it; `tst_meetube_client` was retained
+    over the new NAM. Host suite **8/8**.
 - **`threading/workerhost.{h,cpp}`** — the ONE cross-thread seam: `WorkerHost` posts
   `std::function` closures via `CallEvent` between the GUI thread and a worker thread
   (`invoke`/`invokeGui`). Un-started it runs closures inline (tests keep single-threaded);
@@ -164,9 +198,15 @@ in dependency order, each with its own CMakeLists:
   `qmlRegisterType<MaskedItem>("MeeTube",1,0,"MaskedItem")`. (Also `perlinbackground`, `qrimageprovider`.)
 - **`src/app/qmlapplicationviewer/`** — the Harmattan `QmlApplicationViewer` + `createApplication()`
   (`MDeclarativeCache::qApplication()` under the booster), ported from MeeShopGUI.
-- **`src/app/main.cpp`** — booster `createApplication`, registers `VideoModel` + `MaskedItem`, exposes
-  `innertube`, loads the CA bundle + sets `AnyProtocol`, adds the WebP plugin path, calls
-  `Innertube::shutdown()` after `exec()`, loads `qrc:/qml/main.qml`.
+- **`src/app/main.cpp`** — booster `createApplication`, registers `MaskedItem`/`PerlinBackground`,
+  exposes `innertube`, `curl_global_init(CURL_GLOBAL_DEFAULT)` **first** (before any thread touches
+  libcurl) + `curl_global_cleanup()` after `exec()`, installs `net::CurlNamFactory` on the QML
+  engine (so `Image` loads use the libcurl NAM), adds the WebP plugin path, calls
+  `Innertube::shutdown()` after `exec()`, loads `qrc:/qml/main.qml`. The old Qt-SSL block
+  (`QSslConfiguration` / `AnyProtocol` / CA load) is **gone** — Qt performs no TLS.
+- **`src/app/curlnamfactory.{h,cpp}`** — `net::CurlNamFactory : QDeclarativeNetworkAccessManagerFactory`:
+  hands the `QDeclarativeEngine` a `CurlNetworkAccessManager` (with `MEETUBE_CA_BUNDLE` seeded into
+  `CURLOPT_CAINFO`) so QML thumbnail loads go through libcurl — no thumbnail URL changes anywhere.
 
 ### `webp-imageformat/` — Qt 4 WebP image plugin
 
@@ -206,7 +246,10 @@ When generating or editing any `.qml`, **invoke the `nokia-n9-qml` skill**. Hard
 - No C++11 lambda / new-style `connect` — string `SIGNAL`/`SLOT` + a `QHash<QObject*,…> m_pending`
   + an `onFinished()` slot via `sender()`. (std::function callbacks for the transport are fine.)
 - No `QByteArray::fromStdString` — use `QByteArray(s.c_str())`.
-- OpenSSL must be 1.0.x; HTTPS to YouTube needs `QSsl::AnyProtocol` for TLS 1.2.
+- **Qt does no TLS/HTTPS.** All HTTP(S) goes through the `src/core/net/` libcurl + OpenSSL 3.x
+  transport (custom `QNetworkAccessManager`), so `QSslSocket` / `QSslConfiguration` are never used
+  and no OpenSSL is dlopen'd by Qt. (Qt 4.7.4's `QSslSocket` was ABI-locked to OpenSSL 1.0.x AND
+  built a ClientHello modern ECDSA-only endpoints reject — the reason for the 2026-07-07 migration.)
 - **Qt 4's moc cannot lex modern C++**: guard every Glaze-touching header with `#ifndef Q_MOC_RUN`
   (as done in `parsers/ytjson.h`/`jsonscan.h`), and NEVER put raw string literals (`R"(...)"`)
   in a moc'ed TU — moc's pre-C++11 tokenizer derails and silently misses `Q_OBJECT` (empty .moc,
@@ -219,7 +262,11 @@ When generating or editing any `.qml`, **invoke the `nokia-n9-qml` skill**. Hard
 transport, `core::chains`, the typed list models + detail objects, OAuth), the WebP plugin, the
 QmlApplicationViewer + booster, the device cross-build (armv7hf PIE, verified), and the QML UI.
 The **2026-07-04 backend rework** (perf + pure-C++ chains + worker-thread flip) is complete —
-see `docs/superpowers/specs/2026-07-04-backend-rework-design.md` (Results).
+see `docs/superpowers/specs/2026-07-04-backend-rework-design.md` (Results). The **2026-07-07
+libcurl + OpenSSL 3.x transport migration** (all HTTP(S) — including QML thumbnails — off Qt's TLS;
+OpenSSL 1.0.2 removed; fixes RYD) is complete on host (suite 8/8) — see
+`docs/superpowers/specs/2026-07-07-libcurl-transport-design.md` (Results). **On-device runtime
+verification (N9) is still pending** (the device was unreachable that session).
 
 **UI placeholders pending backend** (marked `// TODO Phase 2/3` in the QML): author avatars (no
 `avatarUrl` role yet → bundled placeholder squircle), like/dislike/view counts, comments, suggested
@@ -231,5 +278,5 @@ videos, subscribe, and real playback (the preview is a thumbnail + glyph; no `St
 - **Phase 3** — auth: `AccountManager` OAuth (device-code + QR via `qrcodegen`/a `QrImageProvider`),
   `AccountModel`.
 - **Phase 4** — `debian/` packaging (`.desktop` + icon, `mad dpkg-buildpackage`, bundle the
-  OpenSSL/libwebp/libpng12/libjpeg `.so`s into the `.deb`) + on-device run. No `debian/` or version
-  file exists yet.
+  libcurl/OpenSSL-3/libatomic/libwebp/libpng12/libjpeg `.so`s into the `.deb`) + on-device run.
+  No `debian/` or version file exists yet.
