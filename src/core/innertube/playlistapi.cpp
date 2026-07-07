@@ -22,6 +22,17 @@ namespace yt {
 
 PlaylistApi::PlaylistApi(QObject *parent) : QObject(parent) {}
 
+QObject* PlaylistApi::mine() {
+    PlaylistModel *m = qobject_cast<PlaylistModel *>(m_mine.data());
+    if (!m) { m = new PlaylistModel(this); m_mine = m; }
+    // The signed-in user's own playlists (Liked, created/saved incl. YouTube Music)
+    // live in the Library, NOT on the channel's public Playlists tab — browsing that
+    // returns nothing for a private set. FElibrary is feedRequiresAuth, so fetchPlaylists
+    // routes it TVHTML5+bearer; its playlists ship as tileRenderer, now parsed.
+    m->list(QLatin1String("FElibrary"), QString());
+    return m;
+}
+
 QObject* PlaylistApi::byChannel(const QString &channelId) {
     PlaylistModel *m = qobject_cast<PlaylistModel *>(m_list.data());
     if (!m) { m = new PlaylistModel(this); m_list = m; }

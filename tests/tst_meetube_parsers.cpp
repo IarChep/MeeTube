@@ -73,6 +73,19 @@ private slots:
         QCOMPARE(v.size(), 2);
         QCOMPARE(v[0].id, QString("v1"));
     }
+    // P2.2: the signed-in FElibrary browse ships the user's playlists as TVHTML5
+    // tileRenderer(PLAYLIST); parsePlaylistList must collect them (and skip the
+    // sibling VIDEO tile). Regression for "playlists don't parse when signed in".
+    void tilePlaylistParses() {
+        const std::string resp = payloads::kTilePlaylistLibrary;
+        QString token;
+        QList<CT::Playlist> ps = parsePlaylistList(resp, &token);
+        QCOMPARE(ps.size(), 1);                       // only the PLAYLIST tile
+        QCOMPARE(ps[0].id, QString("PLtest123"));
+        QCOMPARE(ps[0].title, QString("My Mix"));
+        QCOMPARE(ps[0].videoCount, 1709);            // from the "1,709 videos" overlay
+        QCOMPARE(ps[0].videosId, QString("PLtest123"));  // videos() adds the VL prefix
+    }
     // P2.2: channel header (c4TabbedHeaderRenderer) → CT::User (avatar = largest).
     void channelHeaderParses() {
         const std::string resp = payloads::kC4Header;

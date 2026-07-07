@@ -551,6 +551,41 @@ inline CT::User fromTileChannel(const rj::Tile &t)
     return u;
 }
 
+// tileRenderer with TILE_CONTENT_TYPE_PLAYLIST — the TVHTML5 shape for a playlist
+// card. The signed-in FElibrary browse ships the user's playlists (Liked videos,
+// created/saved playlists incl. YouTube Music) as THESE, not gridPlaylistRenderer/
+// lockupViewModel: contentId = playlistId (LL / WL / PL…), metadata title = name,
+// the header thumbnail = cover, and "N videos" rides a thumbnailOverlayTimeStatus-
+// Renderer (the same overlay a video tile uses for its duration).
+inline CT::Playlist fromTilePlaylist(const rj::Tile &t)
+{
+    CT::Playlist p;
+    p.id = qstr(t.contentId);
+    if (t.metadata && t.metadata->tileMetadataRenderer) {
+        const rj::TileMeta &md = *t.metadata->tileMetadataRenderer;
+        if (md.title) p.title = qstr(textOf(*md.title));
+    }
+    if (t.header && t.header->tileHeaderRenderer) {
+        const rj::TileHeader &h = *t.header->tileHeaderRenderer;
+        if (h.thumbnail && h.thumbnail->thumbnails && !h.thumbnail->thumbnails->empty()) {
+            QString url = qstr(lastThumbUrl(*h.thumbnail));   // last = largest
+            if (url.startsWith(QLatin1String("//"))) url.prepend(QLatin1String("https:"));   // protocol-relative
+            p.thumbnailUrl = url;
+        }
+        // "N videos" is the only text overlay on a playlist tile; take its digits
+        // directly (no "video" word-match — the label is localized).
+        if (h.thumbnailOverlays)
+            for (const rj::TileOverlay &ov : *h.thumbnailOverlays)
+                if (ov.thumbnailOverlayTimeStatusRenderer
+                    && ov.thumbnailOverlayTimeStatusRenderer->text) {
+                    const qint64 n = digitsOf(qstr(textOf(*ov.thumbnailOverlayTimeStatusRenderer->text)));
+                    if (n > 0) p.videoCount = (int) n;
+                }
+    }
+    p.videosId = p.id;   // videos() prepends the VL feed prefix
+    return p;
+}
+
 inline CT::Playlist fromPlaylistRenderer(const rj::PlaylistR &r)
 {
     CT::Playlist p;
