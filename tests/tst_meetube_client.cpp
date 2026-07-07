@@ -27,7 +27,7 @@ using yt::core::Reply;
 class LoopbackServer : public QObject {
     Q_OBJECT
 public:
-    enum Mode { Respond, Hang };
+    enum Mode { Respond, Hang, Partial };
     explicit LoopbackServer(Mode m, const QByteArray &body = "{\"ok\":true}", QObject *parent = 0)
         : QObject(parent), m_mode(m), m_body(body) {
         connect(&m_srv, SIGNAL(newConnection()), this, SLOT(onConn()));
@@ -43,7 +43,7 @@ private slots:
     void onConn() {
         QTcpSocket *s = m_srv.nextPendingConnection();
         m_held << s;                       // keep a ref so it isn't reaped
-        if (m_mode == Respond) {
+        if (m_mode != Hang) {
             connect(s, SIGNAL(readyRead()), this, SLOT(onReadyRead()));
             maybeServe(s);                 // handle a body already buffered on connect
         }
@@ -78,9 +78,19 @@ private:
         m_served.insert(s);
         m_bodies << buf.mid(bodyStart, contentLen);
         const QByteArray body = m_body;
-        QByteArray resp = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
-                          "Content-Length: " + QByteArray::number(body.size()) +
-                          "\r\nConnection: close\r\n\r\n" + body;
+        QByteArray resp;
+        if (m_mode == Partial) {
+            // Claim a Content-Length far larger than what we send, then write a short
+            // JSON PREFIX and drop the socket. curl expects 100000 bytes, gets a few,
+            // then hits EOF -> CURLE_PARTIAL_FILE: a transport error carrying a
+            // non-empty, TRUNCATED body — a mobile-network mid-transfer drop.
+            resp = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
+                   "Content-Length: 100000\r\nConnection: close\r\n\r\n" + body;
+        } else {
+            resp = "HTTP/1.0 200 OK\r\nContent-Type: application/json\r\n"
+                   "Content-Length: " + QByteArray::number(body.size()) +
+                   "\r\nConnection: close\r\n\r\n" + body;
+        }
         s->write(resp);
         s->flush();
         s->disconnectFromHost();
@@ -286,6 +296,38 @@ private slots:
         http.post("browse", ClientId::WEB, body, jc, c.fn());
         spin(c.calls);
         QCOMPARE(srv.connections(), 4);
+    }
+
+    // ---- partial transfer (mobile-network mid-stream drop) --------------------
+
+    // A browse response that DROPS mid-transfer arrives as a partial body carrying a
+    // curl transport error (CURLE_PARTIAL_FILE). It must be reported as a FAILURE —
+    // NOT a spurious empty "success" — AND must never enter the 180s response cache.
+    // Otherwise a one-off network blip pins a content-rich category to "empty" for
+    // minutes: the truncated JSON parses to zero videos, and re-selecting the category
+    // is served the cached truncation instead of refetching. (Root cause of the
+    // intermittent-empty-category bug.)
+    void partialTransferFailsAndIsNotCached() {
+        LoopbackServer srv(LoopbackServer::Partial, "{\"partial\":true,\"contents\":");
+        Http http;
+        http.setBaseUrl(srv.url());
+        const std::string body = "{\"browseId\":\"FEpartial\"}";
+
+        Sink a; JobToken ja = core::newJob();
+        http.post("browse", ClientId::WEB, body, ja, a.fn());
+        spin(a.calls);
+        QCOMPARE(a.calls, 1);
+        QVERIFY(!a.reply.ok);                        // a truncated transfer is NOT a success
+        QCOMPARE(srv.connections(), 1);
+
+        // Identical request: because the partial was NOT cached, this MUST hit the
+        // network again (a cached partial would serve from cache -> still 1 connection).
+        Sink b; JobToken jb = core::newJob();
+        http.post("browse", ClientId::WEB, body, jb, b.fn());
+        spin(b.calls);
+        QCOMPARE(b.calls, 1);
+        QVERIFY(!b.reply.ok);
+        QCOMPARE(srv.connections(), 2);              // refetched, not served from cache
     }
 
     // ---- per-client context cache + generation invalidation -------------------
