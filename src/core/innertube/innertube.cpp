@@ -54,14 +54,19 @@ Innertube::Innertube(QObject *parent)
     m_host.start();
 }
 
-// Join the worker thread and destroy the transport. stop() = quit + wait, which
-// joins the worker first, so by the time we delete m_http its thread has finished —
-// deleting a QObject whose thread is no longer running is legal (no cross-thread
-// delete, no live event loop touching it).
+// Destroy the transport ON the worker thread, then join. m_http was moveToThread'd
+// onto the worker (ctor), and its net::CurlNetworkAccessManager → CurlEngine owns
+// QSocketNotifiers created on that worker thread. Those QObjects MUST be torn down on
+// their own thread: deleting m_http from the GUI thread (as the old QNAM-era code did)
+// makes the CurlEngine dtor run curl_multi_cleanup + notifier teardown cross-thread,
+// which Qt rejects ("QObject: Cannot create children for a parent that is in a
+// different thread"). So post the delete into the worker's queue (it runs before the
+// event loop exits), THEN stop() = quit + wait joins the now-transport-free thread.
 void Innertube::shutdown() {
-    m_host.stop();
-    delete m_http;
+    core::Http *http = m_http;
     m_http = 0;
+    m_host.invoke([http]() { delete http; });   // runs on the worker thread
+    m_host.stop();                               // quit + wait
 }
 
 VideoApi* Innertube::videoApi() {
