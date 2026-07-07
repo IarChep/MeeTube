@@ -65,9 +65,11 @@ void postComment(IHttp &, const QString &createCommentParams, const QString &tex
 // Add (add=true, id=videoId) or remove (add=false, id=setVideoId handle) a video
 // to/from a playlist (WL|LL|PL…) via browse/edit_playlist, TVHTML5 (bearer write).
 void editPlaylist(IHttp &, const QString &playlistId, bool add, const QString &id, const JobToken &, std::function<void(bool ok)> done);
-// Dislike count from returnyoutubedislikeapi.com (YouTube hides it). A plain GET —
-// no context/client — parsed with a local Ryd partial struct in chains.cpp.
-void fetchDislikes(IHttp &, const QString &videoId, const JobToken &, std::function<void(const Outcome<qint64> &)> done);
+// Like + dislike counts from returnyoutubedislikeapi.com (YouTube hides the dislike
+// count, and the authed TVHTML5 /next carries no parseable like count). A plain GET —
+// no context/client — parsed with a local Ryd partial struct in chains.cpp. -1 = unknown.
+struct RydVotes { qint64 likes; qint64 dislikes; RydVotes() : likes(-1), dislikes(-1) {} };
+void fetchDislikes(IHttp &, const QString &videoId, const JobToken &, std::function<void(const Outcome<RydVotes> &)> done);
 // OAuth (device-code flow; postForm — no context):
 struct DeviceCode { QString deviceCode, userCode, verificationUrl; int intervalSecs; };
 void oauthDeviceCode(IHttp &, const JobToken &, std::function<void(const Outcome<DeviceCode> &)> done);

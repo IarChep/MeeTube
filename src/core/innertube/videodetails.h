@@ -64,7 +64,7 @@ public:
 
     // The RYD chain's delivery sink (fetchDislikes). Stores the count in the SEPARATE
     // m_dislikeCount member so applyWatch resetting m_primary can never clobber it.
-    void applyDislikes(const yt::core::Outcome<qint64> &r);
+    void applyDislikes(const yt::core::Outcome<yt::core::RydVotes> &r);
 
     QString title()       const { return m_primary.title; }
     QString description() const { return m_primary.description; }
@@ -139,6 +139,7 @@ private:
     // The RYD dislike count. Decoupled from m_primary (which applyWatch replaces
     // wholesale) so a fetchWatch delivery can't clobber the RYD count back to -1.
     qint64 m_dislikeCount = -1;
+    qint64 m_rydLikeCount = -1;   // RYD's like count — fallback when the TV /next has none
     bool m_saved = false;   // optimistic Watch Later save state
     int m_status;
     QString m_error;

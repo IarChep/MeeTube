@@ -86,8 +86,8 @@ struct Token {
 } // namespace oj
 
 // returnyoutubedislikeapi.com /votes body — {"id":..,"likes":..,"dislikes":42,..}.
-// Fixed schema, unknown keys skipped; only the dislike count is read.
-struct Ryd { std::optional<gj::FlexInt> dislikes; };
+// Fixed schema, unknown keys skipped; both like + dislike counts are read.
+struct Ryd { std::optional<gj::FlexInt> likes; std::optional<gj::FlexInt> dislikes; };
 
 QString qstr(const std::optional<std::string> &s)
 {
@@ -493,16 +493,17 @@ void oauthRefresh(IHttp &http, const QString &refreshToken, const JobToken &job,
 // non-YouTube JSON through as ok=true with the raw body (no top-level "error" key
 // to trip the envelope ladder); a transport error / 404 → ok=false → graceful.
 void fetchDislikes(IHttp &http, const QString &videoId, const JobToken &job,
-                   std::function<void(const Outcome<qint64> &)> done)
+                   std::function<void(const Outcome<RydVotes> &)> done)
 {
     const QString url = "https://returnyoutubedislikeapi.com/votes?videoId=" + videoId;
     http.get(url, job, [done](const Reply &r) {
-        Outcome<qint64> out;
+        Outcome<RydVotes> out;
         if (!r.ok) { out.error = r.error; done(out); return; }
         Ryd v{};
         gj::readJsonDoc(v, *r.body);
         out.ok = true;
-        out.value = (qint64) gj::toInt64(v.dislikes);
+        out.value.likes    = v.likes    ? (qint64) gj::toInt64(v.likes)    : -1;
+        out.value.dislikes = v.dislikes ? (qint64) gj::toInt64(v.dislikes) : -1;
         done(out);
     });
 }

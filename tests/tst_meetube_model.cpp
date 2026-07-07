@@ -365,10 +365,13 @@ private slots:
     // gracefully; the dislike count still populates.)
     void videoDetailsDislikeCount() {
         TestVideoDetails d;
-        d.m_fake.setGetBody("{\"dislikes\":42}");
+        d.m_fake.setGetBody("{\"likes\":100,\"dislikes\":42}");
         d.load("vid42");
         d.m_fake.flush();
         QCOMPARE(d.dislikeCount(), (qint64)42);
+        // The authed TV /next has no like count -> RYD's fills likeCount (fetchWatch
+        // here fails gracefully, so the RYD fallback is the only source).
+        QCOMPARE(d.likeCount(), (qint64)100);
     }
 
     // Guarded optimistic like: state flips synchronously inside like() (Indifferent->

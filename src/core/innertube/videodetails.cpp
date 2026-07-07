@@ -41,6 +41,7 @@ void VideoDetails::load(const QString &videoId) {
     cancelJob();
     m_primary = CT::Video();
     m_dislikeCount = -1;   // new video → unknown until RYD replies
+    m_rydLikeCount = -1;
     m_saved = false;       // new video → not (known to be) saved; reset the button
     emit savedChanged();
     emit loaded();
@@ -66,7 +67,7 @@ void VideoDetails::load(const QString &videoId) {
     // applyWatch's m_primary reset.
     api.host->invoke([api, videoId, job, self]() {
         core::fetchDislikes(*api.http, videoId, job,
-            [api, job, self](const core::Outcome<qint64> &r) {
+            [api, job, self](const core::Outcome<core::RydVotes> &r) {
                 api.host->invokeGui([job, self, r]() {
                     if (!core::live(job)) return;   // MUST be first
                     self->applyDislikes(r);
@@ -96,15 +97,24 @@ void VideoDetails::cancel() {
 void VideoDetails::applyWatch(const core::Outcome<core::WatchResult> &r) {
     if (!r.ok) { m_error = r.error; m_status = core::Failed; emit statusChanged(); return; }
     m_primary = r.value.primary;
+    // The authed TV /next carries no like count; if RYD already landed one, keep it
+    // (m_primary was just reset). See applyDislikes.
+    if (m_primary.likeCount < 0 && m_rydLikeCount >= 0) m_primary.likeCount = m_rydLikeCount;
     m_related->assign(r.value.related);
     m_status = core::Ready;
     emit loaded();
     emit statusChanged();
 }
 
-void VideoDetails::applyDislikes(const core::Outcome<qint64> &r) {
-    if (!r.ok) return;   // transport error / 404 → leave the count unknown (-1)
-    m_dislikeCount = r.value;
+void VideoDetails::applyDislikes(const core::Outcome<core::RydVotes> &r) {
+    if (!r.ok) return;   // transport error / 404 → leave the counts unknown (-1)
+    m_dislikeCount = r.value.dislikes;
+    m_rydLikeCount = r.value.likes;
+    // The authed TV /next has no parseable like count — fall back to RYD's. Kept in a
+    // separate member (RYD's GET often beats the /next POST, and applyWatch resets
+    // m_primary); mirror into m_primary.likeCount only when /next gave none, so the
+    // optimistic like/unlike still adjusts the shown count.
+    if (m_primary.likeCount < 0 && m_rydLikeCount >= 0) m_primary.likeCount = m_rydLikeCount;
     emit likeChanged();
 }
 
