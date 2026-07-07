@@ -493,9 +493,13 @@ inline CT::Video fromTile(const rj::Tile &t)
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
         v.largeThumbnailUrl = v.thumbnailUrl;
     }
-    // Channel id from the long-press "Go to channel" menu (the video tile has no
-    // channel field). The TV home tile also has no avatar, so resolve one from the id
-    // via the unavatar.io redirect (avatar-by-channelId; the QML Image fetches it).
+    // Channel id from the long-press "Go to channel" menu (the video tile carries no
+    // channel field of its own). Populating userId makes tapping the author/avatar open
+    // the channel page. NOTE: the TV home tile has NO avatar, and YouTube avatar URLs
+    // are opaque hashes (not constructible from the id) — a proxy (unavatar.io) is
+    // rate-limited and fetching each channel is too heavy for a feed, so the home grid
+    // keeps the placeholder squircle. The author avatar still shows on VideoPage (parsed
+    // from the /next owner).
     if (t.onLongPressCommand && t.onLongPressCommand->showMenuCommand
         && t.onLongPressCommand->showMenuCommand->menu
         && t.onLongPressCommand->showMenuCommand->menu->menuRenderer
@@ -509,8 +513,6 @@ inline CT::Video fromTile(const rj::Tile &t)
             }
         }
     }
-    if (!v.userId.isEmpty() && v.avatarUrl.isEmpty())
-        v.avatarUrl = QLatin1String("https://unavatar.io/youtube/") + v.userId;
     v.url = "https://www.youtube.com/watch?v=" + v.id;
     v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     return v;
