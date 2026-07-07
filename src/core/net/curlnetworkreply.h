@@ -7,6 +7,10 @@
 namespace yt { namespace net {
 class CurlEngine;
 
+// NOTE: QNetworkReply::isFinished() is NON-FUNCTIONAL under this Qt 4.7.4 SDK build —
+// the protected setFinished(bool) that drives it is absent, so isFinished() stays false
+// even after completion. Consumers MUST detect completion via the finished() signal (the
+// base NAM's finished(QNetworkReply*) is chained off it), never via isFinished().
 class CurlNetworkReply : public QNetworkReply {
     Q_OBJECT
 public:
@@ -19,7 +23,9 @@ public:
     qint64 bytesAvailable() const;                 // QIODevice
     bool isSequential() const { return true; }
 
-    void onCurlDone(int curlCode, long httpStatus);   // called by CurlEngine
+    // Called by CurlEngine on CURLMSG_DONE; emits finished() (see the isFinished() note
+    // above — this signal, not isFinished(), is how completion is observed).
+    void onCurlDone(int curlCode, long httpStatus);
 protected:
     qint64 readData(char *data, qint64 maxlen);    // QIODevice
 private:

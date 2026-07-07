@@ -8,6 +8,7 @@
 #include <QPluginLoader>
 #include <QImageReader>
 #include <QDebug>
+#include <curl/curl.h>
 
 #include "qmlapplicationviewer/qmlapplicationviewer.h"
 #include <QtDeclarative/qdeclarative.h>
@@ -23,6 +24,12 @@
 
 Q_DECL_EXPORT int main(int argc, char *argv[])
 {
+    // MUST be the first statement: curl_global_init() is not thread-safe and every
+    // per-thread CurlEngine's curl handles (GUI image loader + the backend's worker
+    // thread) depend on the process-global curl/OpenSSL state it sets up. Run it once
+    // here, before any thread (createApplication, the worker QNAM) can touch libcurl.
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
     QScopedPointer<QApplication> app(createApplication(argc, argv));
     QCoreApplication::setApplicationName("MeeTube");
     QCoreApplication::setOrganizationName("MeeTube");
@@ -104,5 +111,8 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     // deleting m_http (its thread finished) is legal; without this the process would
     // exit with a still-running QThread.
     yt::Innertube::instance()->shutdown();
+    // After the worker thread is joined (shutdown()) no curl handle survives, so it is
+    // safe to tear down libcurl's process-global state; pairs with curl_global_init().
+    curl_global_cleanup();
     return rc;
 }

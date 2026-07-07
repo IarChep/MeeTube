@@ -36,20 +36,46 @@ CurlNetworkReply::CurlNetworkReply(CurlEngine *engine, QNetworkAccessManager::Op
     curl_easy_setopt(m_easy, CURLOPT_WRITEDATA, this);
     curl_easy_setopt(m_easy, CURLOPT_HEADERFUNCTION, &CurlNetworkReply::headerCb);
     curl_easy_setopt(m_easy, CURLOPT_HEADERDATA, this);
-    curl_easy_setopt(m_easy, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(m_easy, CURLOPT_ACCEPT_ENCODING, "");   // all curl-supported encodings
     curl_easy_setopt(m_easy, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(m_easy, CURLOPT_TIMEOUT_MS, 30000L);    // hard ceiling (images); core::Http also watchdogs
     if (!caBundle.isEmpty())
         curl_easy_setopt(m_easy, CURLOPT_CAINFO, caBundle.constData());
 
+    // Restrict schemes to http/https: URLs come from remote YouTube JSON (thumbnail /
+    // RYD hrefs), so an attacker-controlled `file://`/`gopher://`/`dict://` would be an
+    // SSRF / local-file read. (CURLOPT_PROTOCOLS[_STR] — the int form here is deprecated
+    // but functional in curl 8.20, and keeps this moc'd header curl-only.)
+    curl_easy_setopt(m_easy, CURLOPT_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+    curl_easy_setopt(m_easy, CURLOPT_REDIR_PROTOCOLS, (long)(CURLPROTO_HTTP | CURLPROTO_HTTPS));
+
     // Request headers (Content-Type, Authorization, X-Goog-*, User-Agent, …).
+    // While collecting them, note whether the request carries sensitive credentials
+    // (Authorization / Cookie): libcurl re-sends CURLOPT_HTTPHEADER lines verbatim on
+    // redirects and does NOT strip the Cookie header cross-origin, so following a
+    // redirect on such a request would leak the OAuth bearer / consent cookie to
+    // whatever host the Location points at.
+    bool hasCreds = false;
     const QList<QByteArray> names = req.rawHeaderList();
     for (int i = 0; i < names.size(); ++i) {
+        const QByteArray lower = names.at(i).toLower();
+        if (lower == "authorization" || lower == "cookie") hasCreds = true;
         const QByteArray line = names.at(i) + ": " + req.rawHeader(names.at(i));
         m_reqHeaders = curl_slist_append(m_reqHeaders, line.constData());
     }
     if (m_reqHeaders) curl_easy_setopt(m_easy, CURLOPT_HTTPHEADER, m_reqHeaders);
+
+    // Never let curl re-authenticate to a redirected host on its own.
+    curl_easy_setopt(m_easy, CURLOPT_UNRESTRICTED_AUTH, 0L);
+    if (hasCreds) {
+        // Authed youtubei / OAuth POSTs never legitimately redirect — refuse to follow
+        // so the bearer/cookie can't be replayed to another origin.
+        curl_easy_setopt(m_easy, CURLOPT_FOLLOWLOCATION, 0L);
+    } else {
+        // Credential-free GETs (thumbnails, RYD) may hit CDN redirects — follow, bounded.
+        curl_easy_setopt(m_easy, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(m_easy, CURLOPT_MAXREDIRS, 5L);
+    }
 
     if (op == QNetworkAccessManager::PostOperation) {
         if (outgoingData) m_post = outgoingData->readAll();
