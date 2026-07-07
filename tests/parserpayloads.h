@@ -114,6 +114,20 @@ inline const char *kNextLikedWeb = R"({"contents":{"twoColumnWatchNextResults":{
     }}
 ]}}}}}})";
 
+// Authed TVHTML5 /next: the owner block carries the viewer's subscribe state in
+// videoOwnerRenderer.subscribeButton.subscribeButtonRenderer.subscribed (a video the
+// viewer's channel IS subscribed to). Powers the VideoPage Subscribe/Unsubscribe button.
+inline const char *kNextSubscribedTv = R"({"contents":{"singleColumnWatchNextResults":{"results":{"results":{"contents":[
+    {"videoMetadataRenderer": {
+        "title": {"simpleText": "Sub Video"},
+        "owner": {"videoOwnerRenderer": {
+            "title": {"runs": [{"text": "Creator"}]},
+            "navigationEndpoint": {"browseEndpoint": {"browseId": "UCowner"}},
+            "subscribeButton": {"subscribeButtonRenderer": {"subscribed": true, "enabled": true}}
+        }}
+    }}
+]}}}}}})";
+
 } // namespace payloads
 #endif // Q_MOC_RUN
 #endif

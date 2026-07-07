@@ -139,6 +139,16 @@ private slots:
         QVERIFY(related.size() >= 1);
         QCOMPARE(related.first().id, QString("rel1"));
     }
+    // Authed TV /next: the owner's subscribeButtonRenderer.subscribed feeds
+    // primary.subscribed (the viewer's subscribe state for the video's channel),
+    // which powers the VideoPage Subscribe/Unsubscribe button. Regression for the
+    // button staying on "Subscribe" for a channel the viewer is subscribed to.
+    void watch_extracts_subscribe_state() {
+        CT::Video primary; QList<CT::Video> related;
+        parseWatchPage(std::string_view(payloads::kNextSubscribedTv), &primary, &related);
+        QVERIFY(primary.subscribed);
+        QCOMPARE(primary.userId, QString("UCowner"));
+    }
     // Authed /next: the like toggle's state + count feed likeStatus/likeCount.
     void watch_extracts_like_state() {
         CT::Video primary; QList<CT::Video> related;

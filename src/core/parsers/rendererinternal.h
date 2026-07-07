@@ -336,6 +336,9 @@ struct OwnerR {
     std::optional<Text> title;
     std::optional<ThumbSet> thumbnail;
     std::optional<ITCommand> navigationEndpoint;   // {browseEndpoint:{browseId}}
+    // Authed /next only: the viewer's subscribe state for this channel (same shape as
+    // the channel header's subscribeButton). Absent (unauthed) → subscribed stays false.
+    std::optional<SubscribeButton> subscribeButton;
 };
 
 } // namespace rj
