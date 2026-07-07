@@ -29,11 +29,14 @@ class PlaylistApi : public QObject {
 public:
     explicit PlaylistApi(QObject *parent = 0);
 
+    Q_INVOKABLE QObject* mine();                                 // PlaylistModel* (the signed-in user's own playlists)
     Q_INVOKABLE QObject* byChannel(const QString &channelId);    // PlaylistModel* (a channel's playlists)
     Q_INVOKABLE QObject* searchPlaylists(const QString &query);  // PlaylistModel*
     Q_INVOKABLE QObject* videos(const QString &playlistId);      // VideoModel* (a playlist's videos)
 
 private:
+    QPointer<QObject> m_mine;    // reused PlaylistModel for mine() — kept apart from
+                                 // byChannel()'s so the two pages don't stomp each other
     QPointer<QObject> m_list;
     QPointer<QObject> m_videos;
 };

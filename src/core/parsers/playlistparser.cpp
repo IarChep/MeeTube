@@ -9,7 +9,7 @@ struct PlaylistCollector : CollectorBase {
     scan::Action what(std::string_view key, int)
     {
         if (consumed()) return scan::Action::Skip;
-        if (key == "lockupViewModel" || isPlaylistKind(key)) {
+        if (key == "lockupViewModel" || key == "tileRenderer" || isPlaylistKind(key)) {
             consume();
             return scan::Action::Capture;
         }
@@ -24,7 +24,16 @@ struct PlaylistCollector : CollectorBase {
             readJson(lm, value);
             if (lm.contentType && *lm.contentType == "LOCKUP_CONTENT_TYPE_PLAYLIST")
                 *out << fromPlaylistLockup(lm);
-        } else {
+        }
+        // tileRenderer is the TVHTML5 leaf (signed-in FElibrary); only PLAYLIST tiles
+        // become playlists — the sibling video/channel tiles in the library are skipped.
+        else if (key == "tileRenderer") {
+            rj::Tile t{};
+            readJson(t, value);
+            if (t.contentType && *t.contentType == "TILE_CONTENT_TYPE_PLAYLIST")
+                *out << fromTilePlaylist(t);
+        }
+        else {
             rj::PlaylistR r{};
             readJson(r, value);
             *out << fromPlaylistRenderer(r);

@@ -38,6 +38,27 @@ inline const char *kPlaylistVideos = R"({"contents": [
     {"playlistVideoRenderer": {"videoId": "v1", "title": {"simpleText": "One"}}},
     {"playlistVideoRenderer": {"videoId": "v2", "title": {"simpleText": "Two"}}} ]})";
 
+// A slice of a signed-in TVHTML5 FElibrary browse: the user's playlists ship as
+// tileRenderer(TILE_CONTENT_TYPE_PLAYLIST) — contentId = playlistId, metadata title
+// = name, header thumbnail = cover, "N videos" on a thumbnailOverlayTimeStatusRenderer.
+// A sibling VIDEO tile is present to prove only PLAYLIST tiles are collected.
+inline const char *kTilePlaylistLibrary = R"({"contents": {"sections": [
+    {"tileRenderer": {
+        "contentId": "PLtest123",
+        "contentType": "TILE_CONTENT_TYPE_PLAYLIST",
+        "header": {"tileHeaderRenderer": {
+            "thumbnail": {"thumbnails": [{"url": "https://t/small.jpg", "width": 168, "height": 94},
+                                          {"url": "https://t/big.jpg", "width": 320, "height": 180}]},
+            "thumbnailOverlays": [{"thumbnailOverlayTimeStatusRenderer": {
+                "text": {"runs": [{"text": "1,709"}, {"text": " videos"}]}}}]}},
+        "metadata": {"tileMetadataRenderer": {"title": {"simpleText": "My Mix"},
+            "lines": [{"lineRenderer": {"items": [{"lineItemRenderer": {"text": {"simpleText": "Private"}}}]}}]}}}},
+    {"tileRenderer": {
+        "contentId": "vid999",
+        "contentType": "TILE_CONTENT_TYPE_VIDEO",
+        "metadata": {"tileMetadataRenderer": {"title": {"simpleText": "Some Video"}}}}}
+]}})";
+
 inline const char *kC4Header = R"({"header": {"c4TabbedHeaderRenderer": {
     "title": "Cool Channel",
     "channelId": "UCxyz",

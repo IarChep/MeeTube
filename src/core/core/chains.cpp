@@ -338,7 +338,11 @@ void fetchChannelList(IHttp &http, const QString &browseId, const QString &page,
 void fetchPlaylists(IHttp &http, const QString &resourceId, const QString &page, const QString &params,
                     const JobToken &job, std::function<void(const Outcome<PlaylistPage> &)> done)
 {
-    http.post("browse", ClientId::WEB, bodies::browse(resourceId, params, page), job,
+    // Bearer-aware, like fetchVideoList's browse arm: the signed-in FElibrary (the
+    // user's own playlists) is feedRequiresAuth -> TVHTML5+bearer, whose playlists
+    // ship as tileRenderer; a public channel's Playlists tab stays WEB (lockups).
+    const ClientId cid = clientForBrowse(resourceId, http.session());
+    http.post("browse", cid, bodies::browse(resourceId, params, page), job,
         [done](const Reply &r) {
             Outcome<PlaylistPage> out;
             if (!r.ok) { out.error = r.error; done(out); return; }

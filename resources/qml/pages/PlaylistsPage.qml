@@ -5,20 +5,20 @@ import "../components/ui"
 import "../js/UIConstants.js" as UI
 import "../js/Status.js" as Status
 
-// The signed-in user's playlists (playlist().byChannel(own channel id)). Rows open
-// each playlist's videos in a FeedPage.
+// The signed-in user's own playlists (playlist().mine() -> the authed FElibrary).
+// The channel Playlists tab only shows PUBLIC playlists, so it was empty for a
+// private Liked/Watch-Later/Music set. Rows open each playlist's videos in a FeedPage.
 Page {
     id: page
     orientationLock: PageOrientation.LockPortrait
 
-    property string channelId: ""
+    property string channelId: ""   // retained: AccountPage still passes it (unused here)
     property variant playlists
 
     tools: playlistTools
 
     Component.onCompleted: {
-        if (page.channelId !== "")
-            page.playlists = innertube.playlist().byChannel(page.channelId);
+        page.playlists = innertube.playlist().mine();
     }
 
     property Component pageHeader: Component {
@@ -82,7 +82,7 @@ Page {
         title: failed ? "Couldn't load playlists" : "No playlists yet"
         hint: failed ? page.playlists.errorString : ""
         showRetry: failed
-        onRetry: page.playlists = innertube.playlist().byChannel(page.channelId)
+        onRetry: page.playlists = innertube.playlist().mine()
     }
 
     ToolBarLayout {
