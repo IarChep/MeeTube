@@ -39,3 +39,8 @@ mt_test(tst_meetube_account)
 # not started), JobToken (cancellation flag), core::Status mirror. Drives a real
 # QThread round trip (invoke → worker → invokeGui → GUI) via QTRY_VERIFY.
 mt_test(tst_meetube_threading)
+
+find_package(CURL REQUIRED)
+mt_test(tst_meetube_curlnam tst_meetube_curlnam.cpp)
+target_link_libraries(tst_meetube_curlnam PRIVATE ${CURL_LIBRARIES})
+target_include_directories(tst_meetube_curlnam PRIVATE ${CURL_INCLUDE_DIRS})
