@@ -54,7 +54,16 @@ static Reply makeReply(QNetworkReply *r, bool timedOut, bool wantVisitor)
         out.error = QString::fromLatin1("request timed out");
         return out;
     }
-    if (r->error() != QNetworkReply::NoError && body.isEmpty()) {
+    // Any transport-level error fails the reply — even when some bytes arrived. A
+    // mid-transfer drop (flaky mobile network) yields CURLE_PARTIAL_FILE with a
+    // NON-empty, TRUNCATED body; treating that as success would parse the truncated
+    // JSON to zero items (a spurious "empty" feed) AND cache it for the endpoint's
+    // TTL below, pinning a content-rich category to empty for minutes. HTTP status
+    // errors (4xx/5xx) do NOT set error() here — libcurl leaves CURLE_OK without
+    // CURLOPT_FAILONERROR — so the InnerTube error envelope (incl. OAuth's error
+    // code) is still read from the body further down; only genuine transport faults
+    // (partial file, reset, TLS, DNS, timeout) land here.
+    if (r->error() != QNetworkReply::NoError) {
         out.ok = false;
         out.error = r->errorString();
         return out;
