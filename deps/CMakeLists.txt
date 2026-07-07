@@ -278,6 +278,9 @@ if(BUILD_N9)
     get_filename_component(_tc_cxx  "${CMAKE_CXX_COMPILER}" NAME)        # <triple>-g++
     string(REGEX REPLACE "-g\\+\\+$" "" _tc_triple "${_tc_cxx}")         # <triple>
     set(TOOLCHAIN_LIBATOMIC ${_tc_root}/${_tc_triple}/lib/libatomic.so.1 CACHE INTERNAL "")
+    if(NOT EXISTS ${TOOLCHAIN_LIBATOMIC})
+        message(FATAL_ERROR "libatomic.so.1 not found at ${TOOLCHAIN_LIBATOMIC} — the cross toolchain layout changed; update the path or the device .deb will ship a load-broken libssl.so.3.")
+    endif()
 endif()
 
 # ---------------------------------------------------------------------------

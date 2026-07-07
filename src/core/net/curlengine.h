@@ -32,7 +32,6 @@ private:
     CURLM *m_multi;
     QTimer m_timer;
     QHash<int, SockCtx *> m_sockets;   // keyed by fd
-    int m_running;
 };
 }}
 #endif
