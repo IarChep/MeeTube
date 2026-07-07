@@ -5,6 +5,7 @@
 #include <QNetworkReply>
 #include <QEventLoop>
 #include <QTimer>
+#include <QSignalSpy>
 #include "net/curlnetworkaccessmanager.h"
 
 // Minimal one-shot HTTP server: accepts a connection, reads the request, replies
@@ -74,6 +75,71 @@ private slots:
         loop.exec();
         QVERIFY(r->error() != QNetworkReply::NoError);   // scheme blocked -> curl error
         QVERIFY(r->readAll().isEmpty());                 // no bytes leaked from disk
+    }
+
+    // POST must reach the wire as a POST with the caller's body and Content-Type
+    // (the youtubei/v1 endpoints are POST-only JSON): the reply ctor drains
+    // outgoingData into m_post and passes it via CURLOPT_POSTFIELDS, and the
+    // request's raw headers become CURLOPT_HTTPHEADER lines.
+    void postSendsBodyAndContentType() {
+        LoopServer srv;
+        srv.responseBody = "ok";
+        yt::net::CurlNetworkAccessManager nam;
+        QNetworkRequest req(QUrl(QString("http://127.0.0.1:%1/youtubei/v1/browse").arg(srv.port())));
+        req.setRawHeader("Content-Type", "application/json");
+        QNetworkReply *r = nam.post(req, QByteArray("{\"context\":{}}"));
+        QEventLoop loop;
+        connect(r, SIGNAL(finished()), &loop, SLOT(quit()));
+        QTimer::singleShot(5000, &loop, SLOT(quit()));
+        loop.exec();
+        QCOMPARE(r->error(), QNetworkReply::NoError);
+        QVERIFY(srv.lastRequest.startsWith("POST /youtubei/v1/browse"));
+        QVERIFY(srv.lastRequest.contains("Content-Type: application/json"));
+        QVERIFY(srv.lastRequest.contains("{\"context\":{}}"));
+    }
+
+    // Response headers curl parses (via headerCb -> setRawHeader) must be readable
+    // through QNetworkReply::rawHeader() — the envelope scan pulls X-Goog-Visitor-Id
+    // off exactly this path.
+    void exposesResponseHeaders() {
+        LoopServer srv;
+        srv.responseBody = "x";
+        srv.extraHeaders = "X-Goog-Visitor-Id: abc123\r\n";
+        yt::net::CurlNetworkAccessManager nam;
+        QNetworkReply *r = nam.get(QNetworkRequest(QUrl(QString("http://127.0.0.1:%1/").arg(srv.port()))));
+        QEventLoop loop;
+        connect(r, SIGNAL(finished()), &loop, SLOT(quit()));
+        QTimer::singleShot(5000, &loop, SLOT(quit()));
+        loop.exec();
+        QCOMPARE(r->rawHeader("X-Goog-Visitor-Id"), QByteArray("abc123"));
+    }
+
+    // A failed TCP connect (nothing listening on port 1) must surface as a non-NoError
+    // QNetworkReply error, not a silent empty-body success (mapCurl: CURLE_COULDNT_CONNECT
+    // -> ConnectionRefusedError).
+    void connectionRefusedIsAnError() {
+        yt::net::CurlNetworkAccessManager nam;
+        // Port 1 is not listening -> curl fails to connect.
+        QNetworkReply *r = nam.get(QNetworkRequest(QUrl("http://127.0.0.1:1/")));
+        QEventLoop loop;
+        connect(r, SIGNAL(finished()), &loop, SLOT(quit()));
+        QTimer::singleShot(5000, &loop, SLOT(quit()));
+        loop.exec();
+        QVERIFY(r->error() != QNetworkReply::NoError);
+    }
+
+    // abort() (called before the deferred first kick has driven the handle) must set
+    // OperationCanceledError and emit finished() exactly once, synchronously — the
+    // JobToken/dtor teardown path relies on that single terminal signal.
+    void abortFinishesWithCancelError() {
+        LoopServer srv;
+        srv.responseBody = "later";
+        yt::net::CurlNetworkAccessManager nam;
+        QNetworkReply *r = nam.get(QNetworkRequest(QUrl(QString("http://127.0.0.1:%1/").arg(srv.port()))));
+        QSignalSpy spy(r, SIGNAL(finished()));
+        r->abort();
+        QCOMPARE(r->error(), QNetworkReply::OperationCanceledError);
+        QCOMPARE(spy.count(), 1);
     }
 };
 
