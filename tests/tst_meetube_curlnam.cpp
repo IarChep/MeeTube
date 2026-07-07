@@ -60,6 +60,21 @@ private slots:
         QCOMPARE(r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 200);
         QCOMPARE(r->readAll(), QByteArray("{\"dislikes\":42}"));
     }
+
+    // A file:// URL must be refused by CURLOPT_PROTOCOLS (Fix 3: SSRF/local-file guard),
+    // AND that instant failure must still deliver finished() on a later event-loop turn
+    // rather than during the ctor (Fix 4: async initial kick). If finished() were lost we
+    // would fall through to the 5 s fallback and then see NoError / non-empty body.
+    void blockedSchemeFailsGracefully() {
+        yt::net::CurlNetworkAccessManager nam;
+        QNetworkReply *r = nam.get(QNetworkRequest(QUrl("file:///etc/hostname")));
+        QEventLoop loop;
+        connect(r, SIGNAL(finished()), &loop, SLOT(quit()));
+        QTimer::singleShot(5000, &loop, SLOT(quit()));
+        loop.exec();
+        QVERIFY(r->error() != QNetworkReply::NoError);   // scheme blocked -> curl error
+        QVERIFY(r->readAll().isEmpty());                 // no bytes leaked from disk
+    }
 };
 
 QTEST_MAIN(tst_meetube_curlnam)

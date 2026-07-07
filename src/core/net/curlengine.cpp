@@ -31,9 +31,14 @@ void CurlEngine::add(CURL *easy, CurlNetworkReply *owner)
 {
     curl_easy_setopt(easy, CURLOPT_PRIVATE, owner);
     curl_multi_add_handle(m_multi, easy);
-    // Kick the state machine so curl arms its timer even before any socket exists.
-    curl_multi_socket_action(m_multi, CURL_SOCKET_TIMEOUT, 0, &m_running);
-    checkCompletions();
+    // Defer the first kick to the next event-loop turn. add() runs inside the
+    // CurlNetworkReply ctor, before nam.get() returns and the caller can connect
+    // finished(); driving the state machine synchronously here would let an
+    // instantly-failing handle complete (onCurlDone -> emit finished()) *during*
+    // construction, and that finished() would be lost. onTimeout() does the same
+    // socket_action(CURL_SOCKET_TIMEOUT) + checkCompletions() one loop-turn later,
+    // by which point the reply is fully constructed and connected.
+    QTimer::singleShot(0, this, SLOT(onTimeout()));
 }
 
 void CurlEngine::remove(CURL *easy)
