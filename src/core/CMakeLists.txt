@@ -38,6 +38,9 @@ add_library(meetube-core STATIC
     models/accountmodel.cpp
     models/servicemetatypes.cpp
     threading/workerhost.cpp
+    net/curlengine.cpp
+    net/curlnetworkreply.cpp
+    net/curlnetworkaccessmanager.cpp
 )
 # AUTOMOC: core/http.h declares a Q_OBJECT (signals/slots for the
 # QNetworkAccessManager-backed transport), as do the models, detail objects,
