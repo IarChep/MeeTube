@@ -169,11 +169,20 @@ struct TileHeader {
 struct TileHeaderW {
     std::optional<TileHeader> tileHeaderRenderer;
 };
+// tileRenderer.onLongPressCommand → the "Go to channel" menu entry carries the
+// channelId (a video tile has no channelThumbnail/channel field of its own).
+struct MenuNavItem  { std::optional<ITCommand> navigationEndpoint; };
+struct MenuItemW    { std::optional<MenuNavItem> menuNavigationItemRenderer; };
+struct MenuR        { std::optional<std::vector<MenuItemW>> items; };
+struct MenuW        { std::optional<MenuR> menuRenderer; };
+struct ShowMenuCmd  { std::optional<MenuW> menu; };
+struct LongPressCmd { std::optional<ShowMenuCmd> showMenuCommand; };
 struct Tile {
     std::optional<std::string> contentId;
     std::optional<std::string> contentType;
     std::optional<TileMetaW> metadata;
     std::optional<TileHeaderW> header;
+    std::optional<LongPressCmd> onLongPressCommand;
 };
 
 // -- playlistRenderer / gridPlaylistRenderer / compactPlaylistRenderer
@@ -484,6 +493,24 @@ inline CT::Video fromTile(const rj::Tile &t)
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
         v.largeThumbnailUrl = v.thumbnailUrl;
     }
+    // Channel id from the long-press "Go to channel" menu (the video tile has no
+    // channel field). The TV home tile also has no avatar, so resolve one from the id
+    // via the unavatar.io redirect (avatar-by-channelId; the QML Image fetches it).
+    if (t.onLongPressCommand && t.onLongPressCommand->showMenuCommand
+        && t.onLongPressCommand->showMenuCommand->menu
+        && t.onLongPressCommand->showMenuCommand->menu->menuRenderer
+        && t.onLongPressCommand->showMenuCommand->menu->menuRenderer->items) {
+        for (const rj::MenuItemW &mi : *t.onLongPressCommand->showMenuCommand->menu->menuRenderer->items) {
+            if (mi.menuNavigationItemRenderer && mi.menuNavigationItemRenderer->navigationEndpoint
+                && mi.menuNavigationItemRenderer->navigationEndpoint->browseEndpoint
+                && mi.menuNavigationItemRenderer->navigationEndpoint->browseEndpoint->browseId) {
+                const QString bid = qstr(*mi.menuNavigationItemRenderer->navigationEndpoint->browseEndpoint->browseId);
+                if (bid.startsWith(QLatin1String("UC"))) { v.userId = bid; break; }
+            }
+        }
+    }
+    if (!v.userId.isEmpty() && v.avatarUrl.isEmpty())
+        v.avatarUrl = QLatin1String("https://unavatar.io/youtube/") + v.userId;
     v.url = "https://www.youtube.com/watch?v=" + v.id;
     v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     return v;
