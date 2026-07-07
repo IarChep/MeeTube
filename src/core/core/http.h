@@ -23,7 +23,7 @@
 // NO Glaze includes here — this is a moc'ed Q_OBJECT header and Qt 4's moc cannot
 // lex C++23. The envelope scan + glz::read live in http.cpp.
 #include <QObject>
-#include <QNetworkAccessManager>
+#include "net/curlnetworkaccessmanager.h"
 #include <QNetworkReply>
 #include <QHash>
 #include <QList>
@@ -129,7 +129,7 @@ private:
     const QList<QPair<QByteArray, QByteArray> > &cachedHeaders(ClientId id);
     void invalidateSessionCaches();
 
-    QNetworkAccessManager m_nam;
+    net::CurlNetworkAccessManager m_nam;
     Session m_session;
     int m_timeoutMs;
     QString m_baseUrl;

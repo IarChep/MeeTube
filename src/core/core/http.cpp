@@ -137,6 +137,9 @@ Http::Http(QObject *parent)
     // QNAM/QTimer — a data race. (QNetworkReply objects are children of m_nam, created
     // on the worker inside post()/get(), so they are worker-affine already.)
     m_nam.setParent(this);
+#ifdef MEETUBE_CA_BUNDLE
+    m_nam.setCaBundle(QByteArray(MEETUBE_CA_BUNDLE));
+#endif
     m_deadlineTimer.setParent(this);
     // ONE manager-level completion connection for every request this Http issues:
     // no per-reply signal wiring (the old NamReply pattern) — the reply is looked up

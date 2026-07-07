@@ -56,6 +56,12 @@ target_include_directories(meetube-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/types)
 
+# CA bundle path — core::Http seeds it into the libcurl NAM (CURLOPT_CAINFO) so
+# HTTPS to YouTube/OAuth/RYD verifies against the vendored Mozilla bundle. Host: the
+# build-tree cacert.pem (downloaded/verified by deps/). Device path is finalized in
+# Task 8. CACERT_PEM is exported CACHE INTERNAL by deps/CMakeLists.txt.
+target_compile_definitions(meetube-core PRIVATE MEETUBE_CA_BUNDLE="${CACERT_PEM}")
+
 target_link_libraries(meetube-core PUBLIC
     Qt4::QtCore
     Qt4::QtNetwork)
