@@ -35,6 +35,7 @@ Sheet {
     // and open the auth flow (mirrors VideoPage's like/subscribe gate).
     Connections {
         target: sheet.commentModel
+        ignoreUnknownSignals: true   // commentModel is a variant, null until assigned
         onNeedsSignIn: {
             sheet.reject();
             appWindow.openAccount();
