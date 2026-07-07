@@ -34,9 +34,9 @@ Page {
     // QObject*), and binding an undefined variant to a QObject* target logs
     // "Unable to assign [undefined] to QObject* target". null is a valid no-op target
     // that re-binds when the real object is assigned.
-    property variant details: null
-    property variant comments: null
-    property variant channel: null
+    property QtObject details: null
+    property QtObject comments: null
+    property QtObject channel: null
     Component.onCompleted: {
         if (videoData && videoData.id) {
             details = innertube.video().details(videoData.id);
