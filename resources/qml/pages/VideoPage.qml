@@ -472,11 +472,13 @@ Page {
                 // Subscribe: a real meego Button using the theme's red "negative" 9-patch
                 // (the only red button asset — there's no red colorN scheme) when not
                 // subscribed, and the muted dark inverted-button when subscribed. Sized
-                // smaller than a stock button. Reflects ChannelDetails.subscribed; the POST
-                // needs auth (a later phase), so until then it stays on its loaded state.
+                // smaller than a stock button. Reflects VideoDetails.subscribed (read from
+                // the authed /next owner); subscribe()/unsubscribe() fire the POST there,
+                // so state + action stay on the one object (an anonymous WEB channel browse
+                // never carries the viewer's subscribe state).
                 Button {
                     id: subscribeButton
-                    property bool subscribed: (channel && channel.subscribed) ? true : false
+                    property bool subscribed: (details && details.subscribed) ? true : false
                     anchors {
                         right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
@@ -508,9 +510,9 @@ Page {
                             : "image://theme/meegotouch-button-negative-background-pressed"
                     }
                     onClicked: {
-                        if (!channel) return;
-                        if (channel.subscribed) channel.unsubscribe();
-                        else                    channel.subscribe();
+                        if (!details) return;
+                        if (details.subscribed) details.unsubscribe();
+                        else                    details.subscribe();
                     }
                 }
 

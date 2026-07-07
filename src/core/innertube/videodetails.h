@@ -52,6 +52,9 @@ class VideoDetails : public QObject {
     // before the editPlaylist action fires; reverted to false if the action fails, and
     // reset to false in load() on navigation to a new video.
     Q_PROPERTY(bool   saved        READ saved        NOTIFY savedChanged)
+    // Viewer's subscribe state for this video's channel — read from the authed /next
+    // owner. Toggled optimistically by subscribe()/unsubscribe(); NOTIFY on flip AND revert.
+    Q_PROPERTY(bool   subscribed   READ subscribed   NOTIFY subscribedChanged)
 public:
     explicit VideoDetails(QObject *parent = 0);
     ~VideoDetails();
@@ -80,6 +83,7 @@ public:
     qint64  likeCount()   const { return m_primary.likeCount; }
     qint64  dislikeCount() const { return m_dislikeCount; }
     bool    saved()       const { return m_saved; }
+    bool    subscribed()  const { return m_primary.subscribed; }
 
     // Guarded optimistic like/dislike toggles. Each flips m_primary toward the target
     // state (like() toggles Liked<->Indifferent, dislike() Disliked<->Indifferent),
@@ -101,6 +105,14 @@ public:
     // m_saveJob token (same class of action as Save).
     Q_INVOKABLE void addToPlaylist(const QString &playlistId);
 
+    // Guarded optimistic subscribe/unsubscribe to the video's channel (m_primary.userId).
+    // Flips subscribed toward the target, emits subscribedChanged(), fires the matching
+    // action on the worker and reverts on failure. Gated behind signedIn() (else
+    // needsSignIn()). Kept here (not on ChannelDetails) so the button state — read from
+    // the authed /next owner — and the action live on the same object.
+    Q_INVOKABLE void subscribe();
+    Q_INVOKABLE void unsubscribe();
+
 public Q_SLOTS:
     void cancel();
 
@@ -109,6 +121,7 @@ Q_SIGNALS:
     void statusChanged();
     void likeChanged();
     void savedChanged();  // Watch Later save state flipped (optimistic set OR revert)
+    void subscribedChanged();  // subscribe state flipped (optimistic set OR revert)
     void addedToPlaylist(const QString &playlistId);  // addToPlaylist() action confirmed
     void needsSignIn();   // like/dislike/save attempted while signed out — QML shows the sign-in sheet
 
@@ -126,6 +139,10 @@ private:
     // Fire the action chain on the worker; on !ok restore prevStatus/prevLikes.
     void fireGuarded(yt::core::ActionKind kind, const QString &videoId,
                      int prevStatus, qint64 prevLikes);
+    // Subscribe optimistic core (mirrors ChannelDetails): flip m_primary.subscribed
+    // toward `desired`, fire Subscribe/Unsubscribe on the channelId, revert on failure.
+    void applySubscribe(bool desired);
+    void fireSubscribe(yt::core::ActionKind kind, const QString &channelId, bool prevSubscribed);
     void cancelJob();
     yt::core::JobToken m_job;
     yt::core::JobToken m_actionJob;   // dtor-canceled token guarding the in-flight like/dislike action
@@ -134,6 +151,7 @@ private:
     // kept SEPARATE from m_actionJob so save never supersedes (or is superseded by) a
     // like/dislike in flight.
     yt::core::JobToken m_saveJob;
+    yt::core::JobToken m_subJob;   // dtor-canceled token guarding the in-flight subscribe/unsubscribe
     VideoModel *m_related;
     CT::Video m_primary;
     // The RYD dislike count. Decoupled from m_primary (which applyWatch replaces

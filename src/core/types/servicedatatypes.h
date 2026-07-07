@@ -32,6 +32,9 @@ struct Video {
     int    likeStatus  = 0;    // 0 Indifferent, 1 Liked, 2 Disliked
     qint64 likeCount   = -1;   // numeric; -1 = unknown
     qint64 dislikeCount = -1;  // RYD-filled; -1 = unknown
+    // Viewer's subscribe state for this video's channel — populated only from the
+    // authed /next owner (videoOwnerRenderer.subscribeButton); false otherwise.
+    bool subscribed = false;
     bool downloadable = false;
 };
 struct Playlist {

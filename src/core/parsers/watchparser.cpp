@@ -195,6 +195,10 @@ void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Vid
             if (r.thumbnail) v.avatarUrl = qstr(lastThumbUrl(*r.thumbnail));
             if (r.navigationEndpoint && r.navigationEndpoint->browseEndpoint)
                 v.userId = qstr(r.navigationEndpoint->browseEndpoint->browseId);
+            // The viewer's subscribe state (authed /next only) — feeds the VideoPage button.
+            if (r.subscribeButton && r.subscribeButton->subscribeButtonRenderer
+                && r.subscribeButton->subscribeButtonRenderer->subscribed)
+                v.subscribed = *r.subscribeButton->subscribeButtonRenderer->subscribed;
         }
         // Description: modern attributedDescription.content (plain string) or legacy runs.
         const std::string_view ad = scan::topLevelValue(sec, "attributedDescription");
@@ -238,6 +242,10 @@ void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Vid
             if (v.avatarUrl.isEmpty() && r.thumbnail) v.avatarUrl = qstr(lastThumbUrl(*r.thumbnail));
             if (v.userId.isEmpty() && r.navigationEndpoint && r.navigationEndpoint->browseEndpoint)
                 v.userId = qstr(r.navigationEndpoint->browseEndpoint->browseId);
+            // The viewer's subscribe state (authed /next only) — feeds the VideoPage button.
+            if (r.subscribeButton && r.subscribeButton->subscribeButtonRenderer
+                && r.subscribeButton->subscribeButtonRenderer->subscribed)
+                v.subscribed = *r.subscribeButton->subscribeButtonRenderer->subscribed;
         }
         // Description: the TV /next carries it in the structured-description engagement
         // panel (expandableVideoDescriptionBodyRenderer.descriptionBodyText), not in a

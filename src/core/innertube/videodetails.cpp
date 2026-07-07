@@ -28,6 +28,7 @@ VideoDetails::~VideoDetails() {
     if (m_job) m_job->canceled.store(true);
     if (m_actionJob) m_actionJob->canceled.store(true);
     if (m_saveJob) m_saveJob->canceled.store(true);
+    if (m_subJob) m_subJob->canceled.store(true);
 }
 
 QObject* VideoDetails::related() const { return m_related; }
@@ -212,6 +213,41 @@ void VideoDetails::addToPlaylist(const QString &playlistId) {
                 api.host->invokeGui([job, self, playlistId]() {
                     if (!core::live(job)) return;   // MUST be first — closure derefs self (R8)
                     emit self->addedToPlaylist(playlistId);
+                });
+            });
+    });
+}
+
+void VideoDetails::subscribe()   { applySubscribe(true); }
+void VideoDetails::unsubscribe() { applySubscribe(false); }
+
+void VideoDetails::applySubscribe(bool desired) {
+    if (!signedIn()) { emit needsSignIn(); return; }
+    const bool prevSubscribed = m_primary.subscribed;
+    if (prevSubscribed == desired) return;
+    m_primary.subscribed = desired;
+    emit subscribedChanged();
+    const core::ActionKind kind = desired ? core::Subscribe : core::Unsubscribe;
+    const QString channelId = m_primary.userId;
+    fireSubscribe(kind, channelId, prevSubscribed);
+}
+
+void VideoDetails::fireSubscribe(core::ActionKind kind, const QString &channelId,
+                                 bool prevSubscribed) {
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) return;   // no transport: the optimistic state stands
+    if (m_subJob) m_subJob->canceled.store(true);   // supersede a prior in-flight subscribe
+    m_subJob = core::newJob();
+    const core::JobToken job = m_subJob;             // capture THIS (dtor-canceled) token
+    VideoDetails *self = this;
+    api.host->invoke([api, kind, channelId, job, self, prevSubscribed]() {
+        core::submitAction(*api.http, kind, channelId, job,
+            [api, job, self, prevSubscribed](bool ok) {
+                if (ok) return;   // confirmed — the optimistic state stands
+                api.host->invokeGui([job, self, prevSubscribed]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->m_primary.subscribed = prevSubscribed;
+                    emit self->subscribedChanged();
                 });
             });
     });
