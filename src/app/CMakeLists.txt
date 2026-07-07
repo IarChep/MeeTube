@@ -9,6 +9,10 @@
 # ---------------------------------------------------------------------------
 add_executable(meetube
     main.cpp
+    # QDeclarativeNetworkAccessManagerFactory that hands the QML engine a libcurl-backed
+    # NAM, so QML Image thumbnail loads fetch over libcurl + OpenSSL 3.x (installed in
+    # main.cpp before setSource). Lives in app/ because it uses QtDeclarative.
+    curlnamfactory.cpp
     qmlapplicationviewer/qmlapplicationviewer.cpp
     # Squircle avatar: a QDeclarativeItem (MaskedItem) + QGraphicsEffect (MaskEffect)
     # that composites children over an alpha mask (CompositionMode_SourceIn), ported
