@@ -101,14 +101,24 @@ struct UserCollector : CollectorBase {
     scan::Action what(std::string_view key, int)
     {
         if (consumed()) return scan::Action::Skip;
-        if (key == "channelRenderer" || key == "gridChannelRenderer") {
+        // tileRenderer: the authed TVHTML5 FEchannels grid ships channel TILES, not
+        // gridChannelRenderer (the WEB shape). Capture both.
+        if (key == "channelRenderer" || key == "gridChannelRenderer" || key == "tileRenderer") {
             consume();
             return scan::Action::Capture;
         }
         return scan::Action::Descend;
     }
-    void capture(std::string_view, std::string_view value, int)
+    void capture(std::string_view key, std::string_view value, int)
     {
+        if (key == "tileRenderer") {
+            rj::Tile t{};
+            readJson(t, value);
+            // Only channel tiles become channels; a video tile in the grid is ignored.
+            if (t.contentType && *t.contentType == "TILE_CONTENT_TYPE_CHANNEL")
+                *out << fromTileChannel(t);
+            return;
+        }
         rj::UserR r{};
         readJson(r, value);
         *out << fromUserRenderer(r);

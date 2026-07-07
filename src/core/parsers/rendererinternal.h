@@ -457,7 +457,13 @@ inline CT::Video fromTile(const rj::Tile &t)
                     if (text.isEmpty()) continue;
                     if (li == 0 && v.username.isEmpty()) v.username = text;
                     else if (v.viewText.isEmpty() && text.contains(QLatin1String("view"))) v.viewText = text;
-                    else if (v.date.isEmpty() && li > 0) v.date = text;
+                    // Date lives on a later line; pick the DATED item ("3 days ago" /
+                    // "Streamed 2 days ago" / "Sep 5, 2024"), never the "•" separator or
+                    // other bullets that sit between the view count and the date.
+                    else if (v.date.isEmpty() && li > 0
+                             && (text.contains(QLatin1String("ago"))
+                                 || QRegExp(QLatin1String("\\b\\d{4}\\b")).indexIn(text) >= 0))
+                        v.date = text;
                 }
             }
         }
@@ -481,6 +487,39 @@ inline CT::Video fromTile(const rj::Tile &t)
     v.url = "https://www.youtube.com/watch?v=" + v.id;
     v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     return v;
+}
+
+// tileRenderer with TILE_CONTENT_TYPE_CHANNEL — the TV UI channel card. The authed
+// FEchannels (manage-subscriptions) grid ships these instead of gridChannelRenderer:
+// contentId = channelId, metadata title = name, line 0 = @handle, a "N subscribers"
+// line, and the header thumbnail = the channel avatar.
+inline CT::User fromTileChannel(const rj::Tile &t)
+{
+    CT::User u;
+    u.id = qstr(t.contentId);
+    if (t.metadata && t.metadata->tileMetadataRenderer) {
+        const rj::TileMeta &md = *t.metadata->tileMetadataRenderer;
+        if (md.title) u.username = qstr(textOf(*md.title));
+        if (md.lines)
+            for (const rj::LineW &line : *md.lines) {
+                if (!line.lineRenderer || !line.lineRenderer->items) continue;
+                for (const rj::LineItemW &item : *line.lineRenderer->items) {
+                    if (!item.lineItemRenderer || !item.lineItemRenderer->text) continue;
+                    const QString text = qstr(textOf(*item.lineItemRenderer->text));
+                    if (text.isEmpty()) continue;
+                    if (u.handle.isEmpty() && text.startsWith(QLatin1Char('@'))) u.handle = text;
+                    else if (u.subscriberCount.isEmpty()
+                             && text.contains(QLatin1String("subscriber"))) u.subscriberCount = text;
+                }
+            }
+    }
+    if (t.header && t.header->tileHeaderRenderer && t.header->tileHeaderRenderer->thumbnail) {
+        QString url = qstr(lastThumbUrl(*t.header->tileHeaderRenderer->thumbnail));
+        if (url.startsWith(QLatin1String("//"))) url.prepend(QLatin1String("https:"));   // protocol-relative
+        u.thumbnailUrl = url;
+    }
+    u.videosId = u.id; u.playlistsId = u.id;
+    return u;
 }
 
 inline CT::Playlist fromPlaylistRenderer(const rj::PlaylistR &r)

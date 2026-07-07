@@ -111,6 +111,7 @@ struct WatchScanner : CollectorBase {
     QList<CT::Video> *related;
     std::string_view primary;
     std::string_view secondary;
+    std::string_view metadata;   // TVHTML5 singleColumnWatchNextResults (authed /next)
 
     scan::Action what(std::string_view key, int)
     {
@@ -120,6 +121,8 @@ struct WatchScanner : CollectorBase {
         if (primary.empty() && key == "videoPrimaryInfoRenderer")
             return scan::Action::Capture;
         if (secondary.empty() && key == "videoSecondaryInfoRenderer")
+            return scan::Action::Capture;
+        if (metadata.empty() && key == "videoMetadataRenderer")
             return scan::Action::Capture;
         // VideoCollector logic for related videos (consume semantics).
         if (related && (key == "lockupViewModel" || key == "tileRenderer" || isVideoKind(key))) {
@@ -135,6 +138,9 @@ struct WatchScanner : CollectorBase {
         }
         if (key == "videoSecondaryInfoRenderer" && secondary.empty()) {
             secondary = value; return;
+        }
+        if (key == "videoMetadataRenderer" && metadata.empty()) {
+            metadata = value; return;
         }
         // Video renderer capture (same logic as VideoCollector).
         if (!related) return;
@@ -205,6 +211,48 @@ void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Vid
                 v.description = qstr(textOf(t));
             }
         }
+    }
+    // --- TVHTML5 shape (authed singleColumnWatchNextResults) --------------------
+    // Signed-in /next carries a videoMetadataRenderer instead of videoPrimaryInfo/
+    // videoSecondaryInfoRenderer: title/views/date live in it, owner→avatar/channel in
+    // its videoOwnerRenderer, the like button outside it. Fill whatever the WEB path
+    // left empty (a WEB response has meta empty, so this is a no-op there).
+    const std::string_view meta = ws.metadata;
+    if (!meta.empty()) {
+        if (v.title.isEmpty()) {
+            const std::string_view t = scan::topLevelValue(meta, "title");
+            if (!t.empty() && t.front() == '{') { Text tt{}; readJson(tt, t); v.title = qstr(textOf(tt)); }
+        }
+        if (v.viewText.isEmpty()) {
+            const std::string_view vcr = findExtent(meta, "videoViewCountRenderer");
+            if (!vcr.empty()) { rj::ViewCountR r{}; readJson(r, vcr); if (r.viewCount) v.viewText = qstr(textOf(*r.viewCount)); }
+        }
+        if (v.date.isEmpty()) {
+            const std::string_view pt = scan::topLevelValue(meta, "publishedTimeText");
+            if (!pt.empty() && pt.front() == '{') { Text tt{}; readJson(tt, pt); v.date = qstr(textOf(tt)); }
+        }
+        const std::string_view owner = findExtent(meta, "videoOwnerRenderer");
+        if (!owner.empty()) {
+            rj::OwnerR r{}; readJson(r, owner);
+            if (v.username.isEmpty()) v.username = qstr(textOf(r.title));
+            if (v.avatarUrl.isEmpty() && r.thumbnail) v.avatarUrl = qstr(lastThumbUrl(*r.thumbnail));
+            if (v.userId.isEmpty() && r.navigationEndpoint && r.navigationEndpoint->browseEndpoint)
+                v.userId = qstr(r.navigationEndpoint->browseEndpoint->browseId);
+        }
+        // Description: the TV /next carries it in the structured-description engagement
+        // panel (expandableVideoDescriptionBodyRenderer.descriptionBodyText), not in a
+        // secondary renderer.
+        if (v.description.isEmpty()) {
+            const std::string_view db = findExtent(response, "expandableVideoDescriptionBodyRenderer");
+            if (!db.empty()) {
+                const std::string_view dbt = scan::topLevelValue(db, "descriptionBodyText");
+                if (!dbt.empty() && dbt.front() == '{') { Text t{}; readJson(t, dbt); v.description = qstr(textOf(t)); }
+            }
+        }
+        // NOTE: the authed TV /next does NOT expose the like COUNT in a parseable shape
+        // (its toggleButtons are Captions/Surround; the like control carries no count
+        // text). Leave likeText/likeCount empty so the UI shows a plain "Like" rather
+        // than a wrong label; the like STATE still flows through the like action.
     }
     v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     *primary = v;
