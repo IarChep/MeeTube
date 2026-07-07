@@ -2,13 +2,12 @@
 # deps/ — bundled third-party dependencies.
 #
 # This subdirectory owns ALL the external-library build blocks (libpng12,
-# libjpeg-turbo, OpenSSL 1.0.2, libwebp) plus the qrcodegen static lib and the
-# imported png12 target. It was extracted from the root CMakeLists to keep the
-# root lean.
+# libjpeg-turbo, libwebp) plus the qrcodegen static lib and the imported png12
+# target. It was extracted from the root CMakeLists to keep the root lean.
 #
 # SCOPING NOTE: add_subdirectory() runs this file in a CHILD scope. The custom
-# targets defined here (libpng12_build, libjpeg62_build, openssl102,
-# libwebp_build, qrcodegen) and the IMPORTED GLOBAL png12 target are globally
+# targets defined here (libpng12_build, libjpeg62_build, libwebp_build,
+# qrcodegen) and the IMPORTED GLOBAL png12 target are globally
 # referenceable by name. But plain variables set here are NOT visible to the
 # root or to webp-imageformat/. Every variable consumed outside deps/ is
 # therefore exported with `CACHE INTERNAL ""` so it is globally visible.
@@ -120,51 +119,11 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# OpenSSL 1.0.2 — both targets. Modern TLS without rebuilding QtNetwork.
-#
-# Qt 4.7.4 dlopen's OpenSSL at runtime and is ABI-compatible with the 1.0.x
-# branch only. We build 1.0.2u and bundle it; Qt picks it up via LD_LIBRARY_PATH.
-# ---------------------------------------------------------------------------
-set(OSSL_INSTALL ${CMAKE_BINARY_DIR}/openssl-install CACHE INTERNAL "")
-set(OSSL_SSL    ${OSSL_INSTALL}/lib/libssl.so.1.0.0 CACHE INTERNAL "")
-set(OSSL_CRYPTO ${OSSL_INSTALL}/lib/libcrypto.so.1.0.0 CACHE INTERNAL "")
-if(BUILD_N9)
-    set(OSSL_TARGET linux-armv4)
-    string(REGEX REPLACE "g\\+\\+$" "" OSSL_CROSS "${CMAKE_CXX_COMPILER}")
-    set(OSSL_CFG --cross-compile-prefix=${OSSL_CROSS} --sysroot=${CMAKE_SYSROOT})
-else()
-    set(OSSL_TARGET linux-x86_64)
-    set(OSSL_CFG "")
-endif()
-# OpenSSL builds in-source (BUILD_IN_SOURCE) inside the shared deps/openssl
-# submodule, which is reused across the simulator (x86_64) and device
-# (armv7hf — hard-float) build trees. A stale object left by one target (e.g. a host x86-64 e_old.o)
-# would otherwise get pulled into the other target's libcrypto.a, breaking the
-# link with "member ... in archive is not an object". Wipe the submodule's
-# build artifacts (git clean only removes untracked files; tracked source is
-# untouched) before each (re)configure so a host<->device switch is clean.
-ExternalProject_Add(openssl102
-    SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/openssl
-    DOWNLOAD_COMMAND  ""
-    BUILD_IN_SOURCE   1
-    CONFIGURE_COMMAND ${GIT_EXECUTABLE} -C <SOURCE_DIR> clean -xfdq
-              COMMAND <SOURCE_DIR>/Configure ${OSSL_TARGET} shared no-asm
-                      --prefix=${OSSL_INSTALL} ${OSSL_CFG}
-    BUILD_COMMAND     make depend
-            COMMAND   make build_libs
-    INSTALL_COMMAND   ${CMAKE_COMMAND} -E make_directory ${OSSL_INSTALL}/lib
-            COMMAND   ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libssl.so.1.0.0 ${OSSL_INSTALL}/lib/
-            COMMAND   ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/libcrypto.so.1.0.0 ${OSSL_INSTALL}/lib/
-            COMMAND   ${CMAKE_COMMAND} -DLIBDIR=${OSSL_INSTALL}/lib -P ${CMAKE_SOURCE_DIR}/tools/make_soname_links.cmake
-    BUILD_BYPRODUCTS  ${OSSL_SSL} ${OSSL_CRYPTO}
-)
-
-# ---------------------------------------------------------------------------
 # Latest CA root bundle (Mozilla trust store, published by the curl project).
-# Downloaded fresh each configure, TLS-verified + checksum-verified, and embedded
-# into the OpenSSL install tree at its default CAfile path (${OSSL_INSTALL}/ssl/cert.pem).
-# Qt 4.7.4 doesn't read OpenSSL's default store, so the app ALSO loads this bundle
-# into the default QSslConfiguration at startup (see src/main.cpp + MEETUBE_CA_BUNDLE).
+# Downloaded fresh each configure, TLS-verified + checksum-verified, and copied
+# into a standalone build-tree ssl/ dir (${MEETUBE_SSL_DIR}/cert.pem).
+# The app no longer uses Qt's TLS: HTTPS to YouTube goes through libcurl, which
+# reads this bundle via CURLOPT_CAINFO (seeded from the MEETUBE_CA_BUNDLE define).
 # ---------------------------------------------------------------------------
 set(CACERT_PEM ${CMAKE_BINARY_DIR}/cacert.pem CACHE INTERNAL "")
 file(DOWNLOAD https://curl.se/ca/cacert.pem.sha256 ${CMAKE_BINARY_DIR}/cacert.pem.sha256
@@ -186,18 +145,14 @@ if(NOT _ca_rc EQUAL 0)
         message(FATAL_ERROR "Could not download the CA bundle from curl.se: ${_ca_st}")
     endif()
 endif()
-# Embed into the OpenSSL install tree (its default CAfile location).
-file(MAKE_DIRECTORY ${OSSL_INSTALL}/ssl)
-configure_file(${CACERT_PEM} ${OSSL_INSTALL}/ssl/cert.pem COPYONLY)
+# Copy into a standalone build-tree ssl/ dir (was the OpenSSL install ssl/ tree,
+# which is gone now that the 1.0.2 build has been removed).
+set(MEETUBE_SSL_DIR ${CMAKE_BINARY_DIR}/ssl CACHE INTERNAL "")
+file(MAKE_DIRECTORY ${MEETUBE_SSL_DIR})
+configure_file(${CACERT_PEM} ${MEETUBE_SSL_DIR}/cert.pem COPYONLY)
 
 if(BUILD_N9)
     install(FILES ${CACERT_PEM} DESTINATION /opt/meetube/ssl RENAME cert.pem)
-    # Bundled OpenSSL 1.0.2 (real .so + the soname symlink farm), app-scoped under
-    # /opt/meetube/lib — the binary's DT_RPATH points here so our TLS-1.2-capable
-    # 1.0.2 wins over the device's stock 0.9.8. FILES_MATCHING keeps the External
-    # project's headers/static libs out of the package.
-    install(DIRECTORY ${OSSL_INSTALL}/lib/ DESTINATION /opt/meetube/lib
-            FILES_MATCHING PATTERN "libssl.so*" PATTERN "libcrypto.so*")
 endif()
 
 # ---------------------------------------------------------------------------
