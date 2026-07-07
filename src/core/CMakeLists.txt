@@ -77,11 +77,32 @@ target_link_libraries(meetube-core PUBLIC
 # and nothing else in the app pays the template-heavy include.
 target_link_libraries(meetube-core PRIVATE glaze)
 
-# libcurl: host only for now; device linking comes in Task 8.
+# libcurl.
+#   Host: the system libcurl (found via CMake's FindCURL / Conan).
+#   Device: the freshly cross-built libcurl bundled to /opt/meetube/lib by deps/
+#           (OpenSSL 3 backend). CURL_SO / CURL_INCLUDE are exported CACHE INTERNAL
+#           by deps/CMakeLists.txt; add_dependencies orders the ExternalProject
+#           before meetube-core links. PUBLIC so the app inherits the include +
+#           link (the meetube target already carries the /opt/meetube/lib rpath).
 if(NOT BUILD_N9)
     find_package(CURL REQUIRED)
     target_link_libraries(meetube-core PUBLIC ${CURL_LIBRARIES})
     target_include_directories(meetube-core PUBLIC ${CURL_INCLUDE_DIRS})
+else()
+    add_dependencies(meetube-core libcurl_build)
+    # The include dir is created by the ExternalProject's install step, which
+    # runs before meetube-core's link but AFTER CMake's configure — so the dir
+    # may not exist at configure time. Pre-create it so the PUBLIC include is
+    # valid (INTERFACE_INCLUDE_DIRECTORIES entries must exist at generate time).
+    file(MAKE_DIRECTORY ${CURL_INCLUDE})
+    target_include_directories(meetube-core PUBLIC ${CURL_INCLUDE})
+    # libcurl.so NEEDs libssl.so.3 / libcrypto.so.3 (our cross-built OpenSSL 3,
+    # bundled to /opt/meetube/lib). They live in the openssl3-install tree, not
+    # the sysroot, so the linker can't satisfy libcurl's transitive references
+    # from the sysroot alone — link them explicitly, AFTER libcurl so GNU ld's
+    # left-to-right resolution sees the crypto provider last. OSSL3_SSL /
+    # OSSL3_CRYPTO are exported CACHE INTERNAL by deps/CMakeLists.txt.
+    target_link_libraries(meetube-core PUBLIC ${CURL_SO} ${OSSL3_SSL} ${OSSL3_CRYPTO})
 endif()
 
 # The test harness lives in its own subproject — see tests/CMakeLists.txt,
