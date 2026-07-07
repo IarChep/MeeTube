@@ -120,10 +120,11 @@ endif()
 
 # ---------------------------------------------------------------------------
 # Latest CA root bundle (Mozilla trust store, published by the curl project).
-# Downloaded fresh each configure, TLS-verified + checksum-verified, and copied
-# into a standalone build-tree ssl/ dir (${MEETUBE_SSL_DIR}/cert.pem).
-# The app no longer uses Qt's TLS: HTTPS to YouTube goes through libcurl, which
-# reads this bundle via CURLOPT_CAINFO (seeded from the MEETUBE_CA_BUNDLE define).
+# Downloaded fresh each configure, TLS-verified + checksum-verified, exported as
+# ${CACERT_PEM} in the build tree, and installed to /opt/meetube/ssl/cert.pem on
+# device. The app no longer uses Qt's TLS: HTTPS to YouTube goes through libcurl,
+# which reads this bundle via CURLOPT_CAINFO (seeded from the MEETUBE_CA_BUNDLE
+# define — the build-tree cacert.pem on host, /opt/meetube/ssl/cert.pem on device).
 # ---------------------------------------------------------------------------
 set(CACERT_PEM ${CMAKE_BINARY_DIR}/cacert.pem CACHE INTERNAL "")
 file(DOWNLOAD https://curl.se/ca/cacert.pem.sha256 ${CMAKE_BINARY_DIR}/cacert.pem.sha256
@@ -145,12 +146,6 @@ if(NOT _ca_rc EQUAL 0)
         message(FATAL_ERROR "Could not download the CA bundle from curl.se: ${_ca_st}")
     endif()
 endif()
-# Copy into a standalone build-tree ssl/ dir (was the OpenSSL install ssl/ tree,
-# which is gone now that the 1.0.2 build has been removed).
-set(MEETUBE_SSL_DIR ${CMAKE_BINARY_DIR}/ssl CACHE INTERNAL "")
-file(MAKE_DIRECTORY ${MEETUBE_SSL_DIR})
-configure_file(${CACERT_PEM} ${MEETUBE_SSL_DIR}/cert.pem COPYONLY)
-
 if(BUILD_N9)
     install(FILES ${CACERT_PEM} DESTINATION /opt/meetube/ssl RENAME cert.pem)
 endif()
@@ -187,6 +182,105 @@ if(BUILD_N9)
 endif()
 
 # ---------------------------------------------------------------------------
+# OpenSSL 3 + libcurl — N9 device only (cross armv7hf, hard-float).
+#
+# The libcurl transport (net/) replaced Qt's QNetworkAccessManager, so HTTPS to
+# YouTube/OAuth/RYD now goes through libcurl + OpenSSL 3 (NOT Qt's dlopen'd TLS
+# and NOT the old bundled OpenSSL 1.0.2). Both are cross-built here and bundled
+# into /opt/meetube/lib; the app's DT_RPATH (set on the meetube target) makes
+# them win at load time, and libcurl itself carries the same rpath (below) so it
+# resolves libssl.so.3 / libcrypto.so.3 from /opt/meetube/lib on device.
+#
+# GCC 14 cross-compiles OpenSSL 3.x cleanly. The Configure target is linux-armv4
+# (the same one the retired openssl102 block used); no-asm keeps it portable and
+# avoids the armv4 assembler paths, no-tests skips the (host-unrunnable) test apps.
+# ---------------------------------------------------------------------------
+if(BUILD_N9)
+    set(OSSL3_INSTALL ${CMAKE_BINARY_DIR}/openssl3-install CACHE INTERNAL "")
+    set(OSSL3_SSL    ${OSSL3_INSTALL}/lib/libssl.so.3 CACHE INTERNAL "")
+    set(OSSL3_CRYPTO ${OSSL3_INSTALL}/lib/libcrypto.so.3 CACHE INTERNAL "")
+    # Configure's --cross-compile-prefix wants the tool prefix WITH the trailing
+    # dash (it appends gcc/ar/ranlib/…), i.e. ".../arm-none-linux-gnueabi-".
+    string(REGEX REPLACE "g\\+\\+$" "" OSSL3_CROSS "${CMAKE_CXX_COMPILER}")
+    ExternalProject_Add(openssl3
+        SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/openssl3
+        DOWNLOAD_COMMAND  ""
+        BUILD_IN_SOURCE   1
+        # git clean wipes stale in-source objects on a host<->device switch, the
+        # way the retired openssl102 block did (the submodule builds in-source).
+        CONFIGURE_COMMAND ${GIT_EXECUTABLE} -C <SOURCE_DIR> clean -xfdq
+                  COMMAND <SOURCE_DIR>/Configure linux-armv4 shared no-asm no-tests
+                          --prefix=${OSSL3_INSTALL} --libdir=lib
+                          --cross-compile-prefix=${OSSL3_CROSS}
+                          --sysroot=${CMAKE_SYSROOT}
+        BUILD_COMMAND     make -j
+        INSTALL_COMMAND   make install_sw
+        BUILD_BYPRODUCTS  ${OSSL3_SSL} ${OSSL3_CRYPTO}
+    )
+
+    # libcurl — minimal shared build against the OpenSSL 3 above.
+    #
+    # curl's git checkout (unlike a release tarball) ships NO ./configure — only
+    # configure.ac — so we generate it with `autoreconf -fi` first, then run it.
+    # git clean keeps the submodule tree pristine across reconfigures. The build
+    # is deliberately lean: OpenSSL backend only, shared, no static/ldap/psl/
+    # brotli/zstd/nghttp2 (none present in the device sysroot, none needed).
+    #
+    # --without-zlib is REQUIRED: the Harmattan sysroot's zlib predates 1.2.5.2,
+    # so curl's content_encoding.c (HTTP gzip/deflate transfer decoding) fails to
+    # compile against it (no z_const / inflateReset2). We don't need curl to do
+    # transfer-encoding decompression, so drop libz entirely.
+    #
+    # --with-ca-bundle bakes /opt/meetube/ssl/cert.pem as the default CA store
+    # (the Mozilla bundle installed by the block above), matching the runtime
+    # CURLOPT_CAINFO the core::Http seeds. The rpath LDFLAGS mirror the meetube
+    # target so libcurl.so finds its bundled OpenSSL 3 at load on device.
+    set(CURL_INSTALL ${CMAKE_BINARY_DIR}/curl-install CACHE INTERNAL "")
+    set(CURL_SO      ${CURL_INSTALL}/lib/libcurl.so CACHE INTERNAL "")
+    set(CURL_INCLUDE ${CURL_INSTALL}/include CACHE INTERNAL "")
+    string(REGEX REPLACE "g\\+\\+$" "gcc" CURL_CC "${CMAKE_CXX_COMPILER}")
+    ExternalProject_Add(libcurl_build
+        DEPENDS           openssl3
+        SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/curl
+        DOWNLOAD_COMMAND  ""
+        BUILD_IN_SOURCE   1
+        CONFIGURE_COMMAND ${GIT_EXECUTABLE} -C <SOURCE_DIR> clean -xfdq
+                  COMMAND autoreconf -fi <SOURCE_DIR>
+                  COMMAND <SOURCE_DIR>/configure
+                          CC=${CURL_CC}
+                          --host=arm-linux-gnueabi
+                          CPPFLAGS=--sysroot=${CMAKE_SYSROOT}
+                          "LDFLAGS=--sysroot=${CMAKE_SYSROOT} -Wl,-rpath,/opt/meetube/lib -Wl,--disable-new-dtags"
+                          --with-openssl=${OSSL3_INSTALL}
+                          --with-ca-bundle=/opt/meetube/ssl/cert.pem
+                          --prefix=${CURL_INSTALL}
+                          --enable-shared --disable-static
+                          --disable-ldap --disable-ldaps
+                          --disable-manual --disable-docs
+                          --without-zlib
+                          --without-libpsl --without-brotli
+                          --without-zstd --without-nghttp2
+                          --disable-dependency-tracking
+        BUILD_COMMAND     make
+        INSTALL_COMMAND   make install
+        BUILD_BYPRODUCTS  ${CURL_SO}
+    )
+
+    # libatomic.so.1 — GCC 14's OpenSSL 3 build emits __atomic_* calls (64-bit
+    # atomics on armv7), so libssl.so.3 / libcrypto.so.3 both NEED libatomic.so.1.
+    # The Harmattan device sysroot has NO libatomic (it predates it) — only the
+    # cross-toolchain ships it — so we must bundle the toolchain's copy or the app
+    # fails to load OpenSSL 3 on device ("libatomic.so.1: cannot open shared
+    # object file"). Derive the toolchain's target-lib dir from the C++ compiler
+    # path (<root>/bin/<triple>-g++  ->  <root>/<triple>/lib).
+    get_filename_component(_tc_bin  "${CMAKE_CXX_COMPILER}" DIRECTORY)   # <root>/bin
+    get_filename_component(_tc_root "${_tc_bin}" DIRECTORY)              # <root>
+    get_filename_component(_tc_cxx  "${CMAKE_CXX_COMPILER}" NAME)        # <triple>-g++
+    string(REGEX REPLACE "-g\\+\\+$" "" _tc_triple "${_tc_cxx}")         # <triple>
+    set(TOOLCHAIN_LIBATOMIC ${_tc_root}/${_tc_triple}/lib/libatomic.so.1 CACHE INTERNAL "")
+endif()
+
+# ---------------------------------------------------------------------------
 # Bundle the fresh libpng12 + libjpeg into /opt/meetube/lib (device only).
 #
 # Non-destructive — mirrors how OpenSSL/libwebp are bundled. We do NOT overwrite
@@ -204,6 +298,25 @@ if(BUILD_N9)
     install(DIRECTORY ${LIBJPEG62_INSTALL}/lib/ DESTINATION /opt/meetube/lib
             FILES_MATCHING PATTERN "libjpeg.so*"
             PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE)
+    # OpenSSL 3 (libssl.so.3 / libcrypto.so.3) + libcurl (libcurl.so*) — same
+    # non-destructive bundling; the app + libcurl DT_RPATH make them win. EXCLUDE
+    # the engines-3/ + ossl-modules/ subtrees (provider/engine plugins we don't
+    # use) or FILES_MATCHING would still recreate them as empty dirs in the pkg.
+    install(DIRECTORY ${OSSL3_INSTALL}/lib/ DESTINATION /opt/meetube/lib
+            FILES_MATCHING PATTERN "libssl.so*" PATTERN "libcrypto.so*"
+            PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE
+            PATTERN "engines-3" EXCLUDE PATTERN "ossl-modules" EXCLUDE)
+    install(DIRECTORY ${CURL_INSTALL}/lib/ DESTINATION /opt/meetube/lib
+            FILES_MATCHING PATTERN "libcurl.so*"
+            PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE)
+    # libatomic.so.1 (+ its versioned real file) from the cross-toolchain — see
+    # the OpenSSL 3 block above. DIRECTORY install preserves the .so.1 -> .so.1.x
+    # symlink so the NEEDED soname resolves at load. EXCLUDE the toolchain lib
+    # dir's ldscripts/ subtree (else it lands as an empty dir in the package).
+    get_filename_component(_libatomic_dir "${TOOLCHAIN_LIBATOMIC}" DIRECTORY)
+    install(DIRECTORY ${_libatomic_dir}/ DESTINATION /opt/meetube/lib
+            FILES_MATCHING PATTERN "libatomic.so.1*"
+            PATTERN "ldscripts" EXCLUDE)
 endif()
 
 # ---------------------------------------------------------------------------

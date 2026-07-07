@@ -21,3 +21,11 @@
 	path = deps/glaze
 	url = https://github.com/stephenberry/glaze.git
 	branch = v7.8.4
+[submodule "deps/openssl3"]
+	path = deps/openssl3
+	url = https://github.com/openssl/openssl.git
+	branch = openssl-3.0.21
+[submodule "deps/curl"]
+	path = deps/curl
+	url = https://github.com/curl/curl.git
+	branch = curl-8_21_0
