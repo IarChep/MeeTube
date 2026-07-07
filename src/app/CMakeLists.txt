@@ -63,7 +63,7 @@ target_link_libraries(meetube PRIVATE
 # libQtGui's png_*@PNG12_0 references. Built before meetube via the dependency.
 if(NOT BUILD_N9)
     target_link_libraries(meetube PRIVATE png12)
-    add_dependencies(meetube libpng12_build libjpeg62_build openssl102)
+    add_dependencies(meetube libpng12_build libjpeg62_build)
     set_target_properties(meetube PROPERTIES BUILD_RPATH ${LIBPNG12_INSTALL}/lib)
 endif()
 
@@ -117,13 +117,15 @@ target_compile_definitions(meetube PRIVATE WEBP_PLUGIN_DIR="${WEBP_PLUGIN_DIR}")
 add_dependencies(meetube qwebp)
 
 # ---------------------------------------------------------------------------
-# CA certificate bundle path — compiled in so main.cpp can load it into
-# QSslConfiguration::defaultConfiguration() at startup.
+# CA certificate bundle path — compiled in so curlnamfactory.cpp can seed it
+# into the libcurl-backed QML Image NAM (CURLOPT_CAINFO). Must resolve to a path
+# that EXISTS at runtime on the target: the build-tree cacert.pem on the host,
+# the installed /opt/meetube/ssl/cert.pem on the device.
 # ---------------------------------------------------------------------------
 if(BUILD_N9)
     set(MEETUBE_CA_BUNDLE "/opt/meetube/ssl/cert.pem")
 else()
-    set(MEETUBE_CA_BUNDLE "${OSSL_INSTALL}/ssl/cert.pem")
+    set(MEETUBE_CA_BUNDLE "${CACERT_PEM}")
 endif()
 target_compile_definitions(meetube PRIVATE MEETUBE_CA_BUNDLE="${MEETUBE_CA_BUNDLE}")
 
@@ -131,7 +133,7 @@ target_compile_definitions(meetube PRIVATE MEETUBE_CA_BUNDLE="${MEETUBE_CA_BUNDL
 # N9 packaging (device only): the freedesktop launcher entry + icons, and the
 # `package` target that stages everything through debian/rules and builds the
 # .deb with the Madde-wrapped dpkg-buildpackage. The app payload itself
-# (binary, bundled OpenSSL/png/jpeg/webp, WebP plugin, CA bundle) is installed
+# (binary, bundled png/jpeg/webp, WebP plugin, CA bundle) is installed
 # under /opt/meetube by these install() rules and by deps/ + webp-imageformat/.
 # ---------------------------------------------------------------------------
 if(BUILD_N9)

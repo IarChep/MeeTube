@@ -61,11 +61,11 @@ include(ExternalProject)
 # ---------------------------------------------------------------------------
 # Bundled third-party dependencies — extracted into deps/CMakeLists.txt.
 #
-# Declares the ExternalProjects (libpng12_build, libjpeg62_build, openssl102,
+# Declares the ExternalProjects (libpng12_build, libjpeg62_build,
 # libwebp_build), the qrcodegen static lib, and the IMPORTED GLOBAL png12
 # target. Added EARLY (before core/ and the app) so the targets + the
-# cross-consumed CACHE INTERNAL vars (LIBPNG12_*, LIBJPEG62_*, LIBWEBP_*,
-# OSSL_*) it sets are available to everything below and to webp-imageformat/.
+# cross-consumed CACHE INTERNAL vars (LIBPNG12_*, LIBJPEG62_*, LIBWEBP_*)
+# it sets are available to everything below and to webp-imageformat/.
 # ---------------------------------------------------------------------------
 add_subdirectory(deps)
 
