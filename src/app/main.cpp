@@ -21,6 +21,7 @@
 #include "harmattan/maskeditem.h"
 #include "harmattan/perlinbackground.h"
 #include "harmattan/qrimageprovider.h"
+#include "curlnamfactory.h"
 
 Q_DECL_EXPORT int main(int argc, char *argv[])
 {
@@ -96,6 +97,12 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     qmlRegisterType<PerlinBackground>("MeeTube", 1, 0, "PerlinBackground");
 
     QmlApplicationViewer viewer;
+    // Route QML Image loads (i.ytimg.com thumbnails) through the libcurl + OpenSSL 3.x
+    // NAM instead of Qt 4.7's stock QNetworkAccessManager. The engine hands each request
+    // the factory's NAM (a GUI-thread CurlNetworkAccessManager); only the network fetch
+    // changes — image decoding (libpng12/libjpeg/qwebp) is unaffected. MUST be set before
+    // setSource() so the factory is in place before the QML loads and issues image GETs.
+    viewer.engine()->setNetworkAccessManagerFactory(new yt::net::CurlNamFactory);
     viewer.engine()->addImageProvider("qr", new QrImageProvider);   // image://qr/<text>
     viewer.rootContext()->setContextProperty("innertube", yt::Innertube::instance());
     // Mint a bearer from the stored refresh token (no-op when signed out) so the
