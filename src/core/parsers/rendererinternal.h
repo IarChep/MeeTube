@@ -341,6 +341,11 @@ struct OwnerR {
     std::optional<SubscribeButton> subscribeButton;
 };
 
+// frameworkUpdates.entityBatchUpdate.mutations[].payload.likeStatusEntity — the authed
+// viewer's like/dislike on the video ("LIKE" / "DISLIKE" / "INDIFFERENT"). The TV /next
+// carries the like STATE here (not in a toggleButton), so it restores like/dislike.
+struct LikeStatusEntity { std::optional<std::string> likeStatus; };
+
 } // namespace rj
 
 // ---------------------------------------------------------------------------

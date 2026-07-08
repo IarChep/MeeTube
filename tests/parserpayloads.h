@@ -128,6 +128,21 @@ inline const char *kNextSubscribedTv = R"({"contents":{"singleColumnWatchNextRes
     }}
 ]}}}}}})";
 
+// Authed TVHTML5 /next: the like COUNT rides likeButtonRenderer.likeCountText (YouTube's
+// own "8.8K", NOT RYD), and the viewer's like STATE rides frameworkUpdates ->
+// likeStatusEntity.likeStatus ("LIKE"/"DISLIKE"/"INDIFFERENT"). Both restore the like row.
+inline const char *kNextTvLikeState = R"({"contents":{"singleColumnWatchNextResults":{"results":{"results":{"contents":[
+    {"videoMetadataRenderer": {"title": {"simpleText": "V"}}}
+]}}}},
+"transportControls": {"transportControlsRenderer": {"buttons": [
+    {"button": {"toggleButtonRenderer": {"defaultText": {"simpleText": "Captions"}}}},
+    {"button": {"likeButtonRenderer": {"likeCountText": {"simpleText": "8.8K"},
+                                        "likeCountWithLikeText": {"simpleText": "Like"}}}}
+]}},
+"frameworkUpdates": {"entityBatchUpdate": {"mutations": [
+    {"payload": {"likeStatusEntity": {"key": "abc", "likeStatus": "LIKE"}}}
+]}}})";
+
 } // namespace payloads
 #endif // Q_MOC_RUN
 #endif

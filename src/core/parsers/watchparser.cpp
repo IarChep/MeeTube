@@ -257,10 +257,30 @@ void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Vid
                 if (!dbt.empty() && dbt.front() == '{') { Text t{}; readJson(t, dbt); v.description = qstr(textOf(t)); }
             }
         }
-        // NOTE: the authed TV /next does NOT expose the like COUNT in a parseable shape
-        // (its toggleButtons are Captions/Surround; the like control carries no count
-        // text). Leave likeText/likeCount empty so the UI shows a plain "Like" rather
-        // than a wrong label; the like STATE still flows through the like action.
+        // Like COUNT — YouTube's OWN displayed count (e.g. "8.8K"), from the like
+        // control's likeCountText. (The TV toggleButtons are Captions/Surround; the like
+        // count is on likeButtonRenderer, elsewhere in the tree — scan the whole response.
+        // This replaces the RYD like fallback: RYD is dislikes-only now.)
+        if (v.likeText.isEmpty()) {
+            const std::string_view lb = findExtent(response, "likeButtonRenderer");
+            if (!lb.empty()) {
+                const std::string_view lct = scan::topLevelValue(lb, "likeCountText");
+                if (!lct.empty() && lct.front() == '{') { Text t{}; readJson(t, lct); v.likeText = qstr(textOf(t)); }
+            }
+        }
+        // Like STATE — the viewer's like/dislike, from the authed likeStatusEntity in
+        // frameworkUpdates. This is how the TV /next carries it (there is no like
+        // toggleButton), so it restores the like/dislike button on every (re)entry.
+        if (v.likeStatus == 0) {
+            const std::string_view lse = findExtent(response, "likeStatusEntity");
+            if (!lse.empty()) {
+                rj::LikeStatusEntity e{}; readJson(e, lse);
+                if (e.likeStatus) {
+                    if      (*e.likeStatus == "LIKE")    v.likeStatus = 1;
+                    else if (*e.likeStatus == "DISLIKE") v.likeStatus = 2;
+                }
+            }
+        }
     }
     v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     *primary = v;
