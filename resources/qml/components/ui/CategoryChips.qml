@@ -12,6 +12,9 @@ Item {
 
     property variant categories: []
     property string currentId: ""
+    // When true, an auto-scroll to the current chip animates; false snaps instantly (used
+    // for the initial positioning so the strip doesn't slide on launch).
+    property bool animated: true
     signal selected(string id, bool requiresAuth, string label)
 
     // Strip height from the label metrics — no magic layout numbers.
@@ -87,12 +90,31 @@ Item {
                         if (!current || flick.width <= 0 || width <= 0) return;
                         var target = strip.x + x + width / 2 - flick.width / 2;
                         var maxX = Math.max(0, flick.contentWidth - flick.width);
-                        flick.contentX = Math.max(0, Math.min(target, maxX));
+                        target = Math.max(0, Math.min(target, maxX));
+                        if (root.animated) {
+                            scrollAnim.stop();
+                            scrollAnim.from = flick.contentX;
+                            scrollAnim.to = target;
+                            scrollAnim.start();
+                        } else {
+                            flick.contentX = target;
+                        }
                     }
                 }
             }
         }
 
         ScrollDecorator { flickableItem: flick }
+
+        // Smoothly animates the auto-scroll-to-current-chip (started from a cell's
+        // onCurrentChanged). A dedicated animation — NOT a Behavior on contentX — so
+        // manually flicking the strip stays 1:1 with the finger.
+        NumberAnimation {
+            id: scrollAnim
+            target: flick
+            property: "contentX"
+            duration: UI.ANIM_DEFAULT
+            easing.type: Easing.InOutQuad
+        }
     }
 }

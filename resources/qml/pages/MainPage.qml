@@ -119,6 +119,9 @@ Page {
         }
         categories: page.allCategories
         currentId: appWindow.currentCategoryId
+        // Animate the auto-scroll only after the initial positioning (page.ready), so the
+        // strip doesn't visibly slide on launch.
+        animated: page.ready
         onSelected: page.selectCategoryId(id)
     }
 
