@@ -77,6 +77,18 @@ Item {
                                                  modelData.requiresAuth === true,
                                                  modelData.label)
                     }
+
+                    // Keep the selected chip on-screen: when this cell becomes current (e.g.
+                    // after a pager swipe to an off-screen category like Sports), scroll the
+                    // strip so it is centred/visible.
+                    onCurrentChanged: {
+                        // Skip until geometry is laid out (flick.width 0 during init would
+                        // mis-position the strip); the next current-change corrects it.
+                        if (!current || flick.width <= 0 || width <= 0) return;
+                        var target = strip.x + x + width / 2 - flick.width / 2;
+                        var maxX = Math.max(0, flick.contentWidth - flick.width);
+                        flick.contentX = Math.max(0, Math.min(target, maxX));
+                    }
                 }
             }
         }
