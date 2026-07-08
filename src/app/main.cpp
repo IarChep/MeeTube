@@ -18,6 +18,7 @@
 #include "harmattan/maskeditem.h"
 #include "harmattan/perlinbackground.h"
 #include "harmattan/qrimageprovider.h"
+#include "harmattan/shareui.h"
 #include "curlnamfactory.h"
 
 Q_DECL_EXPORT int main(int argc, char *argv[])
@@ -75,6 +76,11 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     viewer.engine()->setNetworkAccessManagerFactory(new yt::net::CurlNamFactory);
     viewer.engine()->addImageProvider("qr", new QrImageProvider);   // image://qr/<text>
     viewer.rootContext()->setContextProperty("innertube", yt::Innertube::instance());
+    // Native Harmattan "Share" sheet, invoked from the VideoPage Share button. Methods are
+    // static (device-only; a host no-op that returns false → QML falls back to
+    // Qt.openUrlExternally), but QML needs an instance to call them on.
+    ShareUi shareUi;
+    viewer.rootContext()->setContextProperty("ShareUi", &shareUi);
     // Mint a bearer from the stored refresh token (no-op when signed out) so the
     // authed feeds work right after launch.
     yt::Innertube::instance()->accountManager()->restore();
