@@ -178,15 +178,17 @@ private slots:
         Innertube::instance()->shutdown();
     }
 
-    void feedSectionsReturnsTwoEntries() {
+    void feedSectionsReturnsFeeds() {
         QVariantList sections = Innertube::instance()->feedSections();
-        QCOMPARE(sections.size(), 2);
+        // Home (anon) + the login-gated feeds: Subscriptions, History, Watch Later, Liked.
+        QCOMPARE(sections.size(), 5);
         QCOMPARE(sections.at(0).toMap().value("id").toString(), QString("FEwhat_to_watch"));
         QCOMPARE(sections.at(1).toMap().value("id").toString(), QString("FEsubscriptions"));
+        QCOMPARE(sections.at(2).toMap().value("id").toString(), QString("FEhistory"));
         QCOMPARE(sections.at(0).toMap().value("label").toString(), QString("Home"));
-        QCOMPARE(sections.at(1).toMap().value("label").toString(), QString("Subscriptions"));
-        QCOMPARE(sections.at(0).toMap().value("requiresAuth").toBool(), false);
-        QCOMPARE(sections.at(1).toMap().value("requiresAuth").toBool(), true);
+        QCOMPARE(sections.at(0).toMap().value("requiresAuth").toBool(), false);   // Home: anonymous
+        QCOMPARE(sections.at(1).toMap().value("requiresAuth").toBool(), true);    // Subscriptions: login
+        QVERIFY(sections.at(4).toMap().value("requiresAuth").toBool());           // Liked: login
     }
 
     void listPopulatesModel() {
