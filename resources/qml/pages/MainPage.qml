@@ -6,9 +6,10 @@ import "../components/ui"
 import "../js/UIConstants.js" as UI
 import "../js/Status.js" as Status
 
-// Home page: a vertical list of videos from the top-level VideoModel (real backend).
-// Exposes its header content + background as Components so the global HeaderBar in
-// main.qml can host them (MeeShop integration idiom).
+// Home page: a swipeable pager of category feeds (one VideoModel-backed list per category),
+// with the CategoryChips strip on top as the selector. Swiping flips categories; the chip
+// strip and pager stay in sync. Exposes null pageHeader/background so the global HeaderBar
+// in main.qml collapses (MeeShop integration idiom).
 Page {
     id: page
     orientationLock: PageOrientation.LockPortrait
@@ -17,12 +18,10 @@ Page {
 
     // Cached AccountDetails (innertube.account().details()) — stored once so the toolbar
     // avatar binds to a single object rather than re-invoking details() per binding.
-    // avatarUrl is empty until it loads, so the Avatar shows its placeholder meanwhile.
     property variant accountDetails: innertube.account().details()
 
-    // Refresh the cached AccountDetails on sign-in: re-calling details() re-loads it, so
-    // avatarUrl populates and the toolbar squircle swaps from placeholder to the real
-    // avatar (fixes the stale-placeholder-after-sign-in gap).
+    // Refresh the cached AccountDetails on sign-in so the toolbar squircle swaps from
+    // placeholder to the real avatar (fixes the stale-placeholder-after-sign-in gap).
     Connections {
         target: appWindow
         onSignedInChanged: {
@@ -30,14 +29,28 @@ Page {
         }
     }
 
-    // Signed-out user parked on Home: Home stays in the strip, but its anonymous feed is
-    // empty, so we show the LoginPrompt (below) instead of a blank grid + spinner.
-    property bool homeLocked: !appWindow.signedIn
-                              && appWindow.currentCategoryId === "FEwhat_to_watch"
+    // --- Feed model cache: one VideoModel per category id, fetched lazily the FIRST time a
+    // page is shown and reused on every later visit. innertube.video().feed(id) re-lists on
+    // each call, so caching the returned model here is what stops a swipe-back from
+    // re-fetching (and burning the anonymous request quota).
+    property variant feedCache: ({})
+    function modelFor(id) {
+        var c = page.feedCache;
+        if (!c[id]) c[id] = innertube.video().feed(id);
+        page.feedCache = c;
+        return c[id];
+    }
+    // Force a fresh list() on a category's (cached) model — same object, contents refresh,
+    // so any live CategoryFeedView bound to it updates. Used on sign-in / bearer / Retry.
+    function reloadCategory(id) {
+        var c = page.feedCache;
+        c[id] = innertube.video().feed(id);
+        page.feedCache = c;
+    }
 
-    // Categories for the chips strip: Home (always shown — a signed-out tap surfaces the
-    // login prompt rather than a feed) followed by the anonymous topics (News / Live /
-    // Learning / Music / Fashion & Beauty / Sports).
+    // --- Categories for the strip + pager: Home (always shown — a signed-out tap surfaces
+    // the login prompt page) then the anonymous topics (News / Live / Learning / Music /
+    // Fashion & Beauty / Sports).
     property variant allCategories: []
     function buildCategories() {
         var out = [];
@@ -50,19 +63,52 @@ Page {
             out.push({ label: nav[i].label, id: nav[i].id, requiresAuth: false });
         return out;
     }
-    Component.onCompleted: page.allCategories = page.buildCategories()
+    function indexOfId(id) {
+        for (var i = 0; i < page.allCategories.length; ++i)
+            if (page.allCategories[i].id === id) return i;
+        return -1;
+    }
+    // Mirror the pager's current page into the app-level category id/label (drives the strip
+    // highlight + any header). Called on every swipe and on programmatic moves.
+    function syncCategoryFromPager() {
+        var c = page.allCategories[pager.currentIndex];
+        if (!c) return;
+        appWindow.currentCategoryId = c.id;
+        appWindow.currentCategoryLabel = c.label;
+    }
+    // Move the pager to a category by id (chip tap, initial load, auth transitions). When the
+    // index is already current, still sync so currentCategoryId is seeded.
+    function selectCategoryId(id) {
+        var i = page.indexOfId(id);
+        if (i < 0) return;
+        if (pager.currentIndex === i) page.syncCategoryFromPager();
+        else pager.currentIndex = i;
+    }
 
-    // NO global header on Home: the CategoryChips strip below IS the category selector
-    // now, so the old "MeeTube: <category>" bar is redundant. Leaving pageHeader and
-    // pageHeaderBackground null collapses the global HeaderBar to height 0 (same as VideoPage).
+    // Gate the pager's move animation: false during the initial positioning (so launch does
+    // not visibly scroll from Home to News), true afterwards so real taps/swipes animate.
+    property bool ready: false
+
+    Component.onCompleted: {
+        page.feedCache = ({});
+        page.allCategories = page.buildCategories();
+        // Default page: personalized Home when signed in, else the first topic (News) — the
+        // anonymous Home feed is empty (its page shows the login prompt instead).
+        var startId = innertube.auth().signedIn
+                      ? "FEwhat_to_watch"
+                      : innertube.navEntries()[0].id;
+        pager.currentIndex = Math.max(0, page.indexOfId(startId));
+        page.syncCategoryFromPager();
+        page.ready = true;
+    }
+
+    // NO global header on Home: the CategoryChips strip IS the category selector. Leaving
+    // pageHeader/pageHeaderBackground null collapses the global HeaderBar (same as VideoPage).
     property variant pageHeader: null
     property variant pageHeaderBackground: null
 
-    // --- Category chips: an N9-style scrollable strip of ALL available feed categories
-    // (Home / Subscriptions + the News / Learning / Live / Sports topics), the brand-red
-    // pill marking the current one. Tapping switches the top-level feed via setFeed()
-    // (gated: Subscriptions sends signed-out users to the account flow). Sits below the
-    // animated global HeaderBar, above the list.
+    // --- Category chips: an N9-style scrollable strip of all categories, the current one in
+    // brand red. Tapping animates the pager to that category.
     CategoryChips {
         id: categoryStrip
         anchors {
@@ -73,14 +119,14 @@ Page {
         }
         categories: page.allCategories
         currentId: appWindow.currentCategoryId
-        onSelected: appWindow.setFeed(id, requiresAuth, label)
+        onSelected: page.selectCategoryId(id)
     }
 
+    // --- Swipeable pager: one full-width CategoryFeedView per category, snapping one page at
+    // a time. Horizontal drags flip categories; the inner vertical lists scroll independently.
+    // currentIndex is the selected category, mirrored to appWindow.currentCategoryId.
     ListView {
-        id: list
-        // Sit below the segmented strip (which sits below the animated global HeaderBar)
-        // and above the toolbar. headerBar.height animates 72 <-> 0, so the strip and
-        // list track it.
+        id: pager
         anchors {
             top: categoryStrip.bottom
             topMargin: UI.PADDING_MEDIUM
@@ -89,62 +135,37 @@ Page {
             bottom: parent.bottom
         }
         clip: true
-        cacheBuffer: 1000
-        model: appWindow.feed
-        delegate: VideoDelegate {}
+        orientation: ListView.Horizontal
+        snapMode: ListView.SnapOneItem
+        highlightRangeMode: ListView.StrictlyEnforceRange
+        preferredHighlightBegin: 0
+        preferredHighlightEnd: 0
+        highlightMoveDuration: page.ready ? UI.ANIM_DEFAULT : 0
+        boundsBehavior: Flickable.StopAtBounds
+        cacheBuffer: 0
+        model: page.allCategories
 
-        // Animated "loading more" footer for infinite scroll; collapses to 0 at the end.
-        footer: ListFooter {
-            hasMore: appWindow.feed ? appWindow.feed.canFetchMore : false
-            active: appWindow.feed ? (appWindow.feed.status === Status.Loading) : false
+        onCurrentIndexChanged: page.syncCategoryFromPager()
+
+        delegate: CategoryFeedView {
+            width: pager.width
+            height: pager.height
+            // Signed-out Home shows the login gate (no feed); everything else binds its model.
+            locked: !appWindow.signedIn && modelData.id === "FEwhat_to_watch"
+            // Resolve the model imperatively (not a binding on the cache) — pages are created
+            // lazily, and this re-runs when the lock flips on sign-in/out.
+            Component.onCompleted: feed = locked ? null : page.modelFor(modelData.id)
+            onLockedChanged: feed = locked ? null : page.modelFor(modelData.id)
+            onLogin: appWindow.openAccount()
+            onRetry: page.reloadCategory(modelData.id)
         }
-
-        // Infinite scroll: pull the next page when the list bottoms out.
-        onAtYEndChanged: {
-            if (atYEnd && appWindow.feed && appWindow.feed.canFetchMore)
-                appWindow.feed.fetchMore();
-        }
-
-        ScrollDecorator { flickableItem: list }
-    }
-
-    // First-load spinner (only when there's nothing to show yet). Suppressed on the
-    // Home login gate, where feed is intentionally null and the LoginPrompt takes over.
-    BusyOverlay {
-        running: !page.homeLocked
-                 && (!appWindow.feed
-                     || (appWindow.feed.status === Status.Loading && appWindow.feed.count === 0))
-        text: "Loading videos…"
-    }
-
-    // Signed-out + Home selected: the login call-to-action stands in for the empty
-    // anonymous feed. Tapping "Log in" runs the account/sign-in flow; a topic chip
-    // (News/…) still switches away normally (this overlay has no full-area tap catcher).
-    LoginPrompt {
-        visible: page.homeLocked
-        onLogin: appWindow.openAccount()
-    }
-
-    // Empty (loaded but no rows) / error state, with Retry on failure.
-    EmptyState {
-        property bool failed: appWindow.feed ? (appWindow.feed.status === Status.Failed) : false
-        visible: appWindow.feed
-                 ? (appWindow.feed.count === 0
-                    && (appWindow.feed.status === Status.Ready || failed))
-                 : false
-        title: failed ? "Couldn't load videos" : "Nothing here yet"
-        hint: failed ? appWindow.feed.errorString : "Try another category."
-        showRetry: failed
-        onRetry: appWindow.reloadFeed()
     }
 
     ToolBarLayout {
         id: mainTools
-        // A segmented TabButton pair (the SDK's replacement for the deprecated
-        // TabBarLayout): search opens the search page, account opens the account
-        // page. exclusive:false keeps them momentary — navigation, not a stuck
-        // tab selection. TabButton takes iconSource directly and (unlike ToolIcon)
-        // is not auto-whitened on the dark theme, so use the -white assets.
+        // A segmented TabButton pair (the SDK's replacement for the deprecated TabBarLayout):
+        // search opens the search page, account opens the account page. exclusive:false keeps
+        // them momentary — navigation, not a stuck tab selection.
         ButtonRow {
             exclusive: false
             TabButton {
@@ -154,15 +175,12 @@ Page {
             TabButton {
                 id: accountButton
                 // Signed out: the contact glyph. Signed in: the glyph is cleared and a
-                // squircle Avatar (below) is overlaid, so the toolbar shows the user's
-                // avatar. The tap target is the TabButton either way.
+                // squircle Avatar (below) is overlaid, so the toolbar shows the user's avatar.
                 iconSource: appWindow.signedIn
                             ? ""
                             : "image://theme/icon-m-toolbar-contact-white"
                 onClicked: appWindow.openAccount()
 
-                // Signed-in avatar, sized to the toolbar icon and centered over the
-                // button. Non-interactive so taps fall through to the TabButton above.
                 Avatar {
                     anchors.centerIn: parent
                     width: UI.SIZE_ICON_LARGE

@@ -28,46 +28,29 @@ PageStackWindow {
     // the cached VideoModel, so this just re-lists it.
     function reloadFeed() {
         if (currentCategoryId !== "")
-            appWindow.feed = innertube.video().feed(currentCategoryId);
+            mainPage.reloadCategory(currentCategoryId);
     }
 
-    // Switch to a feed section (Home/Subscriptions) — shared by the segmented
-    // strip on MainPage and the Home default in Component.onCompleted. Gated: a
-    // personalized section (requiresAuth) sends signed-out users to the account flow.
-    // Sets the single current-feed id + header label the strip and header both read.
+    // Switch the pager to a category by id — shared by the chip strip, the (legacy) category
+    // dialog and the auth transitions. Gated: a personalized section (requiresAuth) sends
+    // signed-out users to the account flow. MainPage owns the feed models + the current-index
+    // sync, so this just moves the pager (which seeds currentCategoryId/Label).
     function setFeed(id, requiresAuth, label) {
         if (requiresAuth && !appWindow.signedIn) {
             appWindow.openAccount();
             return;
         }
-        appWindow.currentCategoryId = id;
-        appWindow.currentCategoryLabel = label;
-        // Home (FEwhat_to_watch) is personalized: an anonymous fetch returns an empty
-        // grid, so for a signed-out user DON'T fetch — MainPage's LoginPrompt stands in
-        // (its `homeLocked` reads this null feed + the Home id).
-        if (id === "FEwhat_to_watch" && !appWindow.signedIn) {
-            appWindow.feed = null;
-            return;
-        }
-        appWindow.feed = innertube.video().feed(id);
+        mainPage.selectCategoryId(id);
     }
 
-    // Switch to nav category `idx` — shared by the category dialog, the home chips row,
-    // and the initial load. Updates the header label + the top-level feed.
+    // Switch to nav category `idx` (the legacy category dialog). Moves the pager.
     function selectCategory(idx) {
         var nav = innertube.navEntries();
         if (idx >= 0 && idx < nav.length) {
             categoryDialog.selectedIndex = idx;
-            appWindow.currentCategoryLabel = nav[idx].label;
-            appWindow.currentCategoryId = nav[idx].id;
-            appWindow.feed = innertube.video().feed(nav[idx].id);
+            mainPage.selectCategoryId(nav[idx].id);
         }
     }
-
-    // The top-level video feed, obtained from the API tree (innertube.video().feed()).
-    // A C++-owned VideoModel — MainPage's ListView binds to it. Undefined until the
-    // first category loads in Component.onCompleted.
-    property variant feed
 
     // --- Shared header background: an animated Perlin-noise field in the brand red
     // palette (a C++ QDeclarativeItem). ONE shared Component instance so navigating
@@ -140,17 +123,17 @@ PageStackWindow {
         onSignedInChanged: {
             appWindow.signedIn = innertube.auth().signedIn;
             if (appWindow.signedIn) {
-                // Just signed in on a personalized feed? Re-fetch it so the generic feed
-                // becomes personalized (same idiom as reloadFeed()).
+                // Just signed in on a personalized feed? Re-list it so the generic feed
+                // becomes personalized (the current pager page refreshes in place).
                 if (appWindow.currentCategoryId === "FEwhat_to_watch"
                     || appWindow.currentCategoryId === "FEsubscriptions")
-                    appWindow.feed = innertube.video().feed(appWindow.currentCategoryId);
+                    mainPage.reloadCategory(appWindow.currentCategoryId);
             } else if (appWindow.currentCategoryId === "FEwhat_to_watch") {
                 // Signed out while viewing personalized Home: don't strand the user on the
                 // login gate — auto-open News (the signed-out default). Home stays in the
-                // strip; a deliberate tap on it then surfaces the LoginPrompt.
+                // pager; swiping/tapping back to it then surfaces the LoginPrompt.
                 var nav = innertube.navEntries();
-                appWindow.setFeed(nav[0].id, false, nav[0].label);
+                mainPage.selectCategoryId(nav[0].id);
             }
         }
         // The bearer is minted ASYNC (restore() at launch, or a token refresh). signedIn is
@@ -162,7 +145,7 @@ PageStackWindow {
         onBearerChanged: {
             if (appWindow.currentCategoryId === "FEwhat_to_watch"
                 || appWindow.currentCategoryId === "FEsubscriptions")
-                appWindow.feed = innertube.video().feed(appWindow.currentCategoryId);
+                mainPage.reloadCategory(appWindow.currentCategoryId);
         }
     }
 
@@ -181,14 +164,9 @@ PageStackWindow {
         for (i = 0; i < nav.length; ++i)
             categoryListModel.append({ name: nav[i].label });
 
-        // Default feed: the personalized Home (FEwhat_to_watch) ONLY when signed in —
-        // anonymous Home is empty, so a signed-out user lands on the first topic (News).
-        if (appWindow.signedIn) {
-            var secs = innertube.feedSections();
-            appWindow.setFeed(secs[0].id, secs[0].requiresAuth, secs[0].label);
-        } else {
-            appWindow.setFeed(nav[0].id, false, nav[0].label);
-        }
+        // MainPage owns the initial category (Home when signed in, else News) + the pager,
+        // seeding appWindow.currentCategoryId in its own Component.onCompleted (which runs
+        // before this one). Nothing to select here.
         __updateHeader();
     }
 
