@@ -33,6 +33,7 @@
         <file>qml/components/ui/NavRow.qml</file>
         <file>qml/components/ui/SubscribeButton.qml</file>
         <file>qml/components/ui/CategoryChips.qml</file>
+        <file>qml/components/ui/LoginPrompt.qml</file>
 
         <!-- components: sheets -->
         <file>qml/components/sheets/CommentsSheet.qml</file>

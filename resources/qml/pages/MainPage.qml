@@ -25,16 +25,24 @@ Page {
     // avatar (fixes the stale-placeholder-after-sign-in gap).
     Connections {
         target: appWindow
-        onSignedInChanged: if (appWindow.signedIn) page.accountDetails = innertube.account().details()
+        onSignedInChanged: {
+            if (appWindow.signedIn) page.accountDetails = innertube.account().details();
+        }
     }
 
-    // All available feed categories for the chips strip: the two feed sections
-    // (Home / Subscriptions) followed by the nav topics (News / Learning / Live / Sports).
+    // Signed-out user parked on Home: Home stays in the strip, but its anonymous feed is
+    // empty, so we show the LoginPrompt (below) instead of a blank grid + spinner.
+    property bool homeLocked: !appWindow.signedIn
+                              && appWindow.currentCategoryId === "FEwhat_to_watch"
+
+    // Categories for the chips strip: Home (always shown — a signed-out tap surfaces the
+    // login prompt rather than a feed) followed by the anonymous topics (News / Live /
+    // Learning / Music / Fashion & Beauty / Sports).
     property variant allCategories: []
     function buildCategories() {
         var out = [];
-        var fs = innertube.feedSections();
         var i;
+        var fs = innertube.feedSections();   // [Home]
         for (i = 0; i < fs.length; ++i)
             out.push({ label: fs[i].label, id: fs[i].id, requiresAuth: fs[i].requiresAuth });
         var nav = innertube.navEntries();
@@ -100,11 +108,21 @@ Page {
         ScrollDecorator { flickableItem: list }
     }
 
-    // First-load spinner (only when there's nothing to show yet).
+    // First-load spinner (only when there's nothing to show yet). Suppressed on the
+    // Home login gate, where feed is intentionally null and the LoginPrompt takes over.
     BusyOverlay {
-        running: !appWindow.feed
-                 || (appWindow.feed.status === Status.Loading && appWindow.feed.count === 0)
+        running: !page.homeLocked
+                 && (!appWindow.feed
+                     || (appWindow.feed.status === Status.Loading && appWindow.feed.count === 0))
         text: "Loading videos…"
+    }
+
+    // Signed-out + Home selected: the login call-to-action stands in for the empty
+    // anonymous feed. Tapping "Log in" runs the account/sign-in flow; a topic chip
+    // (News/…) still switches away normally (this overlay has no full-area tap catcher).
+    LoginPrompt {
+        visible: page.homeLocked
+        onLogin: appWindow.openAccount()
     }
 
     // Empty (loaded but no rows) / error state, with Retry on failure.
