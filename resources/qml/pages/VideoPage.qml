@@ -570,7 +570,15 @@ Page {
                     // whitespace to spaces and cap at one line — the preview never wraps or
                     // runs under the drill-down arrow (the column is anchored to its left).
                     Text {
-                        width: parent.width
+                        // EXPLICIT width to the arrow's left edge — a QtQuick 1.1 Column sizes
+                        // to content and ignores its own left/right anchors for width, so
+                        // `parent.width` here would span the whole row and run under the arrow.
+                        // The column sits at x = DEFAULT_MARGIN, so this ends PADDING_LARGE
+                        // short of the arrow. The \s+ replace collapses the comment body's
+                        // newlines to spaces so it is a single logical line; classic
+                        // width + ElideRight then elides it (NoWrap is the default — adding
+                        // maximumLineCount here silently disables the elide in QtQuick 1.1).
+                        width: commentsArrow.x - UI.DEFAULT_MARGIN - UI.PADDING_LARGE
                         text: (comments && comments.disabled)
                               ? "Comments are turned off"
                               : (comments && comments.count > 0)
@@ -578,8 +586,6 @@ Page {
                                 : (comments && comments.status === Status.Loading ? "Loading comments…" : "No comments")
                         color: UI.COLOR_SECONDARY_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
-                        wrapMode: Text.NoWrap
-                        maximumLineCount: 1
                         elide: Text.ElideRight
                     }
                 }
