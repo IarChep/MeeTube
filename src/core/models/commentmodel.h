@@ -26,9 +26,14 @@
 // (or there are none) — the chain reports ok with empty items, distinct from Failed.
 class CommentModel : public ServiceListModel {
     Q_OBJECT
+    // True when comments are turned OFF for this video (no comments panel/token — e.g.
+    // made-for-kids content), distinct from a video that merely has zero comments.
+    Q_PROPERTY(bool disabled READ disabled NOTIFY disabledChanged)
 public:
     explicit CommentModel(QObject *parent = 0);
     ~CommentModel();
+
+    bool disabled() const { return m_disabled; }
 
     Q_INVOKABLE void list(const QString &videoId);
     Q_INVOKABLE void fetchMore();
@@ -47,6 +52,8 @@ public Q_SLOTS:
 Q_SIGNALS:
     // Raised by post() when not signed in — the UI opens the auth sheet.
     void needsSignIn();
+    // The `disabled` (comments-off) state settled — fires from list() + applyComments.
+    void disabledChanged();
 
 protected:
     // Test seam (see VideoModel::apiRef()).
@@ -67,6 +74,7 @@ private:
     yt::core::JobToken m_postJob;  // post() — dtor-canceled; the revert closure gates on it (R8)
     QString m_videoId;
     QString m_createCommentParams; // the create-comment box's submit token (R4)
+    bool m_disabled = false;       // comments turned off for this video (set by applyComments)
 };
 
 #endif // COMMENTMODEL_H
