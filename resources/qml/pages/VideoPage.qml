@@ -355,8 +355,15 @@ Page {
                     MouseArea {
                         id: shareMouse
                         anchors.fill: parent
-                        onClicked: if (videoData)
-                            Qt.openUrlExternally("https://www.youtube.com/watch?v=" + videoData.id)
+                        onClicked: {
+                            if (!videoData) return;
+                            var url = "https://www.youtube.com/watch?v=" + videoData.id;
+                            // Native Harmattan share sheet on device (messaging/mail/social);
+                            // on the host Simulator ShareUi is a no-op returning false, so fall
+                            // back to opening the link externally.
+                            if (!ShareUi.shareVideo(videoData.title ? videoData.title : "", url))
+                                Qt.openUrlExternally(url);
+                        }
                     }
                     Column {
                         anchors.centerIn: parent
@@ -390,7 +397,12 @@ Page {
                     MouseArea {
                         id: saveMouse
                         anchors.fill: parent
-                        onClicked: if (details) addToPlaylistSheet.open()
+                        // Adding to a playlist / Watch Later is account-only: send signed-out
+                        // users to the sign-in flow instead of opening the (empty) sheet.
+                        onClicked: {
+                            if (!appWindow.signedIn) appWindow.openAccount();
+                            else if (details) addToPlaylistSheet.open();
+                        }
                     }
                     Column {
                         anchors.centerIn: parent

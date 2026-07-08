@@ -25,6 +25,10 @@ add_executable(meetube
     # QR image provider (image://qr/...) for the device-code login; renders via the
     # bundled qrcodegen static lib (linked below).
     harmattan/qrimageprovider.cpp
+    # Native Harmattan "Share" sheet (com.nokia.ShareUi over D-Bus) invoked from the
+    # VideoPage Share button. Device-only (a host no-op returning false); ported from
+    # cuteTube2. Declares Q_OBJECT -> moc'd via AUTOMOC; device link deps in BUILD_N9 below.
+    harmattan/shareui.cpp
     # QML resources (main.qml + pages/components + avatar-mask.png) baked into the
     # binary; main.cpp loads qrc:/qml/main.qml. Compiled via the target's AUTORCC.
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
@@ -90,6 +94,15 @@ if(BUILD_N9)
     target_compile_definitions(meetube PRIVATE HARMATTAN_BOOSTER)
     target_compile_options(meetube PRIVATE ${boostable_CFLAGS})
     target_include_directories(meetube PRIVATE ${CMAKE_SYSROOT}${boostable_INCLUDE_DIRS})
+
+    # Native "Share" sheet (harmattan/shareui.cpp) device deps: the com.nokia.ShareUi
+    # D-Bus interface + MDataUri. .pc names match cuteTube2's; resolved from the device
+    # sysroot via PKG_CONFIG_SYSROOT_DIR (set by configure). Guarded behind BUILD_N9 in
+    # the source, so the host build needs none of this.
+    pkg_check_modules(SHAREUI ShareUiInterface-maemo-meegotouch mdatauri REQUIRED)
+    target_include_directories(meetube PRIVATE ${SHAREUI_INCLUDE_DIRS})
+    target_link_libraries(meetube PRIVATE ${SHAREUI_LIBRARIES})
+
     target_link_options(meetube PRIVATE
         -static-libstdc++ -static-libgcc
         -Wl,--dynamic-linker,/lib/ld-linux.so.3
