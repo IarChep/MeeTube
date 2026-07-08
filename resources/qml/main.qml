@@ -42,6 +42,13 @@ PageStackWindow {
         }
         appWindow.currentCategoryId = id;
         appWindow.currentCategoryLabel = label;
+        // Home (FEwhat_to_watch) is personalized: an anonymous fetch returns an empty
+        // grid, so for a signed-out user DON'T fetch — MainPage's LoginPrompt stands in
+        // (its `homeLocked` reads this null feed + the Home id).
+        if (id === "FEwhat_to_watch" && !appWindow.signedIn) {
+            appWindow.feed = null;
+            return;
+        }
         appWindow.feed = innertube.video().feed(id);
     }
 
@@ -132,12 +139,19 @@ PageStackWindow {
         target: innertube.auth()
         onSignedInChanged: {
             appWindow.signedIn = innertube.auth().signedIn;
-            // Just signed in on a personalized feed? Re-fetch it so the generic feed
-            // becomes personalized (same idiom as reloadFeed()).
-            if (appWindow.signedIn
-                && (appWindow.currentCategoryId === "FEwhat_to_watch"
-                    || appWindow.currentCategoryId === "FEsubscriptions"))
-                appWindow.feed = innertube.video().feed(appWindow.currentCategoryId);
+            if (appWindow.signedIn) {
+                // Just signed in on a personalized feed? Re-fetch it so the generic feed
+                // becomes personalized (same idiom as reloadFeed()).
+                if (appWindow.currentCategoryId === "FEwhat_to_watch"
+                    || appWindow.currentCategoryId === "FEsubscriptions")
+                    appWindow.feed = innertube.video().feed(appWindow.currentCategoryId);
+            } else if (appWindow.currentCategoryId === "FEwhat_to_watch") {
+                // Signed out while viewing personalized Home: don't strand the user on the
+                // login gate — auto-open News (the signed-out default). Home stays in the
+                // strip; a deliberate tap on it then surfaces the LoginPrompt.
+                var nav = innertube.navEntries();
+                appWindow.setFeed(nav[0].id, false, nav[0].label);
+            }
         }
         // The bearer is minted ASYNC (restore() at launch, or a token refresh). signedIn is
         // already true from the persisted refresh token, so signedInChanged does NOT fire when
@@ -167,10 +181,14 @@ PageStackWindow {
         for (i = 0; i < nav.length; ++i)
             categoryListModel.append({ name: nav[i].label });
 
-        // Home default: the recommended feed (Home = FEwhat_to_watch) — generic while
-        // signed out, personalized once the user signs in (refreshed below).
-        var secs = innertube.feedSections();
-        appWindow.setFeed(secs[0].id, secs[0].requiresAuth, secs[0].label);
+        // Default feed: the personalized Home (FEwhat_to_watch) ONLY when signed in —
+        // anonymous Home is empty, so a signed-out user lands on the first topic (News).
+        if (appWindow.signedIn) {
+            var secs = innertube.feedSections();
+            appWindow.setFeed(secs[0].id, secs[0].requiresAuth, secs[0].label);
+        } else {
+            appWindow.setFeed(nav[0].id, false, nav[0].label);
+        }
         __updateHeader();
     }
 

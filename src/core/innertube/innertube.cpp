@@ -161,12 +161,12 @@ QVariantList Innertube::navEntries() const {
     // Trending/Explore/Gaming/Movies "FE" destinations reject a plain browse, so they are
     // intentionally absent.
     struct { const char *label; const char *kind; const char *id; } nav[] = {
-        { "Music",            "video", "UC-9-kyTW8ZkZNDHQJ6FgpwQ" },
         { "News",             "video", "FEnews_destination" },
         { "Live",             "video", "UC4R8DWoMoI7CAwX8_LjQHig" },
         { "Learning",         "video", "UCtFRv9O2AHqOZjjynzrv-xg" },
-        { "Sports",           "video", "UCEgdi0XIXXZ-qJOFPf4JSKw" },
-        { "Fashion & Beauty", "video", "UCrpQ4p1Ql_hG8rKXIKM1MOQ" } };
+        { "Music",            "video", "UC-9-kyTW8ZkZNDHQJ6FgpwQ" },
+        { "Fashion & Beauty", "video", "UCrpQ4p1Ql_hG8rKXIKM1MOQ" },
+        { "Sports",           "video", "UCEgdi0XIXXZ-qJOFPf4JSKw" } };
     for (int i = 0; i < 6; ++i) {
         QVariantMap m;
         m["label"] = QString::fromLatin1(nav[i].label);
