@@ -108,8 +108,11 @@ QVariantList Innertube::feedSections() const {
     QVariantList out;
     struct S { const char *label; const char *id; bool auth; };
     const S rows[] = {
-        { "Home",          "FEwhat_to_watch", false },
-        { "Subscriptions", "FEsubscriptions", true  },
+        { "Home",          "FEwhat_to_watch", false },  // anonymous OK (personalized when authed)
+        { "Subscriptions", "FEsubscriptions", true  },  // login: your subscriptions feed
+        { "History",       "FEhistory",       true  },  // login: watch history
+        { "Watch Later",   "VLWL",            true  },  // login: Watch Later playlist feed
+        { "Liked",         "VLLL",            true  },  // login: Liked videos feed
     };
     for (const S &s : rows) {
         QVariantMap m;
@@ -154,12 +157,18 @@ void Innertube::applySettings(const QString &region, const QString &language) {
 
 QVariantList Innertube::navEntries() const {
     QVariantList out;
+    // Anonymous (no-login) topic feeds — verified to return real video lists. These are
+    // YouTube's auto-generated topic channels (UC…) + the news destination (FE…). The
+    // Trending/Explore/Gaming/Movies "FE" destinations reject a plain browse, so they are
+    // intentionally absent.
     struct { const char *label; const char *kind; const char *id; } nav[] = {
-        { "News",     "video", "FEnews_destination" },
-        { "Learning", "video", "UCtFRv9O2AHqOZjjynzrv-xg" },
-        { "Live",     "video", "UC4R8DWoMoI7CAwX8_LjQHig" },
-        { "Sports",   "video", "UCEgdi0XIXXZ-qJOFPf4JSKw" } };
-    for (int i = 0; i < 4; ++i) {
+        { "Music",            "video", "UC-9-kyTW8ZkZNDHQJ6FgpwQ" },
+        { "News",             "video", "FEnews_destination" },
+        { "Live",             "video", "UC4R8DWoMoI7CAwX8_LjQHig" },
+        { "Learning",         "video", "UCtFRv9O2AHqOZjjynzrv-xg" },
+        { "Sports",           "video", "UCEgdi0XIXXZ-qJOFPf4JSKw" },
+        { "Fashion & Beauty", "video", "UCrpQ4p1Ql_hG8rKXIKM1MOQ" } };
+    for (int i = 0; i < 6; ++i) {
         QVariantMap m;
         m["label"] = QString::fromLatin1(nav[i].label);
         m["kind"]  = QString::fromLatin1(nav[i].kind);
