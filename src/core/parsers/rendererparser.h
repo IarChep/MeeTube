@@ -31,6 +31,10 @@ QList<CT::Playlist> parsePlaylistList(std::string_view response, QString *nextTo
 // the NUL-terminated sentinel path (kInDoc) — production passes *r.body.
 CT::User parseChannel(std::string_view response);
 CT::User parseChannel(const std::string &response);
+// The viewer's subscribe state on a channel — the first subscribeButtonRenderer.subscribed
+// anywhere (works for the WEB c4 header AND the TVHTML5 channelHeaderRenderer). Only an
+// AUTHED (bearer/TV) browse carries it; anonymous responses omit it → false.
+bool parseChannelSubscribed(std::string_view response);
 CT::User parseUserRenderer(std::string_view r);
 QList<CT::User> parseUserList(std::string_view response, QString *nextToken);
 // account/accounts_list (authed) → the active account's identity. The channel id is

@@ -303,6 +303,22 @@ void fetchChannelByUrl(IHttp &http, const QString &handleUrl, const JobToken &jo
         });
 }
 
+// ---- fetchChannelSubscribed — the viewer's subscribe state (authed TV) --------
+// WEB channel browse is anonymous (no subscribe state); the TV browse carries it in the
+// channelHeaderRenderer.subscribeButton but drops the WEB header — so this is a SEPARATE
+// authed request, fired in parallel with fetchChannelById's WEB header when signed in.
+void fetchChannelSubscribed(IHttp &http, const QString &channelId, const JobToken &job,
+                            std::function<void(const Outcome<bool> &)> done)
+{
+    http.post("browse", ClientId::TVHTML5, bodies::browse(channelId, QString(), QString()), job,
+        [done](const Reply &r) {
+            Outcome<bool> out;
+            if (!r.ok) { out.error = r.error; done(out); return; }
+            out.ok = true; out.value = parseChannelSubscribed(*r.body);
+            done(out);
+        });
+}
+
 // ---- fetchUserSearch — userrequest.cpp:41-46, 61-65 -------------------------
 void fetchUserSearch(IHttp &http, const QString &query, const JobToken &job,
                      std::function<void(const Outcome<UserPage> &)> done)

@@ -25,6 +25,7 @@ ChannelDetails::ChannelDetails(QObject *parent) : QObject(parent), m_status(core
 ChannelDetails::~ChannelDetails() {
     if (m_job) m_job->canceled.store(true);
     if (m_actionJob) m_actionJob->canceled.store(true);
+    if (m_subCheckJob) m_subCheckJob->canceled.store(true);
 }
 
 ApiRef ChannelDetails::apiRef() const {
@@ -75,6 +76,7 @@ void ChannelDetails::loadByUrl(const QString &handleUrl) {
 
 void ChannelDetails::cancelJob() {
     if (m_actionJob) m_actionJob->canceled.store(true);
+    if (m_subCheckJob) m_subCheckJob->canceled.store(true);
     if (!m_job) return;
     m_job->canceled.store(true);
     const ApiRef api = apiRef();
@@ -98,6 +100,36 @@ void ChannelDetails::applyChannel(const core::Outcome<CT::User> &r) {
     emit loaded();
     emit subscribedChanged();   // the initial loaded subscribed state updates the binding
     emit statusChanged();
+    // The WEB header browse is anonymous → subscribed is always false here. When signed in,
+    // fetch the REAL subscribe state in parallel (an authed TV browse) and update the button.
+    if (signedIn() && !m_user.id.isEmpty()) refreshSubscribed(m_user.id);
+}
+
+// Fire the parallel authed subscribe-state check (see fetchChannelSubscribed): its own
+// dtor/cancel-canceled token, delivery gated on it (R8 guards the raw `self`).
+void ChannelDetails::refreshSubscribed(const QString &channelId) {
+    const ApiRef api = apiRef();
+    if (!api.host || !api.http) return;
+    if (m_subCheckJob) m_subCheckJob->canceled.store(true);
+    m_subCheckJob = core::newJob();
+    const core::JobToken job = m_subCheckJob;
+    ChannelDetails *self = this;
+    api.host->invoke([api, channelId, job, self]() {
+        core::fetchChannelSubscribed(*api.http, channelId, job,
+            [api, job, self](const core::Outcome<bool> &r) {
+                if (!r.ok) return;   // transport error → keep the header's (false) value
+                api.host->invokeGui([job, self, r]() {
+                    if (!core::live(job)) return;   // MUST be first
+                    self->applySubscribedState(r.value);
+                });
+            });
+    });
+}
+
+void ChannelDetails::applySubscribedState(bool subscribed) {
+    if (m_user.subscribed == subscribed) return;
+    m_user.subscribed = subscribed;
+    emit subscribedChanged();
 }
 
 bool ChannelDetails::signedIn() const {

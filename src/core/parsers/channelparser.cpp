@@ -148,6 +148,15 @@ CT::User parseUserRenderer(std::string_view r)
     return fromUserRenderer(s);
 }
 
+bool parseChannelSubscribed(std::string_view response)
+{
+    const std::string_view sb = findExtent(response, "subscribeButtonRenderer");
+    if (sb.empty()) return false;
+    rj::SubscribeButtonR r{};
+    readJson(r, sb);
+    return r.subscribed && *r.subscribed;
+}
+
 QString parseResolvedBrowseId(std::string_view response)
 {
     const std::string_view ep = scan::topLevelValue(response, "endpoint");
