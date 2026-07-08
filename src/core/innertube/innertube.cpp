@@ -107,12 +107,11 @@ void Innertube::applyBearer() {
 QVariantList Innertube::feedSections() const {
     QVariantList out;
     struct S { const char *label; const char *id; bool auth; };
+    // Just Home for the category strip. The personal/login feeds (Subscriptions, History,
+    // Watch Later, Liked) already have their own entries on the AccountPage, so they are
+    // intentionally NOT duplicated here.
     const S rows[] = {
-        { "Home",          "FEwhat_to_watch", false },  // anonymous OK (personalized when authed)
-        { "Subscriptions", "FEsubscriptions", true  },  // login: your subscriptions feed
-        { "History",       "FEhistory",       true  },  // login: watch history
-        { "Watch Later",   "VLWL",            true  },  // login: Watch Later playlist feed
-        { "Liked",         "VLLL",            true  },  // login: Liked videos feed
+        { "Home", "FEwhat_to_watch", false },  // anonymous OK (personalized when authed)
     };
     for (const S &s : rows) {
         QVariantMap m;
