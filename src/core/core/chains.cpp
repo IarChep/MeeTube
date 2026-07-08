@@ -183,9 +183,10 @@ void fetchComments(IHttp &http, const QString &videoId, const QString &page, con
             if (!r.ok) { out.error = r.error; done(out); return; }
             // Find the comments-section panel's continuation token.
             const QString token = findContinuationTokenUnder(*r.body, "engagementPanels");
-            // No panel/token == comments disabled: deliver an empty, successful page
-            // (the model distinguishes this from a failure by status Ready + count 0).
-            if (token.isEmpty()) { out.ok = true; done(out); return; }
+            // No panel/token == comments disabled (e.g. made-for-kids videos): deliver an
+            // empty, successful page flagged `disabled` so the UI can say so and lock the row
+            // (distinct from a video that merely has zero comments — that has a token).
+            if (token.isEmpty()) { out.ok = true; out.value.disabled = true; done(out); return; }
             if (!live(job)) return;                  // canceled between steps — stop here
             fetchCommentsPage(http, token, job, done);
         });

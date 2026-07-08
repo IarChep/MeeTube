@@ -25,7 +25,7 @@ namespace yt { namespace core {
 template <class T> struct Outcome { bool ok; QString error; T value; Outcome() : ok(false) {} };
 struct VideoPage    { QList<CT::Video> items; QString next; };
 struct WatchResult  { CT::Video primary; QList<CT::Video> related; };
-struct CommentPage  { QList<CT::Comment> items; QString next; QString createCommentParams; };
+struct CommentPage  { QList<CT::Comment> items; QString next; QString createCommentParams; bool disabled = false; };
 struct PlaylistPage { QList<CT::Playlist> items; QString next; };
 struct UserPage     { QList<CT::User> items; QString next; };
 struct PlayerOutcome {

@@ -108,22 +108,15 @@ Page {
                 }
             }
 
-            Button {
+            // Shared SubscribeButton (same pill as VideoPage). Every row here is a
+            // subscribed channel, so it shows the muted dark "Unsubscribe"; tapping it
+            // removes the row from the model optimistically.
+            SubscribeButton {
                 id: unsubscribeButton
-                width: 200
+                subscribed: true
                 anchors {
                     right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                     verticalCenter: parent.verticalCenter
-                }
-                text: "Unsubscribe"
-                platformStyle: ButtonStyle {
-                    buttonHeight: 46
-                    fontPixelSize: UI.FONT_SMALL
-                    fontWeight: Font.Bold
-                    textColor: UI.COLOR_INVERTED_FOREGROUND
-                    pressedTextColor: UI.COLOR_INVERTED_FOREGROUND
-                    background: "image://theme/meegotouch-button-inverted-background"
-                    pressedBackground: "image://theme/meegotouch-button-inverted-background-pressed"
                 }
                 onClicked: {
                     if (page.subsModel)

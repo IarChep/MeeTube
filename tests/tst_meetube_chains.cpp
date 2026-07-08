@@ -224,6 +224,7 @@ private slots:
         QCOMPARE(calls, 1);
         QVERIFY(out.ok);                     // Ready-with-empty, not a failure
         QCOMPARE(out.value.items.size(), 0);
+        QVERIFY(out.value.disabled);         // flagged disabled (no panel) — the UI locks the row
     }
 
     void commentsDirectContinuation() {

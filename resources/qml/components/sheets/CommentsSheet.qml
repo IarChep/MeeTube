@@ -156,6 +156,9 @@ Sheet {
                 placeholderText: "Add a comment…"
             }
 
+            // Send: same red "negative" pill + bold white text + 46px height as the
+            // VideoPage SubscribeButton (a prominent call-to-action), disabled until the
+            // field has text.
             Button {
                 id: sendButton
                 anchors {
@@ -164,6 +167,25 @@ Sheet {
                 }
                 text: "Send"
                 enabled: field.text.length > 0
+                width: sendMetrics.paintedWidth + UI.PADDING_XXLARGE * 2
+                Text {
+                    id: sendMetrics
+                    visible: false
+                    text: sendButton.text
+                    font.pixelSize: UI.FONT_SMALL
+                    font.family: UI.FONT_FAMILY
+                    font.weight: Font.Bold
+                }
+                platformStyle: ButtonStyle {
+                    buttonWidth: sendMetrics.paintedWidth + UI.PADDING_XXLARGE * 2
+                    buttonHeight: 46
+                    fontPixelSize: UI.FONT_SMALL
+                    fontWeight: Font.Bold
+                    textColor: UI.COLOR_INVERTED_FOREGROUND
+                    pressedTextColor: UI.COLOR_INVERTED_FOREGROUND
+                    background: "image://theme/meegotouch-button-negative-background"
+                    pressedBackground: "image://theme/meegotouch-button-negative-background-pressed"
+                }
                 onClicked: {
                     if (sheet.commentModel) {
                         sheet.commentModel.post(field.text);

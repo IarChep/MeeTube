@@ -31,6 +31,7 @@
         <file>qml/components/ui/ListFooter.qml</file>
         <file>qml/components/ui/SectionHeader.qml</file>
         <file>qml/components/ui/NavRow.qml</file>
+        <file>qml/components/ui/SubscribeButton.qml</file>
 
         <!-- components: sheets -->
         <file>qml/components/sheets/CommentsSheet.qml</file>

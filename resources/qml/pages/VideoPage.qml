@@ -469,45 +469,15 @@ Page {
                         elide: Text.ElideRight
                     }
                 }
-                // Subscribe: a real meego Button using the theme's red "negative" 9-patch
-                // (the only red button asset — there's no red colorN scheme) when not
-                // subscribed, and the muted dark inverted-button when subscribed. Sized
-                // smaller than a stock button. Reflects VideoDetails.subscribed (read from
-                // the authed /next owner); subscribe()/unsubscribe() fire the POST there,
-                // so state + action stay on the one object (an anonymous WEB channel browse
-                // never carries the viewer's subscribe state).
-                Button {
+                // Subscribe pill (shared SubscribeButton): red when not subscribed, muted
+                // dark when subscribed, and a FIXED "Unsubscribe" width so it never resizes
+                // on toggle. State + action are on VideoDetails (from the authed /next owner).
+                SubscribeButton {
                     id: subscribeButton
-                    property bool subscribed: (details && details.subscribed) ? true : false
+                    subscribed: (details && details.subscribed) ? true : false
                     anchors {
                         right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
-                    }
-                    text: subscribed ? "Unsubscribe" : "Subscribe"
-                    // Snug to the label (the 9-patch keeps 22px non-stretch borders each
-                    // side); avoids the over-wide fixed width.
-                    width: subMetrics.paintedWidth + UI.PADDING_XXLARGE * 2
-                    Text {
-                        id: subMetrics
-                        visible: false
-                        text: subscribeButton.text
-                        font.pixelSize: UI.FONT_SMALL
-                        font.family: UI.FONT_FAMILY
-                        font.weight: Font.Bold
-                    }
-                    platformStyle: ButtonStyle {
-                        buttonWidth: subMetrics.paintedWidth + UI.PADDING_XXLARGE * 2
-                        buttonHeight: 46
-                        fontPixelSize: UI.FONT_SMALL
-                        fontWeight: Font.Bold
-                        textColor: UI.COLOR_INVERTED_FOREGROUND
-                        pressedTextColor: UI.COLOR_INVERTED_FOREGROUND
-                        background: subscribeButton.subscribed
-                            ? "image://theme/meegotouch-button-inverted-background"
-                            : "image://theme/meegotouch-button-negative-background"
-                        pressedBackground: subscribeButton.subscribed
-                            ? "image://theme/meegotouch-button-inverted-background-pressed"
-                            : "image://theme/meegotouch-button-negative-background-pressed"
                     }
                     onClicked: {
                         if (!details) return;
@@ -549,6 +519,8 @@ Page {
                 id: commentsRect
                 width: parent.width
                 height: commentsColumn.height + UI.PADDING_XLARGE * 2
+                // Comments off (e.g. made-for-kids): dim the row so it reads as inert.
+                opacity: (comments && comments.disabled) ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
 
                 // Pressed highlight so a tap is legible (a subtle white wash reads on the
                 // dark theme where the stretched pressed-panel tile did not).
@@ -560,6 +532,7 @@ Page {
                 }
                 Image {
                     id: commentsArrow
+                    visible: !(comments && comments.disabled)   // no drill-down when off
                     anchors {
                         right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter
@@ -583,9 +556,11 @@ Page {
                     // First real comment (or a status line) from the CommentModel.
                     Text {
                         width: parent.width
-                        text: (comments && comments.count > 0)
-                              ? (comments.data(0, "username") + ": " + comments.data(0, "body"))
-                              : (comments && comments.status === Status.Loading ? "Loading comments…" : "No comments")
+                        text: (comments && comments.disabled)
+                              ? "Comments are turned off"
+                              : (comments && comments.count > 0)
+                                ? (comments.data(0, "username") + ": " + comments.data(0, "body"))
+                                : (comments && comments.status === Status.Loading ? "Loading comments…" : "No comments")
                         color: UI.COLOR_SECONDARY_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
                         elide: Text.ElideRight
@@ -594,6 +569,7 @@ Page {
                 MouseArea {
                     id: commentsMouse
                     anchors.fill: parent
+                    enabled: !(comments && comments.disabled)   // not clickable when off
                     onClicked: commentsSheet.open()
                 }
             }

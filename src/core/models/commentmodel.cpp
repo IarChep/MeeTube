@@ -84,6 +84,7 @@ void CommentModel::list(const QString &videoId) {
     cancelJob();
     m_job = core::newJob();
     m_videoId = videoId;
+    if (m_disabled) { m_disabled = false; emit disabledChanged(); }   // new video → unknown
     clear();
     setStatus(core::Loading);
     runComments(apiRef(), videoId, QString(), m_job, this);
@@ -124,6 +125,7 @@ void CommentModel::applyComments(const core::Outcome<core::CommentPage> &r) {
     // when non-empty).
     if (!r.value.createCommentParams.isEmpty())
         m_createCommentParams = r.value.createCommentParams;
+    if (r.value.disabled && !m_disabled) { m_disabled = true; emit disabledChanged(); }   // comments off
     if (!r.value.items.isEmpty()) {
         beginInsertRows(QModelIndex(), m_rows.size(), m_rows.size() + r.value.items.size() - 1);
         m_rows << r.value.items;
@@ -131,7 +133,7 @@ void CommentModel::applyComments(const core::Outcome<core::CommentPage> &r) {
         emitCountChanged();
     }
     setNext(r.value.next);
-    setStatus(core::Ready);
+    setStatus(core::Ready);   // NOTIFY for the `disabled` property too
 }
 
 // Post a top-level comment. Guarded by signedIn(); optimistically PREPENDs a
