@@ -565,16 +565,21 @@ Page {
                         font.pixelSize: UI.FONT_DEFAULT
                         font.bold: true
                     }
-                    // First real comment (or a status line) from the CommentModel.
+                    // First real comment (or a status line) from the CommentModel. Forced to
+                    // a SINGLE elided line: comment bodies carry newlines, so collapse all
+                    // whitespace to spaces and cap at one line — the preview never wraps or
+                    // runs under the drill-down arrow (the column is anchored to its left).
                     Text {
                         width: parent.width
                         text: (comments && comments.disabled)
                               ? "Comments are turned off"
                               : (comments && comments.count > 0)
-                                ? (comments.data(0, "username") + ": " + comments.data(0, "body"))
+                                ? (comments.data(0, "username") + ": " + comments.data(0, "body")).replace(/\s+/g, " ")
                                 : (comments && comments.status === Status.Loading ? "Loading comments…" : "No comments")
                         color: UI.COLOR_SECONDARY_FOREGROUND
                         font.pixelSize: UI.FONT_SMALL
+                        wrapMode: Text.NoWrap
+                        maximumLineCount: 1
                         elide: Text.ElideRight
                     }
                 }
