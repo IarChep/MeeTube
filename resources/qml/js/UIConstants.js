@@ -130,6 +130,7 @@ var LIST_ITEM_HEIGHT_DEFAULT = 80;
 var COLOR_BRAND_RED       = "#F11B1B"; // YouTube-style brand red (mid gradient stop)
 var COLOR_BRAND_RED_LIGHT = "#FF5A36"; // brand gradient top
 var COLOR_BRAND_RED_DARK  = "#B40D0D"; // brand gradient bottom
+var COLOR_YOUTUBE_RED     = "#CC0000"; // deep, saturated YouTube red (selected category text)
 var COLOR_BUTTON_DARK         = "#2C2C2C"; // muted dark button (theme inverted-button fill)
 var COLOR_BUTTON_DARK_PRESSED = "#1F1F1F"; // its pressed state
 var COLOR_SCRIM           = "#cc000000"; // dark overlay over thumbnails (duration badge, play scrim)
