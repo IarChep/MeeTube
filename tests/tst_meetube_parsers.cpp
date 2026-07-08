@@ -149,6 +149,15 @@ private slots:
         QVERIFY(primary.subscribed);
         QCOMPARE(primary.userId, QString("UCowner"));
     }
+    // Authed TV /next: the like COUNT comes from likeButtonRenderer.likeCountText
+    // (YouTube's own "8.8K", not RYD) and the like STATE from likeStatusEntity — so the
+    // like row shows the right count and restores like/dislike on (re)entry.
+    void watch_tv_like_count_and_state() {
+        CT::Video primary; QList<CT::Video> related;
+        parseWatchPage(std::string_view(payloads::kNextTvLikeState), &primary, &related);
+        QCOMPARE(primary.likeText, QString("8.8K"));   // YouTube's like count
+        QCOMPARE(primary.likeStatus, 1);               // LIKE -> restored
+    }
     // Authed /next: the like toggle's state + count feed likeStatus/likeCount.
     void watch_extracts_like_state() {
         CT::Video primary; QList<CT::Video> related;

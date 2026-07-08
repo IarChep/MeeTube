@@ -377,9 +377,9 @@ private slots:
         d.load("vid42");
         d.m_fake.flush();
         QCOMPARE(d.dislikeCount(), (qint64)42);
-        // The authed TV /next has no like count -> RYD's fills likeCount (fetchWatch
-        // here fails gracefully, so the RYD fallback is the only source).
-        QCOMPARE(d.likeCount(), (qint64)100);
+        // RYD is dislikes-ONLY now: the like count comes from the /next, so RYD's likes
+        // field is ignored. Here fetchWatch has nothing queued, so likeCount is unknown.
+        QCOMPARE(d.likeCount(), (qint64)-1);
     }
 
     // Regression: applyWatch (the /next delivery) carries the owner's subscribe state,
@@ -392,6 +392,22 @@ private slots:
         d.testSeedSubscribed(true);
         QVERIFY(d.subscribed());        // state loaded from the /next owner
         QVERIFY(spy.count() >= 1);      // AND notified so the binding updates — the fix
+    }
+
+    // The /next does NOT report Watch-Later membership, so the "Saved" button is restored
+    // from client-side session memory: after saving vid42, navigating to another video and
+    // back to vid42 must show it saved again.
+    void videoDetailsWatchLaterSessionMemory() {
+        TestVideoDetails d;
+        d.m_signedIn = true;
+        d.testSeed(/*likeStatus*/0, /*likeCount*/10);   // seeds m_primary.id = "vid42"
+        QVERIFY(!d.saved());
+        d.saveToWatchLater();                           // optimistic + remembers "vid42"
+        QVERIFY(d.saved());
+        d.load("other"); d.m_fake.flush();
+        QVERIFY(!d.saved());                            // a different video is not saved
+        d.load("vid42"); d.m_fake.flush();
+        QVERIFY(d.saved());                            // restored from session memory
     }
 
     // Guarded optimistic like: state flips synchronously inside like() (Indifferent->

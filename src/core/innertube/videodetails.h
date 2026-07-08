@@ -17,6 +17,7 @@
 #ifndef YT_VIDEODETAILS_H
 #define YT_VIDEODETAILS_H
 #include <QObject>
+#include <QSet>
 #include "servicedatatypes.h"
 #include "core/chains.h"
 #include "core/status.h"
@@ -157,8 +158,11 @@ private:
     // The RYD dislike count. Decoupled from m_primary (which applyWatch replaces
     // wholesale) so a fetchWatch delivery can't clobber the RYD count back to -1.
     qint64 m_dislikeCount = -1;
-    qint64 m_rydLikeCount = -1;   // RYD's like count — fallback when the TV /next has none
     bool m_saved = false;   // optimistic Watch Later save state
+    // Session memory of videos saved to Watch Later this run. The /next does NOT report
+    // Watch-Later / playlist membership, so this is what restores the "Saved" button when
+    // the user re-enters a video they saved earlier in the session (see load()).
+    QSet<QString> m_sessionSaved;
     int m_status;
     QString m_error;
 };

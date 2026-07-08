@@ -42,8 +42,11 @@ void VideoDetails::load(const QString &videoId) {
     cancelJob();
     m_primary = CT::Video();
     m_dislikeCount = -1;   // new video → unknown until RYD replies
-    m_rydLikeCount = -1;
-    m_saved = false;       // new video → not (known to be) saved; reset the button
+    // Restore the Watch Later "saved" state from this session's memory: the /next does
+    // NOT report playlist/Watch-Later membership, so re-entering a video the user saved
+    // earlier (this run) would otherwise reset the button to "Save". (Like/dislike +
+    // subscribe are server-authoritative and come back from the /next parse instead.)
+    m_saved = m_sessionSaved.contains(videoId);
     emit savedChanged();
     emit loaded();
     m_job = core::newJob();
@@ -98,9 +101,6 @@ void VideoDetails::cancel() {
 void VideoDetails::applyWatch(const core::Outcome<core::WatchResult> &r) {
     if (!r.ok) { m_error = r.error; m_status = core::Failed; emit statusChanged(); return; }
     m_primary = r.value.primary;
-    // The authed TV /next carries no like count; if RYD already landed one, keep it
-    // (m_primary was just reset). See applyDislikes.
-    if (m_primary.likeCount < 0 && m_rydLikeCount >= 0) m_primary.likeCount = m_rydLikeCount;
     m_related->assign(r.value.related);
     m_status = core::Ready;
     emit loaded();
@@ -117,14 +117,10 @@ void VideoDetails::applyWatch(const core::Outcome<core::WatchResult> &r) {
 }
 
 void VideoDetails::applyDislikes(const core::Outcome<core::RydVotes> &r) {
-    if (!r.ok) return;   // transport error / 404 → leave the counts unknown (-1)
+    if (!r.ok) return;   // transport error / 404 → leave the dislike count unknown (-1)
+    // RYD is dislikes-ONLY now; the like count comes from the /next (likeButtonRenderer),
+    // so RYD's `likes` field is ignored.
     m_dislikeCount = r.value.dislikes;
-    m_rydLikeCount = r.value.likes;
-    // The authed TV /next has no parseable like count — fall back to RYD's. Kept in a
-    // separate member (RYD's GET often beats the /next POST, and applyWatch resets
-    // m_primary); mirror into m_primary.likeCount only when /next gave none, so the
-    // optimistic like/unlike still adjusts the shown count.
-    if (m_primary.likeCount < 0 && m_rydLikeCount >= 0) m_primary.likeCount = m_rydLikeCount;
     emit likeChanged();
 }
 
@@ -185,6 +181,7 @@ void VideoDetails::saveToWatchLater() {
     const ApiRef api = apiRef();
     if (!api.host || !api.http) return;   // no transport: leave saved false, nothing fired
     m_saved = true;
+    m_sessionSaved.insert(m_primary.id);  // remember it so re-entry restores "Saved"
     emit savedChanged();                  // optimistic
     if (m_saveJob) m_saveJob->canceled.store(true);   // supersede a prior in-flight save
     m_saveJob = core::newJob();
@@ -193,11 +190,12 @@ void VideoDetails::saveToWatchLater() {
     VideoDetails *self = this;
     api.host->invoke([api, videoId, job, self]() {
         core::editPlaylist(*api.http, QString::fromLatin1("WL"), /*add*/true, videoId, job,
-            [api, job, self](bool ok) {
+            [api, job, self, videoId](bool ok) {
                 if (ok) return;   // confirmed — the optimistic saved state stands
-                api.host->invokeGui([job, self]() {
+                api.host->invokeGui([job, self, videoId]() {
                     if (!core::live(job)) return;   // MUST be first
                     self->m_saved = false;
+                    self->m_sessionSaved.remove(videoId);   // save failed → forget it
                     emit self->savedChanged();
                 });
             });
