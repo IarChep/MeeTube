@@ -28,6 +28,22 @@ Page {
         onSignedInChanged: if (appWindow.signedIn) page.accountDetails = innertube.account().details()
     }
 
+    // All available feed categories for the chips strip: the two feed sections
+    // (Home / Subscriptions) followed by the nav topics (News / Learning / Live / Sports).
+    property variant allCategories: []
+    function buildCategories() {
+        var out = [];
+        var fs = innertube.feedSections();
+        var i;
+        for (i = 0; i < fs.length; ++i)
+            out.push({ label: fs[i].label, id: fs[i].id, requiresAuth: fs[i].requiresAuth });
+        var nav = innertube.navEntries();
+        for (i = 0; i < nav.length; ++i)
+            out.push({ label: nav[i].label, id: nav[i].id, requiresAuth: false });
+        return out;
+    }
+    Component.onCompleted: page.allCategories = page.buildCategories()
+
     // --- Global header content: "<b>MeeTube:</b> <category>" + a chevron, clickable
     // (opens the category dialog). currentCategoryLabel lives on appWindow.
     property Component pageHeader: Component {
@@ -69,36 +85,22 @@ Page {
     // Shared red brand gradient (defined once in main.qml).
     property Component pageHeaderBackground: appWindow.stdHeaderBackground
 
-    // --- Segmented feed selector (Home / Subscriptions). A native-reading
-    // strip of adjacent checkable Buttons, populated from innertube.feedSections(). Each
-    // button drives appWindow.setFeed() (gated: Subscriptions sends signed-out users to
-    // the account flow); the active button reflects appWindow.currentCategoryId. Sits
-    // below the animated global HeaderBar, above the list.
-    Row {
-        id: feedStrip
+    // --- Category chips: an N9-style scrollable strip of ALL available feed categories
+    // (Home / Subscriptions + the News / Learning / Live / Sports topics), the brand-red
+    // pill marking the current one. Tapping switches the top-level feed via setFeed()
+    // (gated: Subscriptions sends signed-out users to the account flow). Sits below the
+    // animated global HeaderBar, above the list.
+    CategoryChips {
+        id: categoryStrip
         anchors {
             top: parent.top
             topMargin: headerBar.height + UI.PADDING_MEDIUM
-            left: parent.left; leftMargin: UI.MARGIN_XLARGE
-            right: parent.right; rightMargin: UI.MARGIN_XLARGE
+            left: parent.left
+            right: parent.right
         }
-        spacing: UI.PADDING_SMALL
-
-        Repeater {
-            id: feedRepeater
-            model: innertube.feedSections()
-
-            Button {
-                width: (feedStrip.width - feedStrip.spacing * (feedRepeater.count - 1))
-                       / feedRepeater.count
-                text: modelData.label
-                checkable: true
-                // Bound to the single current-feed id — reasserted after the internal
-                // toggle when setFeed() reassigns currentCategoryId.
-                checked: appWindow.currentCategoryId === modelData.id
-                onClicked: appWindow.setFeed(modelData.id, modelData.requiresAuth, modelData.label)
-            }
-        }
+        categories: page.allCategories
+        currentId: appWindow.currentCategoryId
+        onSelected: appWindow.setFeed(id, requiresAuth, label)
     }
 
     ListView {
@@ -107,7 +109,7 @@ Page {
         // and above the toolbar. headerBar.height animates 72 <-> 0, so the strip and
         // list track it.
         anchors {
-            top: feedStrip.bottom
+            top: categoryStrip.bottom
             topMargin: UI.PADDING_MEDIUM
             left: parent.left
             right: parent.right
