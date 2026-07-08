@@ -108,6 +108,13 @@ private slots:
         CT::User u = parseChannel(std::string_view(payloads::kChannelSubscribed));
         QVERIFY(u.subscribed);
     }
+    // parseChannelSubscribed reads the state from ANY subscribeButtonRenderer — the authed
+    // TV channel browse feeds ChannelDetails (fetchChannelSubscribed) so the ChannelPage
+    // button reflects reality (the WEB header browse is anonymous → always false).
+    void channelSubscribedFlagParses() {
+        QVERIFY(parseChannelSubscribed(std::string_view(payloads::kChannelSubscribed)));
+        QVERIFY(!parseChannelSubscribed(std::string_view(payloads::kC4Header)));   // no subscribe state
+    }
 
     // 2024+ WEB channel header: pageHeaderRenderer.content.pageHeaderViewModel with the
     // subscriber count buried in a metadataRows view-model (index not fixed).

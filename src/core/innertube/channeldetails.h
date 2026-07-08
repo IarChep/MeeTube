@@ -51,6 +51,11 @@ public:
     // slot) so the meta-object stays frozen.
     void applyChannel(const yt::core::Outcome<CT::User> &r);
 
+    // Delivery sink for the parallel authed subscribe-state check (fetchChannelSubscribed):
+    // updates m_user.subscribed + notifies. The WEB header browse (applyChannel) is anonymous
+    // and always reports subscribed=false, so this is what makes the button reflect reality.
+    void applySubscribedState(bool subscribed);
+
     // Guarded optimistic subscribe/unsubscribe. subscribe() flips subscribed toward
     // true, unsubscribe() toward false, emits subscribedChanged(), fires the matching
     // action on the worker and reverts on failure. Gated behind signedIn() (else
@@ -87,9 +92,12 @@ private:
     void applySubscribe(bool desired);
     // Fire the action chain on the worker; on !ok restore prevSubscribed.
     void fireGuarded(yt::core::ActionKind kind, const QString &channelId, bool prevSubscribed);
+    // When signed in, fire the parallel authed TV browse for the subscribe state.
+    void refreshSubscribed(const QString &channelId);
     void cancelJob();
     yt::core::JobToken m_job;
     yt::core::JobToken m_actionJob;   // dtor-canceled token guarding the in-flight subscribe/unsubscribe action
+    yt::core::JobToken m_subCheckJob; // dtor/cancel-canceled token for the parallel subscribe-state check
     CT::User m_user;
     int m_status;
     QString m_error;

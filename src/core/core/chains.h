@@ -49,6 +49,10 @@ void fetchComments(IHttp &, const QString &videoId, const QString &page, const J
 void fetchPlayer(IHttp &, const QString &videoId, const JobToken &, std::function<void(const PlayerOutcome &)> done);
 void fetchChannelById(IHttp &, const QString &channelId, const JobToken &, std::function<void(const Outcome<CT::User> &)> done);
 void fetchChannelByUrl(IHttp &, const QString &handleUrl, const JobToken &, std::function<void(const Outcome<CT::User> &)> done);
+// The viewer's subscribe state for a channel — an AUTHED TVHTML5 browse (WEB anonymous
+// carries none, and the TV browse omits the header, so this is separate from
+// fetchChannelById). Fire only when signed in; parses subscribeButtonRenderer.subscribed.
+void fetchChannelSubscribed(IHttp &, const QString &channelId, const JobToken &, std::function<void(const Outcome<bool> &)> done);
 void fetchUserSearch(IHttp &, const QString &query, const JobToken &, std::function<void(const Outcome<UserPage> &)> done);
 // Browse a channel-list feed (FEchannels — the manage-subscriptions grid). Mirrors
 // fetchVideoList's browse arm but parses channel renderers; clientForBrowse routes
