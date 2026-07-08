@@ -44,46 +44,11 @@ Page {
     }
     Component.onCompleted: page.allCategories = page.buildCategories()
 
-    // --- Global header content: "<b>MeeTube:</b> <category>" + a chevron, clickable
-    // (opens the category dialog). currentCategoryLabel lives on appWindow.
-    property Component pageHeader: Component {
-        Item {
-            anchors.fill: parent
-
-            Text {
-                id: headerText
-                anchors {
-                    left: parent.left; leftMargin: UI.DEFAULT_MARGIN
-                    right: headerChevron.left; rightMargin: UI.PADDING_LARGE
-                    verticalCenter: parent.verticalCenter
-                }
-                textFormat: Text.RichText
-                text: "<b>MeeTube:</b> " + appWindow.currentCategoryLabel
-                color: UI.COLOR_INVERTED_FOREGROUND
-                font.pixelSize: UI.FONT_XLARGE
-                font.family: UI.FONT_FAMILY
-                elide: Text.ElideRight
-                opacity: headerMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
-            }
-            Image {
-                id: headerChevron
-                anchors {
-                    right: parent.right; rightMargin: UI.DEFAULT_MARGIN
-                    verticalCenter: parent.verticalCenter
-                }
-                // Inverted combobox chevron — reads on the dark red header.
-                source: "image://theme/meegotouch-combobox-indicator-inverted"
-                opacity: headerMouse.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
-            }
-            MouseArea {
-                id: headerMouse
-                anchors.fill: parent
-                onClicked: appWindow.openCategoryDialog()
-            }
-        }
-    }
-    // Shared red brand gradient (defined once in main.qml).
-    property Component pageHeaderBackground: appWindow.stdHeaderBackground
+    // NO global header on Home: the CategoryChips strip below IS the category selector
+    // now, so the old "MeeTube: <category>" bar is redundant. Leaving pageHeader and
+    // pageHeaderBackground null collapses the global HeaderBar to height 0 (same as VideoPage).
+    property variant pageHeader: null
+    property variant pageHeaderBackground: null
 
     // --- Category chips: an N9-style scrollable strip of ALL available feed categories
     // (Home / Subscriptions + the News / Learning / Live / Sports topics), the brand-red
