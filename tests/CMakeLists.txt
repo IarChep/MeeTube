@@ -39,6 +39,10 @@ mt_test(tst_meetube_account)
 # not started), JobToken (cancellation flag), core::Status mirror. Drives a real
 # QThread round trip (invoke → worker → invokeGui → GUI) via QTRY_VERIFY.
 mt_test(tst_meetube_threading)
+# Media player backend: ByteSource ranged fetch (real CurlNAM over a loopback
+# Range server), StreamPlayer state machine (fake pipeline/policy). Host-only;
+# the GStreamer/resourceqt glue is device-only and lives in src/app/media/.
+mt_test(tst_meetube_media)
 
 find_package(CURL REQUIRED)
 mt_test(tst_meetube_curlnam tst_meetube_curlnam.cpp)

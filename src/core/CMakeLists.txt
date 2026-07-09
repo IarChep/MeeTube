@@ -41,6 +41,8 @@ add_library(meetube-core STATIC
     net/curlengine.cpp
     net/curlnetworkreply.cpp
     net/curlnetworkaccessmanager.cpp
+    media/ipolicy.cpp
+    media/ipipeline.cpp
 )
 # AUTOMOC: core/http.h declares a Q_OBJECT (signals/slots for the
 # QNetworkAccessManager-backed transport), as do the models, detail objects,
