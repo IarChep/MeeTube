@@ -242,13 +242,43 @@ if(BUILD_N9)
         BUILD_BYPRODUCTS  ${ZLIB_A}
     )
 
+    # nghttp2 — static PIC lib-only HTTP/2 framing layer linked INTO libcurl
+    # (device only; the host's system libcurl already speaks h2). Google
+    # endpoints negotiate h2 via ALPN (OpenSSL 3 above), which removes the
+    # HTTP/1.1 per-request head-of-line + Expect: costs from every youtubei
+    # call and lets concurrent transfers multiplex one connection. Static for
+    # the same soname-collision reasoning as zlib. A git checkout ships no
+    # ./configure — autoreconf generates it, exactly like the curl block below.
+    set(NGHTTP2_INSTALL ${CMAKE_BINARY_DIR}/nghttp2-install CACHE INTERNAL "")
+    set(NGHTTP2_A       ${NGHTTP2_INSTALL}/lib/libnghttp2.a CACHE INTERNAL "")
+    string(REGEX REPLACE "g\\+\\+$" "gcc" NGHTTP2_CC "${CMAKE_CXX_COMPILER}")
+    ExternalProject_Add(nghttp2_build
+        SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/nghttp2
+        DOWNLOAD_COMMAND  ""
+        BUILD_IN_SOURCE   1
+        CONFIGURE_COMMAND ${GIT_EXECUTABLE} -C <SOURCE_DIR> clean -xfdq
+                  COMMAND autoreconf -fi <SOURCE_DIR>
+                  COMMAND <SOURCE_DIR>/configure
+                          CC=${NGHTTP2_CC}
+                          --host=arm-linux-gnueabi
+                          "CFLAGS=-fPIC -O2 --sysroot=${CMAKE_SYSROOT}"
+                          "LDFLAGS=--sysroot=${CMAKE_SYSROOT}"
+                          --prefix=${NGHTTP2_INSTALL}
+                          --enable-lib-only
+                          --enable-static --disable-shared
+                          --disable-dependency-tracking
+        BUILD_COMMAND     make
+        INSTALL_COMMAND   make install
+        BUILD_BYPRODUCTS  ${NGHTTP2_A}
+    )
+
     # libcurl — minimal shared build against the OpenSSL 3 above.
     #
     # curl's git checkout (unlike a release tarball) ships NO ./configure — only
     # configure.ac — so we generate it with `autoreconf -fi` first, then run it.
     # git clean keeps the submodule tree pristine across reconfigures. The build
     # is deliberately lean: OpenSSL backend only, shared, no static/ldap/psl/
-    # brotli/zstd/nghttp2 (none present in the device sysroot, none needed).
+    # brotli/zstd; zlib + nghttp2 come from the static cross-builds above.
     #
     # --with-zlib points at the static PIC zlib cross-built above (the sysroot's
     # ancient zlib cannot compile content_encoding.c; see the zlib_build block
@@ -264,7 +294,7 @@ if(BUILD_N9)
     set(CURL_INCLUDE ${CURL_INSTALL}/include CACHE INTERNAL "")
     string(REGEX REPLACE "g\\+\\+$" "gcc" CURL_CC "${CMAKE_CXX_COMPILER}")
     ExternalProject_Add(libcurl_build
-        DEPENDS           openssl3 zlib_build
+        DEPENDS           openssl3 zlib_build nghttp2_build
         SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/curl
         DOWNLOAD_COMMAND  ""
         BUILD_IN_SOURCE   1
@@ -282,8 +312,9 @@ if(BUILD_N9)
                           --disable-ldap --disable-ldaps
                           --disable-manual --disable-docs
                           --with-zlib=${ZLIB_INSTALL}
+                          --with-nghttp2=${NGHTTP2_INSTALL}
                           --without-libpsl --without-brotli
-                          --without-zstd --without-nghttp2
+                          --without-zstd
                           --disable-dependency-tracking
         BUILD_COMMAND     make
         INSTALL_COMMAND   make install
