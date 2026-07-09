@@ -96,7 +96,10 @@ CurlNetworkReply::CurlNetworkReply(CurlEngine *engine, QNetworkAccessManager::Op
 CurlNetworkReply::~CurlNetworkReply()
 {
     if (m_easy) {
-        if (m_inMulti) m_engine->remove(m_easy);
+        // m_engine is a QPointer: if the engine (and its CURLM) somehow died
+        // first, curl_multi_cleanup already detached this handle — only the
+        // easy handle itself still needs cleanup.
+        if (m_inMulti && m_engine) m_engine->remove(m_easy);
         curl_easy_cleanup(m_easy);
     }
     if (m_reqHeaders) curl_slist_free_all(m_reqHeaders);
@@ -158,7 +161,7 @@ void CurlNetworkReply::onCurlDone(int curlCode, long)
 void CurlNetworkReply::abort()
 {
     if (m_finished) return;
-    if (m_inMulti) { m_engine->remove(m_easy); m_inMulti = false; }
+    if (m_inMulti) { if (m_engine) m_engine->remove(m_easy); m_inMulti = false; }
     m_finished = true;
     setError(QNetworkReply::OperationCanceledError, QString::fromLatin1("aborted"));
     // setFinished() absent in Qt 4.7.4 SDK build; emit finished() is what callers use.
