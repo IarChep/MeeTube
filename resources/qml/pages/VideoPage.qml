@@ -165,7 +165,18 @@ Page {
                         smooth: true
                         source: "image://theme/icon-m-toolbar-mediacontrol-play-white"
                     }
-                    MouseArea { id: playMouse; anchors.fill: parent }
+                    MouseArea {
+                        id: playMouse
+                        anchors.fill: parent
+                        onClicked: {
+                            // Phase 1: audio ("music") playback of the progressive
+                            // stream via the libcurl-fed GStreamer player. mode 0 = audio.
+                            var s = innertube.video().streams(videoData.id ? videoData.id : "");
+                            if (s.progressiveUrl != "") {
+                                player.play(s.progressiveUrl, 0);
+                            }
+                        }
+                    }
                 }
                 // Duration badge (from the list item).
                 Rectangle {

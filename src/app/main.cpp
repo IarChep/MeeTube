@@ -20,6 +20,11 @@
 #include "harmattan/qrimageprovider.h"
 #include "harmattan/shareui.h"
 #include "curlnamfactory.h"
+#include "media/streamplayer.h"
+#include "media/bytesource.h"
+#include "media/gstpipeline.h"
+#include "media/policyguard.h"
+#include "net/curlnetworkaccessmanager.h"
 
 Q_DECL_EXPORT int main(int argc, char *argv[])
 {
@@ -90,6 +95,19 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
         // Mint a bearer from the stored refresh token (no-op when signed out) so
         // the authed feeds work right after launch.
         yt::Innertube::instance()->accountManager()->restore();
+        // Media player: one app-wide instance. Its ByteSource fetches the stream
+        // through a libcurl NAM (working TLS to googlevideo); the pipeline/policy
+        // are device-real / host-stub. Exposed to QML as `player`. The player owns
+        // all three collaborators; the NAM is parented to the player's source.
+        yt::net::CurlNetworkAccessManager *playerNam = new yt::net::CurlNetworkAccessManager;
+#ifdef MEETUBE_CA_BUNDLE
+        playerNam->setCaBundle(QByteArray(MEETUBE_CA_BUNDLE));
+#endif
+        yt::media::ProgressiveSource *src = new yt::media::ProgressiveSource(playerNam);
+        playerNam->setParent(src);      // NAM lifetime follows the source
+        yt::media::StreamPlayer *player =
+            new yt::media::StreamPlayer(src, new yt::media::GstAppPipeline, new yt::media::PolicyGuard);
+        viewer.rootContext()->setContextProperty("player", player);
         viewer.setOrientation(QmlApplicationViewer::ScreenOrientationLockPortrait);
         viewer.setSource(QUrl("qrc:/qml/main.qml"));
         viewer.showExpanded();
