@@ -64,10 +64,11 @@ source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 7 tes
   `libcrypto.so.3`) + libcurl **8.21** (`libcurl.so.4`) are cross-built armv7hf and **bundled to
   `/opt/meetube/lib`** with their own `DT_RPATH` (so libcurl finds its OpenSSL 3 at load); both
   build **in-source** in their submodules, so the blocks prepend `git clean -xfdq` on a host↔device
-  switch. Two device-build quirks: libcurl is built **`--without-zlib`** (the Harmattan sysroot's
-  zlib predates 1.2.5.2 and won't compile curl's `content_encoding.c`; harmless since the reply sets
-  `CURLOPT_ACCEPT_ENCODING ""`), and **`libatomic.so.1`** is bundled too (GCC-14's armv7 OpenSSL 3
-  emits `__atomic_*` calls the device sysroot can't satisfy).
+  switch. Device-build notes: a modern **zlib 1.3.1** and **nghttp2 1.64.0** (HTTP/2) are cross-built
+  as *static PIC* libs and linked **into** `libcurl.so` — static on purpose: the device Qt already
+  loads the stock `libz.so.1`, and ld.so reuses the first-loaded soname process-wide, so a bundled
+  shared modern libz could silently lose to the sysroot copy. **`libatomic.so.1`** is bundled
+  (GCC-14's armv7 OpenSSL 3 emits `__atomic_*` calls the device sysroot can't satisfy).
 - **libpng12** + **libjpeg-turbo** (→ `libjpeg.so.62`) — **both targets**. Host: the Simulator's
   `libQtGui` needs `png_*@PNG12_0` symbols and the `qjpeg` plugin needs the IJG v6b ABI
   (`libjpeg.so.62`), neither present on modern hosts. Device: cross-built armv7hf and **bundled to
@@ -165,8 +166,9 @@ in dependency order, each with its own CMakeLists:
     `createRequest()` → a `CurlNetworkReply` on this NAM's `CurlEngine`; `finished(QNetworkReply*)`
     re-emitted by the base `postProcess()` wiring. `core::Http`'s `m_nam` is one of these; the QML
     engine gets one via `src/app/curlnamfactory.*`. `setCaBundle()` seeds `CURLOPT_CAINFO`.
-  - New `tst_meetube_curlnam` (6 subtests: GET body+status, blocked scheme, POST body+content-type,
-    response headers, connection-refused, abort→cancel) covers it; `tst_meetube_client` was retained
+  - New `tst_meetube_curlnam` (9 subtests: GET body+status, blocked scheme, POST body+content-type,
+    response headers, connection-refused, abort→cancel, in-flight NAM destruction, Expect:
+    suppression, body-size cap) covers it; `tst_meetube_client` was retained
     over the new NAM. Host suite **8/8**.
 - **`threading/workerhost.{h,cpp}`** — the ONE cross-thread seam: `WorkerHost` posts
   `std::function` closures via `CallEvent` between the GUI thread and a worker thread
