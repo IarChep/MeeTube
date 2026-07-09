@@ -48,8 +48,8 @@ toolchain; no package requirements — JSON is the vendored `deps/glaze` submodu
 `project(MeeTubeTests)`, host-only via `if(NOT BUILD_N9)`). The `mt_test()` harness registers them:
 
 ```sh
-source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 7 tests
-# tst_meetube_{parsers,context,chains,model,client,account,threading}
+source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 9 tests
+# tst_meetube_{parsers,context,chains,model,client,account,threading,curlnam,media}
 ```
 
 ### deps/ — bundled third-party libraries ([deps/CMakeLists.txt](deps/CMakeLists.txt))
@@ -194,6 +194,10 @@ in dependency order, each with its own CMakeLists:
   `core::chain` through `apiRef().host->invoke(...)` and delivers back via `invokeGui`, guarded by
   the `JobToken` gate (dtor + `cancel()` cancel the token — the cross-thread safety protocol).
   Registered as `qmlRegisterType<VideoModel>("MeeTube",1,0,"VideoModel")`.
+- **`media/`** — the playback backend. `bytesource` (`ByteSource`/`ProgressiveSource`: libcurl
+  ranged-window fetch of the stream) + `streamplayer` (the `StreamPlayer` QObject state machine) +
+  the `ipipeline`/`ipolicy` seams. Host-testable (`tst_meetube_media`); the GStreamer/resource-policy
+  impls live in `src/app/media/` (device-only). Exposed to QML as the `player` context property.
 - **`src/app/harmattan/`** — `maskeditem` + `maskeffect`: the Nokia **squircle** avatar. A `MaskedItem`
   `QDeclarativeItem` whose `MaskEffect` (`QGraphicsEffect`) composites children over `avatar-mask.png`
   with `CompositionMode_SourceIn`. Ported from cuteTube2; registered
@@ -209,6 +213,10 @@ in dependency order, each with its own CMakeLists:
 - **`src/app/curlnamfactory.{h,cpp}`** — `net::CurlNamFactory : QDeclarativeNetworkAccessManagerFactory`:
   hands the `QDeclarativeEngine` a `CurlNetworkAccessManager` (with `MEETUBE_CA_BUNDLE` seeded into
   `CURLOPT_CAINFO`) so QML thumbnail loads go through libcurl — no thumbnail URL changes anywhere.
+- **`src/app/media/`** — device-only playback glue: `GstAppPipeline` (GStreamer 0.10 `appsrc !
+  decodebin2` audio pipeline; `IPipeline`) and `PolicyGuard` (`ResourcePolicy::ResourceSet`;
+  `IPolicy`), each `#if defined(BUILD_N9)` real / host-stub. Fetch stays on libcurl (the player's
+  `ByteSource` uses a `net::CurlNetworkAccessManager`), NOT GStreamer's `souphttpsrc`.
 
 ### `webp-imageformat/` — Qt 4 WebP image plugin
 

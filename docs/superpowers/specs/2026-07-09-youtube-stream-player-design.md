@@ -372,3 +372,15 @@ on host; the GStreamer/policy/overlay glue is device-verified when the N9 is rea
 4. **`appsrc` seek precision for HLS** — segment-granular only; acceptable for VOD.
 5. **Whole engine is device-unverifiable in this environment** (N9 down) — Phases 1–3 ship
    host-green with a clearly tracked on-device verification checklist, per project norm.
+
+## Phase 1 status (2026-07-09)
+
+Delivered: `ByteSource`/`ProgressiveSource` (libcurl ranged-window fetch, host-tested over a loopback
+Range server), `StreamPlayer` state machine (host-tested with fake pipeline/policy — grant-gated play,
+preemption pause/resume, EOS, error), `PolicyGuard` (device `ResourceSet` + host stub), `GstAppPipeline`
+(device `appsrc!decodebin2` audio branch + host stub), and the `player` QML context property with a
+VideoPage audio play tap. Host suite 9/9; device cross-build links.
+
+DEVICE-PENDING (N9 unreachable): actually decoding a googlevideo progressive stream's audio through
+`autoaudiosink`, and `ResourceSet` grant/preemption against the live policy manager. Phase 2 (video +
+overlay) and Phase 3 (HLS) follow their own plans.
