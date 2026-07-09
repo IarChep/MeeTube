@@ -32,6 +32,8 @@ public:
     // Called by CurlEngine on CURLMSG_DONE; emits finished() (see the isFinished() note
     // above — this signal, not isFinished(), is how completion is observed).
     void onCurlDone(int curlCode, long httpStatus);
+private Q_SLOTS:
+    void onInitFailed();   // curl_easy_init / multi-add failed: async error completion
 protected:
     qint64 readData(char *data, qint64 maxlen);    // QIODevice
 private:

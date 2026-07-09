@@ -1,6 +1,7 @@
 #include "net/curlnetworkreply.h"
 #include "net/curlengine.h"
 #include <QIODevice>
+#include <QTimer>
 #include <cstring>
 
 namespace yt { namespace net {
@@ -35,6 +36,12 @@ CurlNetworkReply::CurlNetworkReply(CurlEngine *engine, QNetworkAccessManager::Op
     setOpenMode(QIODevice::ReadOnly);
 
     m_easy = curl_easy_init();
+    if (!m_easy) {
+        // Allocation-grade failure: report it asynchronously (after the caller has
+        // had a chance to connect finished()) instead of hanging the request forever.
+        QTimer::singleShot(0, this, SLOT(onInitFailed()));
+        return;
+    }
     const QByteArray url = req.url().toEncoded();
     curl_easy_setopt(m_easy, CURLOPT_URL, url.constData());
     curl_easy_setopt(m_easy, CURLOPT_WRITEFUNCTION, &CurlNetworkReply::writeCb);
@@ -99,8 +106,10 @@ CurlNetworkReply::CurlNetworkReply(CurlEngine *engine, QNetworkAccessManager::Op
         if (!verb.isEmpty()) curl_easy_setopt(m_easy, CURLOPT_CUSTOMREQUEST, verb.constData());
     }
 
-    m_engine->add(m_easy, this);
-    m_inMulti = true;
+    if (m_engine->add(m_easy, this))
+        m_inMulti = true;
+    else
+        QTimer::singleShot(0, this, SLOT(onInitFailed()));
 }
 
 CurlNetworkReply::~CurlNetworkReply()
@@ -172,6 +181,11 @@ void CurlNetworkReply::onCurlDone(int curlCode, long)
     }
     // setFinished() absent in Qt 4.7.4 SDK build; emit finished() is what callers use.
     emit finished();
+}
+
+void CurlNetworkReply::onInitFailed()
+{
+    onCurlDone(CURLE_FAILED_INIT, 0);
 }
 
 void CurlNetworkReply::abort()

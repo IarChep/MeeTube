@@ -17,7 +17,7 @@ class CurlEngine : public QObject {
 public:
     explicit CurlEngine(QObject *parent = 0);
     ~CurlEngine();
-    void add(CURL *easy, CurlNetworkReply *owner);   // sets CURLOPT_PRIVATE + curl_multi_add_handle
+    bool add(CURL *easy, CurlNetworkReply *owner);   // sets CURLOPT_PRIVATE + curl_multi_add_handle; false = refused
     void remove(CURL *easy);                         // curl_multi_remove_handle (abort: no completion)
 private Q_SLOTS:
     void onSocketReadable(int fd);

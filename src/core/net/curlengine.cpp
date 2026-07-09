@@ -1,6 +1,7 @@
 #include "net/curlengine.h"
 #include "net/curlnetworkreply.h"
 #include <QSocketNotifier>
+#include <climits>
 
 namespace yt { namespace net {
 
@@ -27,10 +28,10 @@ CurlEngine::~CurlEngine()
     if (m_multi) curl_multi_cleanup(m_multi);
 }
 
-void CurlEngine::add(CURL *easy, CurlNetworkReply *owner)
+bool CurlEngine::add(CURL *easy, CurlNetworkReply *owner)
 {
     curl_easy_setopt(easy, CURLOPT_PRIVATE, owner);
-    curl_multi_add_handle(m_multi, easy);
+    if (curl_multi_add_handle(m_multi, easy) != CURLM_OK) return false;
     // Defer the first kick to the next event-loop turn. add() runs inside the
     // CurlNetworkReply ctor, before nam.get() returns and the caller can connect
     // finished(); driving the state machine synchronously here would let an
@@ -39,6 +40,7 @@ void CurlEngine::add(CURL *easy, CurlNetworkReply *owner)
     // socket_action(CURL_SOCKET_TIMEOUT) + checkCompletions() one loop-turn later,
     // by which point the reply is fully constructed and connected.
     QTimer::singleShot(0, this, SLOT(onTimeout()));
+    return true;
 }
 
 void CurlEngine::remove(CURL *easy)
@@ -82,6 +84,7 @@ int CurlEngine::timerCb(CURLM *, long timeoutMs, void *userp)
 {
     CurlEngine *self = static_cast<CurlEngine *>(userp);
     if (timeoutMs < 0) { self->m_timer.stop(); return 0; }
+    if (timeoutMs > (long) INT_MAX) timeoutMs = INT_MAX;   // (int) truncation could go negative and never fire
     self->m_timer.start((int) timeoutMs);   // single-shot; 0 == fire ASAP
     return 0;
 }
