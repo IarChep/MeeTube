@@ -29,6 +29,9 @@ add_executable(meetube
     # VideoPage Share button. Device-only (a host no-op returning false); ported from
     # cuteTube2. Declares Q_OBJECT -> moc'd via AUTOMOC; device link deps in BUILD_N9 below.
     harmattan/shareui.cpp
+    # Media playback (Phase 1: audio). IPolicy/IPipeline impls; device-only logic
+    # (#if BUILD_N9) with host stubs so the Simulator build links without GStreamer.
+    media/policyguard.cpp
     # QML resources (main.qml + pages/components + avatar-mask.png) baked into the
     # binary; main.cpp loads qrc:/qml/main.qml. Compiled via the target's AUTORCC.
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
@@ -102,6 +105,12 @@ if(BUILD_N9)
     pkg_check_modules(SHAREUI ShareUiInterface-maemo-meegotouch mdatauri REQUIRED)
     target_include_directories(meetube PRIVATE ${SHAREUI_INCLUDE_DIRS})
     target_link_libraries(meetube PRIVATE ${SHAREUI_LIBRARIES})
+
+    # Harmattan resource policy (libresourceqt) for media playback (PolicyGuard).
+    # Resolved from the device sysroot via PKG_CONFIG_SYSROOT_DIR (set by configure).
+    pkg_check_modules(RESOURCEQT libresourceqt1 REQUIRED)
+    target_include_directories(meetube PRIVATE ${RESOURCEQT_INCLUDE_DIRS})
+    target_link_libraries(meetube PRIVATE ${RESOURCEQT_LIBRARIES})
 
     target_link_options(meetube PRIVATE
         -static-libstdc++ -static-libgcc
