@@ -66,6 +66,20 @@ private:
     QList<QTcpSocket *> m_socks;
 };
 
+// Accepts a connection but never replies — holds any GET in flight forever, so an
+// in-flight probe/window can be aborted mid-fetch (drives the close() re-entrancy test).
+class SilentServer : public QObject {
+    Q_OBJECT
+public:
+    SilentServer() { m_srv.listen(QHostAddress::LocalHost, 0);
+                     connect(&m_srv, SIGNAL(newConnection()), this, SLOT(onConn())); }
+    int port() const { return m_srv.serverPort(); }
+private slots:
+    void onConn() { m_srv.nextPendingConnection(); /* hold open, never respond */ }
+private:
+    QTcpServer m_srv;
+};
+
 #include "media/streamplayer.h"
 
 class FakePolicy : public yt::media::IPolicy {
@@ -226,6 +240,32 @@ private slots:
         QCOMPARE(player.state(), (int)yt::media::StreamPlayer::Error);
         QCOMPARE(player.errorString(), QString("boom"));
         QCOMPARE(pol->released, 1);
+    }
+
+    // close() on an in-flight window must NOT re-enter the finished-slot and emit
+    // failed(): abort() fires finished() synchronously, so close() has to disconnect
+    // the reply first. Otherwise stop()/seek()-mid-fetch would wrongly go to Error.
+    void closeMidFetchDoesNotFail() {
+        SilentServer srv;
+        yt::net::CurlNetworkAccessManager nam;
+        yt::media::ProgressiveSource src(&nam);
+        QSignalSpy failed(&src, SIGNAL(failed(QString)));
+        src.open(QString("http://127.0.0.1:%1/v").arg(srv.port()));   // probe GET in flight (never answered)
+        QTest::qWait(200);                                            // ensure it is really in flight
+        src.close();                                                  // abort mid-fetch
+        QTest::qWait(50);
+        QCOMPARE(failed.count(), 0);                                  // pre-fix: 1 (synchronous "aborted")
+    }
+
+    // A second play() while a session is active must tear the old one down first
+    // (pipeline stop + policy release) before re-acquiring — no stacked acquire().
+    void secondPlayRestartsCleanly() {
+        FakeSource *src = new FakeSource; FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer player(src, pipe, pol);
+        player.play(QString("http://x/v"), yt::media::AudioMode); pol->emitGranted(); pipe->emitStarted();  // Playing
+        player.play(QString("http://y/v"), yt::media::AudioMode);   // second play while Playing
+        QCOMPARE(pipe->stopped, 1);          // pre-fix: 0 (no teardown) -> stacked
+        QCOMPARE(pol->acquired, 2);          // re-acquired after the stop
     }
 };
 
