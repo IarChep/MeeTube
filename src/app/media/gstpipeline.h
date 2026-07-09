@@ -30,6 +30,7 @@ private:
     void teardown();
     GstElement *m_pipeline; GstElement *m_appsrc; GstElement *m_decode;
     GstElement *m_aconv; GstElement *m_ares; GstElement *m_asink; GstElement *m_vsink;
+    guint m_busWatchId;
     PlaybackMode m_mode; bool m_seekable; qint64 m_total;
 private slots:
     void emitNeedData(qint64 n);   // marshalled from the streaming thread

@@ -21,7 +21,7 @@ namespace yt { namespace media {
 
 GstAppPipeline::GstAppPipeline(QObject *parent)
     : IPipeline(parent), m_pipeline(0), m_appsrc(0), m_decode(0),
-      m_aconv(0), m_ares(0), m_asink(0), m_vsink(0),
+      m_aconv(0), m_ares(0), m_asink(0), m_vsink(0), m_busWatchId(0),
       m_mode(AudioMode), m_seekable(false), m_total(-1)
 {
     // gst_init is idempotent; main.cpp also inits, but this guards standalone use.
@@ -33,6 +33,7 @@ GstAppPipeline::~GstAppPipeline() { teardown(); }
 void GstAppPipeline::teardown()
 {
     if (m_pipeline) {
+        if (m_busWatchId) { g_source_remove(m_busWatchId); m_busWatchId = 0; }
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         gst_object_unref(m_pipeline);   // unrefs the whole bin
         m_pipeline = 0; m_appsrc = m_decode = m_aconv = m_ares = m_asink = m_vsink = 0;
@@ -76,7 +77,7 @@ void GstAppPipeline::buildPipeline()
     g_signal_connect(m_decode, "pad-added", G_CALLBACK(&GstAppPipeline::onPadAddedCb), this);
 
     GstBus *bus = gst_pipeline_get_bus(GST_PIPELINE(m_pipeline));
-    gst_bus_add_watch(bus, &GstAppPipeline::onBusCb, this);
+    m_busWatchId = gst_bus_add_watch(bus, &GstAppPipeline::onBusCb, this);
     gst_object_unref(bus);
 }
 
