@@ -67,35 +67,49 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     qmlRegisterType<MaskedItem>("MeeTube", 1, 0, "MaskedItem");
     qmlRegisterType<PerlinBackground>("MeeTube", 1, 0, "PerlinBackground");
 
-    QmlApplicationViewer viewer;
-    // Route QML Image loads (i.ytimg.com thumbnails) through the libcurl + OpenSSL 3.x
-    // NAM instead of Qt 4.7's stock QNetworkAccessManager. The engine hands each request
-    // the factory's NAM (a GUI-thread CurlNetworkAccessManager); only the network fetch
-    // changes — image decoding (libpng12/libjpeg/qwebp) is unaffected. MUST be set before
-    // setSource() so the factory is in place before the QML loads and issues image GETs.
-    viewer.engine()->setNetworkAccessManagerFactory(new yt::net::CurlNamFactory);
-    viewer.engine()->addImageProvider("qr", new QrImageProvider);   // image://qr/<text>
-    viewer.rootContext()->setContextProperty("innertube", yt::Innertube::instance());
-    // Native Harmattan "Share" sheet, invoked from the VideoPage Share button. Methods are
-    // static (device-only; a host no-op that returns false → QML falls back to
-    // Qt.openUrlExternally), but QML needs an instance to call them on.
-    ShareUi shareUi;
-    viewer.rootContext()->setContextProperty("ShareUi", &shareUi);
-    // Mint a bearer from the stored refresh token (no-op when signed out) so the
-    // authed feeds work right after launch.
-    yt::Innertube::instance()->accountManager()->restore();
-    viewer.setOrientation(QmlApplicationViewer::ScreenOrientationLockPortrait);
-    viewer.setSource(QUrl("qrc:/qml/main.qml"));   // UI is out of scope; placeholder for now
-    viewer.showExpanded();
+    int rc;
+    {
+        // ShareUi outlives the viewer: QML holds a context-property pointer to it,
+        // so it must be destroyed AFTER the QML engine. Native Harmattan "Share"
+        // sheet, invoked from the VideoPage Share button. Methods are static
+        // (device-only; a host no-op that returns false → QML falls back to
+        // Qt.openUrlExternally), but QML needs an instance to call them on.
+        ShareUi shareUi;
+        QmlApplicationViewer viewer;
+        // Route QML Image loads (i.ytimg.com thumbnails) through the libcurl +
+        // OpenSSL 3.x NAM instead of Qt 4.7's stock QNetworkAccessManager. The
+        // engine hands each request the factory's NAM (a per-thread
+        // CurlNetworkAccessManager); only the network fetch changes — image
+        // decoding (libpng12/libjpeg/qwebp) is unaffected. MUST be set before
+        // setSource() so the factory is in place before the QML loads and issues
+        // image GETs.
+        viewer.engine()->setNetworkAccessManagerFactory(new yt::net::CurlNamFactory);
+        viewer.engine()->addImageProvider("qr", new QrImageProvider);   // image://qr/<text>
+        viewer.rootContext()->setContextProperty("innertube", yt::Innertube::instance());
+        viewer.rootContext()->setContextProperty("ShareUi", &shareUi);
+        // Mint a bearer from the stored refresh token (no-op when signed out) so
+        // the authed feeds work right after launch.
+        yt::Innertube::instance()->accountManager()->restore();
+        viewer.setOrientation(QmlApplicationViewer::ScreenOrientationLockPortrait);
+        viewer.setSource(QUrl("qrc:/qml/main.qml"));
+        viewer.showExpanded();
 
-    const int rc = app->exec();
-    // The backend now runs on a worker thread (Task 14): join it and destroy the
-    // transport before returning. stop() = quit + wait joins the worker first, so
-    // deleting m_http (its thread finished) is legal; without this the process would
-    // exit with a still-running QThread.
+        rc = app->exec();
+        // Scope end: ~QmlApplicationViewer tears down the QML engine and with it
+        // every QML-side CurlNetworkAccessManager/CurlEngine (GUI thread + image-
+        // reader threads) — while libcurl's process-global state is still alive.
+        // Leaving the viewer to die at the end of main() would run those
+        // curl_multi_cleanup()s AFTER curl_global_cleanup() below — documented UB
+        // (2026-07-09 audit finding #2).
+    }
+    // The backend runs on a worker thread: join it and destroy the transport.
+    // stop() = quit + wait joins the worker first, so deleting m_http (its thread
+    // finished) is legal; without this the process would exit with a still-running
+    // QThread.
     yt::Innertube::instance()->shutdown();
-    // After the worker thread is joined (shutdown()) no curl handle survives, so it is
-    // safe to tear down libcurl's process-global state; pairs with curl_global_init().
+    // After the QML engine (above) and the worker (shutdown()) are gone, no curl
+    // handle survives — now it is safe to tear down libcurl's process-global
+    // state; pairs with curl_global_init().
     curl_global_cleanup();
     return rc;
 }
