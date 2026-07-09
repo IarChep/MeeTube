@@ -24,6 +24,11 @@ public:
     qint64 bytesAvailable() const;                 // QIODevice
     bool isSequential() const { return true; }
 
+    // Hard cap on buffered response bytes (default 32 MB): response URLs come
+    // from remote JSON, so an oversized body must fail the transfer
+    // (UnknownContentError) instead of ballooning the N9's RAM. Test-settable.
+    static void setMaxBodyBytes(qint64 n);
+
     // Called by CurlEngine on CURLMSG_DONE; emits finished() (see the isFinished() note
     // above — this signal, not isFinished(), is how completion is observed).
     void onCurlDone(int curlCode, long httpStatus);
@@ -32,7 +37,7 @@ protected:
 private:
     static size_t writeCb(char *ptr, size_t sz, size_t nmemb, void *userp);
     static size_t headerCb(char *ptr, size_t sz, size_t nmemb, void *userp);
-    void appendBody(const char *p, size_t n);
+    bool appendBody(const char *p, size_t n);      // false = cap exceeded, abort transfer
     void handleHeaderLine(const QByteArray &line);
 
     QPointer<CurlEngine> m_engine;  // guarded: nulls itself if the engine dies first
