@@ -6,6 +6,7 @@
 #include <QEventLoop>
 #include <QTimer>
 #include <QSignalSpy>
+#include <QPointer>
 #include "net/curlnetworkaccessmanager.h"
 
 // Minimal one-shot HTTP server: accepts a connection, reads the request, replies
@@ -41,6 +42,22 @@ private slots:
 private:
     QTcpServer m_srv;
     QTcpSocket *m_sock;
+};
+
+// Accepts a TCP connection and never responds — keeps a transfer in flight for
+// as long as the test wants.
+class SilentServer : public QObject {
+    Q_OBJECT
+public:
+    SilentServer() {
+        m_srv.listen(QHostAddress::LocalHost, 0);
+        connect(&m_srv, SIGNAL(newConnection()), this, SLOT(onConn()));
+    }
+    int port() const { return m_srv.serverPort(); }
+private slots:
+    void onConn() { m_srv.nextPendingConnection(); /* hold it open, never reply */ }
+private:
+    QTcpServer m_srv;
 };
 
 class tst_meetube_curlnam : public QObject {
@@ -140,6 +157,23 @@ private slots:
         r->abort();
         QCOMPARE(r->error(), QNetworkReply::OperationCanceledError);
         QCOMPARE(spy.count(), 1);
+    }
+
+    // Destroying the NAM while a request is still in flight must not touch freed
+    // engine state: ~QObject deletes reply children only AFTER the CurlEngine
+    // value member is destroyed, so the NAM dtor has to reap live replies first
+    // (2026-07-09 audit finding #1). Oracle for the pre-fix bug is valgrind
+    // (invalid reads in curl_multi_remove_handle from ~CurlNetworkReply).
+    void destroyNamWithInflightReply() {
+        SilentServer srv;
+        yt::net::CurlNetworkAccessManager *nam = new yt::net::CurlNetworkAccessManager;
+        QNetworkReply *r = nam->get(QNetworkRequest(
+            QUrl(QString("http://127.0.0.1:%1/").arg(srv.port()))));
+        QPointer<QNetworkReply> guard(r);
+        QTest::qWait(200);              // let the deferred first kick start the transfer
+        QVERIFY(guard);                 // still in flight — the server never answers
+        delete nam;                     // must reap the child reply cleanly
+        QVERIFY(!guard);                // the reply died with its parent
     }
 };
 

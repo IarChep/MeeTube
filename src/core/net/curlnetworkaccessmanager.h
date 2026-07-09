@@ -13,6 +13,7 @@ class CurlNetworkAccessManager : public QNetworkAccessManager {
     Q_OBJECT
 public:
     explicit CurlNetworkAccessManager(QObject *parent = 0);
+    ~CurlNetworkAccessManager();
     void setCaBundle(const QByteArray &path) { m_ca = path; }
 protected:
     QNetworkReply *createRequest(Operation op, const QNetworkRequest &req, QIODevice *outgoingData);

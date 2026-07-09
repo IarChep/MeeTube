@@ -3,6 +3,7 @@
 #include <QNetworkReply>
 #include <QNetworkAccessManager>
 #include <QByteArray>
+#include <QPointer>
 #include <curl/curl.h>
 namespace yt { namespace net {
 class CurlEngine;
@@ -34,7 +35,7 @@ private:
     void appendBody(const char *p, size_t n);
     void handleHeaderLine(const QByteArray &line);
 
-    CurlEngine  *m_engine;
+    QPointer<CurlEngine> m_engine;  // guarded: nulls itself if the engine dies first
     CURL        *m_easy;
     curl_slist  *m_reqHeaders;
     QByteArray   m_post;        // owned request body (kept alive for CURLOPT_POSTFIELDS)
