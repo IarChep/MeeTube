@@ -8,6 +8,7 @@
 #include <QSignalSpy>
 #include <QPointer>
 #include "net/curlnetworkaccessmanager.h"
+#include "net/curlnetworkreply.h"
 
 // Minimal one-shot HTTP server: accepts a connection, reads the request, replies
 // with a fixed 200 body, then records the raw request for POST/header assertions.
@@ -177,6 +178,24 @@ private slots:
         r->abort();
         QCOMPARE(r->error(), QNetworkReply::OperationCanceledError);
         QCOMPARE(spy.count(), 1);
+    }
+
+    // A response that exceeds the body cap must fail the transfer (write callback
+    // returns 0 -> CURLE_WRITE_ERROR -> UnknownContentError) instead of buffering
+    // it all: response URLs come from remote JSON, and the N9 has 1GB of RAM.
+    void oversizedBodyFails() {
+        LoopServer srv;
+        srv.responseBody = QByteArray(8 * 1024, 'y');
+        yt::net::CurlNetworkReply::setMaxBodyBytes(4 * 1024);
+        yt::net::CurlNetworkAccessManager nam;
+        QNetworkReply *r = nam.get(QNetworkRequest(
+            QUrl(QString("http://127.0.0.1:%1/big").arg(srv.port()))));
+        QEventLoop loop;
+        connect(r, SIGNAL(finished()), &loop, SLOT(quit()));
+        QTimer::singleShot(5000, &loop, SLOT(quit()));
+        loop.exec();
+        yt::net::CurlNetworkReply::setMaxBodyBytes(32 * 1024 * 1024);   // restore the default
+        QVERIFY(r->error() != QNetworkReply::NoError);
     }
 
     // Destroying the NAM while a request is still in flight must not touch freed

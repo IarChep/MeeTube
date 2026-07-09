@@ -5,6 +5,10 @@
 
 namespace yt { namespace net {
 
+static qint64 s_maxBodyBytes = 32 * 1024 * 1024;
+
+void CurlNetworkReply::setMaxBodyBytes(qint64 n) { s_maxBodyBytes = n; }
+
 static QNetworkReply::NetworkError mapCurl(int code)
 {
     switch (code) {
@@ -14,6 +18,7 @@ static QNetworkReply::NetworkError mapCurl(int code)
         case CURLE_COULDNT_CONNECT:          return QNetworkReply::ConnectionRefusedError;
         case CURLE_SSL_CONNECT_ERROR:
         case CURLE_PEER_FAILED_VERIFICATION: return QNetworkReply::SslHandshakeFailedError;
+        case CURLE_WRITE_ERROR:              return QNetworkReply::UnknownContentError;
         default:                             return QNetworkReply::UnknownNetworkError;
     }
 }
@@ -114,14 +119,20 @@ CurlNetworkReply::~CurlNetworkReply()
 size_t CurlNetworkReply::writeCb(char *ptr, size_t sz, size_t nmemb, void *userp)
 {
     const size_t n = sz * nmemb;
-    static_cast<CurlNetworkReply *>(userp)->appendBody(ptr, n);
+    if (!static_cast<CurlNetworkReply *>(userp)->appendBody(ptr, n))
+        return 0;   // curl aborts the transfer -> CURLE_WRITE_ERROR
     return n;
 }
 
-void CurlNetworkReply::appendBody(const char *p, size_t n)
+// NOTE: runs INSIDE curl's write callback — consumers of readyRead() must never
+// abort() or delete the reply from a directly-connected slot (calling back into
+// libcurl from its own callback is UB). No current consumer connects readyRead.
+bool CurlNetworkReply::appendBody(const char *p, size_t n)
 {
+    if ((qint64) m_buffer.size() + (qint64) n > s_maxBodyBytes) return false;
     m_buffer.append(p, (int) n);
     emit readyRead();
+    return true;
 }
 
 // static
