@@ -195,14 +195,17 @@ private slots:
         QTimer::singleShot(5000, &loop, SLOT(quit()));
         loop.exec();
         yt::net::CurlNetworkReply::setMaxBodyBytes(32 * 1024 * 1024);   // restore the default
-        QVERIFY(r->error() != QNetworkReply::NoError);
+        QCOMPARE(r->error(), QNetworkReply::UnknownContentError);
     }
 
     // Destroying the NAM while a request is still in flight must not touch freed
     // engine state: ~QObject deletes reply children only AFTER the CurlEngine
     // value member is destroyed, so the NAM dtor has to reap live replies first
-    // (2026-07-09 audit finding #1). Oracle for the pre-fix bug is valgrind
-    // (invalid reads in curl_multi_remove_handle from ~CurlNetworkReply).
+    // (2026-07-09 audit finding #1). On this host the assertion pins the
+    // lifetime/ownership invariant (the NAM dtor reaps in-flight child replies,
+    // so the reply dies with its parent); the underlying UAF is
+    // libcurl-version-dependent and only a memory checker (valgrind) on a
+    // stricter libcurl would flag the freed-multi read directly.
     void destroyNamWithInflightReply() {
         SilentServer srv;
         yt::net::CurlNetworkAccessManager *nam = new yt::net::CurlNetworkAccessManager;
