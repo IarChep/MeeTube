@@ -173,6 +173,7 @@ void CurlNetworkReply::handleHeaderLine(const QByteArray &raw)
 
 void CurlNetworkReply::onCurlDone(int curlCode, long)
 {
+    if (m_finished) return;   // exactly-once: abort() may have already completed us
     m_inMulti = false;   // CurlEngine already removed the handle before calling us
     m_finished = true;
     if (curlCode != CURLE_OK) {
