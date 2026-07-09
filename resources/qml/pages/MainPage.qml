@@ -113,7 +113,9 @@ Page {
         id: categoryStrip
         anchors {
             top: parent.top
-            topMargin: headerBar.height + UI.PADDING_MEDIUM
+            // Flush under the (collapsed) global header so the nav-bar panel sits at the very
+            // top of the content area, like a real N9 navigation bar.
+            topMargin: headerBar.height
             left: parent.left
             right: parent.right
         }

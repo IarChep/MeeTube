@@ -17,6 +17,17 @@ Item {
     property bool animated: true
     signal selected(string id, bool requiresAuth, string label)
 
+    // Background: the N9 navigation-bar panel (a subtle inverted gradient) so the strip reads
+    // as a distinct bar rather than text floating on the video list. The transparent chips
+    // render over it; the separator below gives the crisp bottom edge (the panel itself fades
+    // to black at its foot).
+    Image {
+        anchors.fill: parent
+        source: "image://theme/meegotouch-navigationbar-portrait-inverted-background"
+        fillMode: Image.Stretch
+        smooth: true
+    }
+
     // Strip height from the label metrics — no magic layout numbers.
     Text {
         id: metrics
@@ -33,12 +44,14 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.HorizontalFlick
-        contentWidth: strip.width + UI.DEFAULT_MARGIN * 2
+        // Edge padding for the first/last chip — half of DEFAULT_MARGIN so the strip sits
+        // tighter to the screen edges.
+        contentWidth: strip.width + UI.PADDING_LARGE * 2
         contentHeight: height
 
         Row {
             id: strip
-            x: UI.DEFAULT_MARGIN
+            x: UI.PADDING_LARGE
             height: parent.height
             spacing: 0
 
@@ -116,5 +129,15 @@ Item {
             duration: UI.ANIM_DEFAULT
             easing.type: Easing.InOutQuad
         }
+    }
+
+    // Crisp bottom edge: the standard Harmattan 2px separator, so the bar is clearly
+    // delimited from the list below (the navbar panel alone fades to black at its foot).
+    Image {
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: 2
+        source: "image://theme/meegotouch-separator-inverted-background-horizontal"
+        fillMode: Image.Stretch
+        smooth: false
     }
 }
