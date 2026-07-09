@@ -115,6 +115,26 @@ private slots:
         QVERIFY(srv.lastRequest.contains("{\"context\":{}}"));
     }
 
+    // libcurl silently adds "Expect: 100-continue" to >1KB HTTP/1.1 POSTs and
+    // stalls the upload waiting for the interim response — every youtubei body
+    // crosses that threshold. The reply ctor must append an empty "Expect:"
+    // header to kill it, and the body must still reach the wire in full.
+    void postSuppressesExpect100() {
+        LoopServer srv;
+        srv.responseBody = "ok";
+        yt::net::CurlNetworkAccessManager nam;
+        QNetworkRequest req(QUrl(QString("http://127.0.0.1:%1/youtubei/v1/browse").arg(srv.port())));
+        req.setRawHeader("Content-Type", "application/json");
+        const QByteArray big = "{\"context\":\"" + QByteArray(2048, 'x') + "\"}";
+        QNetworkReply *r = nam.post(req, big);
+        QEventLoop loop;
+        connect(r, SIGNAL(finished()), &loop, SLOT(quit()));
+        QTimer::singleShot(5000, &loop, SLOT(quit()));
+        loop.exec();
+        QVERIFY(!srv.lastRequest.toLower().contains("expect:"));
+        QVERIFY(srv.lastRequest.contains(QByteArray(2048, 'x')));   // body actually sent
+    }
+
     // Response headers curl parses (via headerCb -> setRawHeader) must be readable
     // through QNetworkReply::rawHeader() — the envelope scan pulls X-Goog-Visitor-Id
     // off exactly this path.
