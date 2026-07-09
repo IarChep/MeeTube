@@ -25,3 +25,6 @@
 	path = deps/curl
 	url = https://github.com/curl/curl.git
 	branch = curl-8_21_0
+[submodule "deps/zlib"]
+	path = deps/zlib
+	url = https://github.com/madler/zlib.git

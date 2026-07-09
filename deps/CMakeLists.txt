@@ -218,6 +218,30 @@ if(BUILD_N9)
         BUILD_BYPRODUCTS  ${OSSL3_SSL} ${OSSL3_CRYPTO}
     )
 
+    # zlib — modern static PIC zlib linked INTO libcurl (device only). The
+    # Harmattan sysroot's zlib predates 1.2.5.2 and cannot even compile curl's
+    # content_encoding.c; and bundling a SHARED modern libz.so.1 would collide
+    # with the soname the device Qt already loads (ld.so reuses the first-loaded
+    # soname process-wide, so ours could silently lose). A static libz.a linked
+    # into libcurl.so sidesteps both: curl gets gzip/deflate transfer decoding,
+    # nothing else in the process changes. zlib's configure is not autotools —
+    # it reads CC/CFLAGS from the environment, hence the cmake -E env wrapper.
+    set(ZLIB_INSTALL ${CMAKE_BINARY_DIR}/zlib-install CACHE INTERNAL "")
+    set(ZLIB_A       ${ZLIB_INSTALL}/lib/libz.a CACHE INTERNAL "")
+    string(REGEX REPLACE "g\\+\\+$" "gcc" ZLIB_CC "${CMAKE_CXX_COMPILER}")
+    ExternalProject_Add(zlib_build
+        SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/zlib
+        DOWNLOAD_COMMAND  ""
+        BUILD_IN_SOURCE   1
+        CONFIGURE_COMMAND ${GIT_EXECUTABLE} -C <SOURCE_DIR> clean -xfdq
+                  COMMAND ${CMAKE_COMMAND} -E env CC=${ZLIB_CC}
+                          "CFLAGS=-fPIC -O2 --sysroot=${CMAKE_SYSROOT}"
+                          <SOURCE_DIR>/configure --prefix=${ZLIB_INSTALL} --static
+        BUILD_COMMAND     make
+        INSTALL_COMMAND   make install
+        BUILD_BYPRODUCTS  ${ZLIB_A}
+    )
+
     # libcurl — minimal shared build against the OpenSSL 3 above.
     #
     # curl's git checkout (unlike a release tarball) ships NO ./configure — only
@@ -226,10 +250,10 @@ if(BUILD_N9)
     # is deliberately lean: OpenSSL backend only, shared, no static/ldap/psl/
     # brotli/zstd/nghttp2 (none present in the device sysroot, none needed).
     #
-    # --without-zlib is REQUIRED: the Harmattan sysroot's zlib predates 1.2.5.2,
-    # so curl's content_encoding.c (HTTP gzip/deflate transfer decoding) fails to
-    # compile against it (no z_const / inflateReset2). We don't need curl to do
-    # transfer-encoding decompression, so drop libz entirely.
+    # --with-zlib points at the static PIC zlib cross-built above (the sysroot's
+    # ancient zlib cannot compile content_encoding.c; see the zlib_build block
+    # for why it must be static). ${ZLIB_INSTALL}/lib holds only libz.a, so the
+    # linker folds it into libcurl.so — no new runtime .so to bundle.
     #
     # --with-ca-bundle bakes /opt/meetube/ssl/cert.pem as the default CA store
     # (the Mozilla bundle installed by the block above), matching the runtime
@@ -240,7 +264,7 @@ if(BUILD_N9)
     set(CURL_INCLUDE ${CURL_INSTALL}/include CACHE INTERNAL "")
     string(REGEX REPLACE "g\\+\\+$" "gcc" CURL_CC "${CMAKE_CXX_COMPILER}")
     ExternalProject_Add(libcurl_build
-        DEPENDS           openssl3
+        DEPENDS           openssl3 zlib_build
         SOURCE_DIR        ${CMAKE_SOURCE_DIR}/deps/curl
         DOWNLOAD_COMMAND  ""
         BUILD_IN_SOURCE   1
@@ -257,7 +281,7 @@ if(BUILD_N9)
                           --enable-shared --disable-static
                           --disable-ldap --disable-ldaps
                           --disable-manual --disable-docs
-                          --without-zlib
+                          --with-zlib=${ZLIB_INSTALL}
                           --without-libpsl --without-brotli
                           --without-zstd --without-nghttp2
                           --disable-dependency-tracking
