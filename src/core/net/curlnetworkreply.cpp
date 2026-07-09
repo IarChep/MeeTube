@@ -82,6 +82,11 @@ CurlNetworkReply::CurlNetworkReply(CurlEngine *engine, QNetworkAccessManager::Op
         curl_easy_setopt(m_easy, CURLOPT_POST, 1L);
         curl_easy_setopt(m_easy, CURLOPT_POSTFIELDSIZE, (long) m_post.size());
         curl_easy_setopt(m_easy, CURLOPT_POSTFIELDS, m_post.constData());  // not copied; m_post outlives it
+        // Kill libcurl's automatic "Expect: 100-continue" on >1KB HTTP/1.1 POSTs:
+        // every youtubei body crosses the threshold and the interim-response wait
+        // costs an extra RTT (or up to 1s) per API call on the device.
+        m_reqHeaders = curl_slist_append(m_reqHeaders, "Expect:");
+        curl_easy_setopt(m_easy, CURLOPT_HTTPHEADER, m_reqHeaders);  // re-set: the head may have been NULL above
     } else if (op == QNetworkAccessManager::GetOperation) {
         curl_easy_setopt(m_easy, CURLOPT_HTTPGET, 1L);
     } else {
