@@ -28,3 +28,8 @@
 [submodule "deps/zlib"]
 	path = deps/zlib
 	url = https://github.com/madler/zlib.git
+	branch = v1.3.1
+[submodule "deps/nghttp2"]
+	path = deps/nghttp2
+	url = https://github.com/nghttp2/nghttp2.git
+	branch = v1.64.0
