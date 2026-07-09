@@ -48,6 +48,7 @@ void StreamPlayer::fail(const QString &e)
 
 void StreamPlayer::play(const QString &url, int mode)
 {
+    if (m_state != Idle && m_state != Stopped && m_state != Error) stop();
     m_url = url; m_mode = (mode == (int)VideoMode) ? VideoMode : AudioMode;
     emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;

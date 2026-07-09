@@ -171,6 +171,8 @@ Page {
                         onClicked: {
                             // Phase 1: audio ("music") playback of the progressive
                             // stream via the libcurl-fed GStreamer player. mode 0 = audio.
+                            // Phase 2: progressiveUrl is async (StreamSet.load fetches /player),
+                            // so this first tap is a no-op until a loaded-gated trigger is wired.
                             var s = innertube.video().streams(videoData.id ? videoData.id : "");
                             if (s.progressiveUrl != "") {
                                 player.play(s.progressiveUrl, 0);

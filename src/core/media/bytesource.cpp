@@ -14,7 +14,7 @@ ProgressiveSource::~ProgressiveSource() { close(); }
 
 void ProgressiveSource::close()
 {
-    if (m_reply) { m_reply->abort(); m_reply->deleteLater(); m_reply = 0; }
+    if (m_reply) { m_reply->disconnect(this); m_reply->abort(); m_reply->deleteLater(); m_reply = 0; }
 }
 
 // Probe the first window: learn total size + seekability from the 206
