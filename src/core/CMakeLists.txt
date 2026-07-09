@@ -44,6 +44,7 @@ add_library(meetube-core STATIC
     media/ipolicy.cpp
     media/ipipeline.cpp
     media/bytesource.cpp
+    media/streamplayer.cpp
 )
 # AUTOMOC: core/http.h declares a Q_OBJECT (signals/slots for the
 # QNetworkAccessManager-backed transport), as do the models, detail objects,

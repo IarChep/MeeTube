@@ -66,6 +66,50 @@ private:
     QList<QTcpSocket *> m_socks;
 };
 
+#include "media/streamplayer.h"
+
+class FakePolicy : public yt::media::IPolicy {
+    Q_OBJECT
+public:
+    int acquired; int released;
+    FakePolicy() : acquired(0), released(0) {}
+    void acquire(yt::media::PlaybackMode) { ++acquired; }   // grant on demand via emitGranted()
+    void release() { ++released; }
+    void emitGranted() { emit granted(); }
+    void emitLost() { emit lost(); }
+};
+
+class FakePipeline : public yt::media::IPipeline {
+    Q_OBJECT
+public:
+    int configured; int played; int paused; int resumed; int stopped; QByteArray pushed; bool eos;
+    FakePipeline() : configured(0), played(0), paused(0), resumed(0), stopped(0), eos(false) {}
+    void configure(yt::media::PlaybackMode, bool, qint64) { ++configured; }
+    void pushData(const QByteArray &c) { pushed += c; }
+    void endOfStream() { eos = true; }
+    void play() { ++played; }
+    void pause() { ++paused; }
+    void resume() { ++resumed; }
+    void stop() { ++stopped; }
+    void seek(qint64) {}
+    void emitNeedData(qint64 n) { emit needData(n); }
+    void emitStarted() { emit started(); }
+    void emitFinished() { emit finished(); }
+    void emitError(const QString &m) { emit error(m); }
+};
+
+// Fake source: delivers a fixed payload on requestData(), then finished().
+class FakeSource : public yt::media::ByteSource {
+    Q_OBJECT
+public:
+    QByteArray payload; bool sent;
+    FakeSource() : yt::media::ByteSource(0), sent(false) {}
+    void open(const QString &) { emit opened(payload.size(), true); }
+    void requestData(qint64) { if (!sent) { sent = true; emit data(payload); } else emit finished(); }
+    bool seek(qint64) { return true; }
+    void close() {}
+};
+
 // Compile-only anchor for Task 1: proves the media/ seams compile and moc.
 class tst_meetube_media : public QObject {
     Q_OBJECT
@@ -121,6 +165,67 @@ private slots:
         QVERIFY(src.seek(2 * 1024 * 1024));
         src.requestData(2 * 1024 * 1024);   QTRY_COMPARE(got.count(), 1);
         QCOMPARE(got.at(0).at(0).toByteArray().at(0), 'Z');   // first byte is the marker
+    }
+
+    // play() acquires policy first and does NOT touch the pipeline until granted.
+    void playWaitsForPolicyGrant() {
+        FakeSource *src = new FakeSource; FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer player(src, pipe, pol);
+        player.play(QString("http://x/v"), yt::media::AudioMode);
+        QCOMPARE(pol->acquired, 1);
+        QCOMPARE(pipe->configured, 0);                 // nothing before grant
+        QCOMPARE(player.state(), (int)yt::media::StreamPlayer::Loading);
+        pol->emitGranted();
+        QCOMPARE(pipe->configured, 1);                 // grant -> configure + play
+        QCOMPARE(pipe->played, 1);
+    }
+
+    // needData -> the player pulls from the source and pushes into the pipeline.
+    void needDataPumpsSourceToPipeline() {
+        FakeSource *src = new FakeSource; src->payload = QByteArray(1024, 'x');
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer player(src, pipe, pol);
+        player.play(QString("http://x/v"), yt::media::AudioMode);
+        pol->emitGranted();
+        pipe->emitNeedData(4096);
+        QCOMPARE(pipe->pushed.size(), 1024);
+        pipe->emitStarted();
+        QCOMPARE(player.state(), (int)yt::media::StreamPlayer::Playing);
+    }
+
+    // Preemption: lost() pauses; the next granted() resumes.
+    void preemptionPausesThenResumes() {
+        FakeSource *src = new FakeSource; FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer player(src, pipe, pol);
+        player.play(QString("http://x/v"), yt::media::AudioMode); pol->emitGranted(); pipe->emitStarted();
+        pol->emitLost();
+        QCOMPARE(pipe->paused, 1);
+        QCOMPARE(player.state(), (int)yt::media::StreamPlayer::Paused);
+        pol->emitGranted();
+        QCOMPARE(pipe->resumed, 1);
+        QCOMPARE(player.state(), (int)yt::media::StreamPlayer::Playing);
+    }
+
+    // stop() tears the pipeline down and releases policy.
+    void stopReleasesEverything() {
+        FakeSource *src = new FakeSource; FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer player(src, pipe, pol);
+        player.play(QString("http://x/v"), yt::media::AudioMode); pol->emitGranted();
+        player.stop();
+        QCOMPARE(pipe->stopped, 1);
+        QCOMPARE(pol->released, 1);
+        QCOMPARE(player.state(), (int)yt::media::StreamPlayer::Stopped);
+    }
+
+    // A pipeline error surfaces as Error + errorString, and releases policy.
+    void pipelineErrorIsTerminal() {
+        FakeSource *src = new FakeSource; FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer player(src, pipe, pol);
+        player.play(QString("http://x/v"), yt::media::AudioMode); pol->emitGranted();
+        pipe->emitError(QString("boom"));
+        QCOMPARE(player.state(), (int)yt::media::StreamPlayer::Error);
+        QCOMPARE(player.errorString(), QString("boom"));
+        QCOMPARE(pol->released, 1);
     }
 };
 
