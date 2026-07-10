@@ -5,6 +5,9 @@
 #include <QPluginLoader>
 #include <QImageReader>
 #include <QDebug>
+#include <QFileInfo>
+#include <QNetworkProxy>
+#include <QUrl>
 #include <curl/curl.h>
 
 #include "qmlapplicationviewer/qmlapplicationviewer.h"
@@ -38,6 +41,32 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     QScopedPointer<QApplication> app(createApplication(argc, argv));
     QCoreApplication::setApplicationName("MeeTube");
     QCoreApplication::setOrganizationName("MeeTube");
+
+    // One-time network environment dump (env MEETUBE_NET_DEBUG=1). Prints the libcurl
+    // build (SSL backend, whether IPv6/HTTP2 are compiled in), the CA bundle's presence,
+    // and the proxy configuration — the context that separates the on-device failure
+    // classes (IPv6-no-route vs missing proxy vs CA). See src/core/net/.
+    if (yt::net::netDebugEnabled()) {
+        const curl_version_info_data *v = curl_version_info(CURLVERSION_NOW);
+        qWarning("[net] libcurl %s ssl=%s ipv6=%s http2=%s",
+                 v->version, v->ssl_version ? v->ssl_version : "(none)",
+                 (v->features & CURL_VERSION_IPV6)  ? "yes" : "no",
+                 (v->features & CURL_VERSION_HTTP2) ? "yes" : "no");
+#ifdef MEETUBE_CA_BUNDLE
+        QFileInfo ca(QString::fromLatin1(MEETUBE_CA_BUNDLE));
+        qWarning("[net] CA=%s exists=%d readable=%d size=%lld",
+                 MEETUBE_CA_BUNDLE, (int) ca.exists(), (int) ca.isReadable(), (qlonglong) ca.size());
+#endif
+        qWarning("[net] env http_proxy='%s' https_proxy='%s' no_proxy='%s'",
+                 qgetenv("http_proxy").constData(), qgetenv("https_proxy").constData(),
+                 qgetenv("no_proxy").constData());
+        const QList<QNetworkProxy> pr = QNetworkProxyFactory::systemProxyForQuery(
+            QNetworkProxyQuery(QUrl(QString::fromLatin1("https://www.youtube.com"))));
+        qWarning("[net] Qt systemProxy count=%d type0=%d host0=%s "
+                 "(NoProxy here may be a blind Harmattan backend, not proof of none)",
+                 pr.size(), pr.isEmpty() ? -1 : (int) pr.first().type(),
+                 pr.isEmpty() ? "(none)" : pr.first().hostName().toLatin1().constData());
+    }
 
     QTextCodec *utfCodec = QTextCodec::codecForName("UTF-8");
     QTextCodec::setCodecForLocale(utfCodec);
