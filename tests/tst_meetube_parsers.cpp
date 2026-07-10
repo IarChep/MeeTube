@@ -3,6 +3,7 @@
 #include "parsers/ytjson.h"
 #include "parsers/rendererparser.h"
 #include "parsers/playerparser.h"
+#include "parsers/suggestparser.h"
 #include "testutil.h"
 #include "parserpayloads.h"
 
@@ -12,6 +13,19 @@ using namespace yt;
 
 class TestParsers : public QObject { Q_OBJECT
 private slots:
+    // YouTube suggest endpoint (client=firefox): ["query",[suggestions…]] → the strings.
+    void suggestionsParsed() {
+        const std::string body = "[\"cat\",[\"cat videos\",\"cats\",\"cat memes\"]]";
+        QStringList s = yt::parseSuggestions(body);
+        QCOMPARE(s.size(), 3);
+        QCOMPARE(s.at(0), QString("cat videos"));
+        QCOMPARE(s.at(2), QString("cat memes"));
+    }
+    void suggestionsGarbageIsEmpty() {
+        QCOMPARE(yt::parseSuggestions(std::string("not json")).size(), 0);
+        QCOMPARE(yt::parseSuggestions(std::string("[\"only-query\"]")).size(), 0);
+    }
+
     // gj::toInt64 keeps the old jint() laxity: JSON ints, floats (truncated) and
     // strictly-numeric strings; partial/garbage strings and absent values are 0.
     void flexIntParses() {

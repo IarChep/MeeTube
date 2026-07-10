@@ -13,6 +13,7 @@ add_library(meetube-core STATIC
     parsers/commentparser.cpp
     parsers/accountparser.cpp
     parsers/playerparser.cpp
+    parsers/suggestparser.cpp
     innertube/clientconfig.cpp
     innertube/contextbuilder.cpp
     core/http.cpp
@@ -25,10 +26,8 @@ add_library(meetube-core STATIC
     innertube/playlistapi.cpp
     innertube/videodetails.cpp
     innertube/streamset.cpp
-    innertube/subtitleset.cpp
     innertube/channeldetails.cpp
     innertube/accountdetails.cpp
-    innertube/accountapi.cpp
     innertube/innertube.cpp
     models/servicelistmodel.cpp
     models/videomodel.cpp
