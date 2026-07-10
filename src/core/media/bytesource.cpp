@@ -1,10 +1,29 @@
 #include "media/bytesource.h"
+#include "innertube/clientconfig.h"
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QUrl>
 
 namespace yt { namespace media {
+
+// googlevideo binds a stream URL to the client that minted it (the &c= param) and
+// returns 403 to a videoplayback GET that doesn't carry that client's User-Agent.
+// libcurl sends NO default UA, so we must set it explicitly. Map &c= -> the canonical
+// per-client UA (reused from clientconfig so it rotates in one place). Progressive
+// itag=18 comes from the ANDROID client, so ANDROID is the default.
+static QByteArray streamUserAgent(const QString &url)
+{
+    ClientId id = ClientId::ANDROID;
+    const int i = url.indexOf(QLatin1String("&c="));
+    if (i >= 0) {
+        const QString c = url.mid(i + 3, 12);
+        if (c.startsWith(QLatin1String("IOS")))          id = ClientId::IOS;
+        else if (c.startsWith(QLatin1String("WEB")))     id = ClientId::WEB;
+        else if (c.startsWith(QLatin1String("TVHTML5"))) id = ClientId::TVHTML5;
+    }
+    return QByteArray(clientInfo(id).userAgent);
+}
 
 ProgressiveSource::ProgressiveSource(QNetworkAccessManager *nam, QObject *parent)
     : ByteSource(nam, parent), m_total(-1), m_offset(0), m_seekable(false),
@@ -33,6 +52,7 @@ void ProgressiveSource::issueWindow(qint64 start, qint64 maxBytes, const char *s
     const QByteArray range = "bytes=" + QByteArray::number(start) + "-"
                            + QByteArray::number(start + win - 1);
     req.setRawHeader("Range", range);
+    req.setRawHeader("User-Agent", streamUserAgent(m_url));   // gvs 403s a UA-less GET
     m_reply = m_nam->get(req);
     connect(m_reply, SIGNAL(finished()), this, slot);
 }
