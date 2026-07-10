@@ -15,6 +15,7 @@
 // its own delivery on the token, so a canceled single-step chain simply never
 // fires `done`.
 #include <QString>
+#include <QStringList>
 #include <QList>
 #include <functional>
 #include "core/job.h"
@@ -74,6 +75,10 @@ void editPlaylist(IHttp &, const QString &playlistId, bool add, const QString &i
 // no context/client — parsed with a local Ryd partial struct in chains.cpp. -1 = unknown.
 struct RydVotes { qint64 likes; qint64 dislikes; RydVotes() : likes(-1), dislikes(-1) {} };
 void fetchDislikes(IHttp &, const QString &videoId, const JobToken &, std::function<void(const Outcome<RydVotes> &)> done);
+// Query suggestions from YouTube's public suggest endpoint — a plain anonymous GET
+// (client=firefox; hl from the session), parsed by parseSuggestions. Empty query or
+// any transport/parse failure → an ok=false / empty-list Outcome.
+void fetchSearchSuggestions(IHttp &, const QString &query, const JobToken &, std::function<void(const Outcome<QStringList> &)> done);
 // OAuth (device-code flow; postForm — no context):
 struct DeviceCode { QString deviceCode, userCode, verificationUrl; int intervalSecs; };
 void oauthDeviceCode(IHttp &, const JobToken &, std::function<void(const Outcome<DeviceCode> &)> done);
