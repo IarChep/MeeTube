@@ -1,17 +1,27 @@
 #!/usr/bin/env python3
-"""Real check that GStreamer video renders INTO a given X window via GstVideoOverlay.
+"""Check whether GStreamer video renders INTO a given X window via GstVideoOverlay.
 
 This is the mechanism MeeTube's N9 player uses (GstAppPipeline: autovideosink +
-GstXOverlay bound to viewer.winId()). It cannot be run against the device code
-directly here — the device is GStreamer 0.10 / armv7 and unreachable — so this
-exercises the SAME overlay path with the host's GStreamer 1.0 to prove:
-  (1) an X window can be created on this display (Xwayland),
-  (2) a video sink renders into that exact window when handed its id, and
-  (3) real pixels land in the window (read back via XGetImage, asserted non-black).
+GstXOverlay bound to viewer.winId()). It can't run against the device code here —
+that's GStreamer 0.10 / armv7, unreachable — so it uses the host's GStreamer 1.0.
 
-Sink is `ximagesink` (plain X, works on Xwayland) not `xvimagesink` (needs the Xv
-extension Xwayland lacks). Needs DISPLAY set, python-gobject (Gst 1.0), python-xlib.
-Run: python3 tests/test_x_overlay.py   (or: python3 -m unittest tests.test_x_overlay)
+Two cases, because they give DIFFERENT answers and that difference IS the point:
+
+  * mechanism (override_redirect window): a window we fully own, bypassing the
+    window manager. Proves GStreamer can XPutImage frames into an X window at all.
+    Passes on this host.
+
+  * app-window realism (managed window): a normal WM/compositor-managed top-level,
+    like Qt's app window. On the N9 the video lives on a HARDWARE overlay plane
+    composited BELOW the UI, so it shows through. On a Wayland/Xwayland desktop
+    there is no such plane and the compositor routes managed windows itself, so the
+    X-drawn video does NOT survive — this is why pointing the overlay at the running
+    app/simulator window shows nothing. That path is N9-only and is SKIPPED here
+    (not a code bug — an environment limit), pointing at on-device verification.
+
+Sink is `ximagesink` (plain X, works on Xwayland) not `xvimagesink` (needs Xv,
+which Xwayland lacks). Needs DISPLAY, python-gobject (Gst 1.0), python-xlib.
+Run: python3 tests/test_x_overlay.py
 """
 import os, time, unittest
 
@@ -21,67 +31,79 @@ gi.require_version("GstVideo", "1.0")
 from gi.repository import Gst, GstVideo, GLib   # noqa: E402
 from Xlib import X, display                     # noqa: E402
 
+W, H = 320, 240
+
+
+def render_and_count_colours(override_redirect):
+    """Render SMPTE bars into a fresh X window via GstVideoOverlay; return the number
+    of distinct pixel values read back from that exact window."""
+    Gst.init(None)
+    d = display.Display()
+    screen = d.screen()
+    win = screen.root.create_window(
+        0, 0, W, H, 0, screen.root_depth,
+        X.InputOutput, X.CopyFromParent,
+        background_pixel=screen.black_pixel,     # black start -> colours prove drawing
+        override_redirect=override_redirect,
+        event_mask=X.ExposureMask)
+    win.map()
+    d.sync()
+    time.sleep(0.3)                              # let a managed window actually map
+    xid = win.id
+
+    pipe = Gst.parse_launch(
+        "videotestsrc pattern=smpte is-live=true ! videoconvert ! ximagesink name=sink")
+
+    def on_sync(bus, msg, *_):
+        s = msg.get_structure()
+        if s and s.get_name() == "prepare-window-handle":
+            GstVideo.VideoOverlay.set_window_handle(msg.src, xid)   # via the interface
+        return Gst.BusSyncReply.PASS
+    pipe.get_bus().set_sync_handler(on_sync)
+
+    pipe.set_state(Gst.State.PLAYING)
+    ctx = GLib.MainContext.default()
+    deadline = time.time() + 3.0
+    while time.time() < deadline:
+        while ctx.pending():
+            ctx.iteration(False)
+        time.sleep(0.03)
+
+    d.sync()
+    raw = win.get_image(0, 0, W, H, X.ZPixmap, 0xffffffff).data
+    data = raw if isinstance(raw, (bytes, bytearray)) else bytes(raw)
+    pipe.set_state(Gst.State.NULL)
+    win.unmap()
+    d.sync()
+
+    # Distinct pixels, not non-zero bytes: XGetImage returns 32-bit pixels whose
+    # constant padding byte makes an all-black window look 25% "non-zero" (a false
+    # pass). Black/undrawn window -> ~1 distinct value; SMPTE bars -> many.
+    px = memoryview(data)
+    return len(set(bytes(px[i:i + 4]) for i in range(0, len(px) - 3, 4)))
+
 
 class XOverlayDrawTest(unittest.TestCase):
-    def test_video_draws_into_x_window(self):
+    def setUp(self):
         self.assertTrue(os.environ.get("DISPLAY"), "no DISPLAY (need an X/Xwayland server)")
-        Gst.init(None)
 
-        # 1) An unmanaged (override_redirect) X window we own and can read back.
-        d = display.Display()
-        screen = d.screen()
-        W, H = 320, 240
-        win = screen.root.create_window(
-            0, 0, W, H, 0, screen.root_depth,
-            X.InputOutput, X.CopyFromParent,
-            background_pixel=screen.black_pixel,   # black to start: non-black => drawn
-            override_redirect=True,
-            event_mask=X.ExposureMask)
-        win.map()
-        d.sync()
-        xid = win.id
+    def test_mechanism_renders_into_owned_window(self):
+        """GStreamer really draws video into an X window we hand it (WM bypassed)."""
+        n = render_and_count_colours(override_redirect=True)
+        print("unmanaged (own) window: %d distinct colours" % n)
+        self.assertGreater(n, 8, "GStreamer did not render into the X window at all — "
+                                 "the overlay plumbing is broken, not just the compositing")
 
-        # 2) Colour-bar source -> ximagesink, sink bound to our window via the same
-        #    prepare-window-handle sync-message dance GstAppPipeline uses on device.
-        pipe = Gst.parse_launch(
-            "videotestsrc pattern=smpte is-live=true ! videoconvert ! ximagesink name=sink")
-
-        def on_sync(bus, msg, *_):
-            s = msg.get_structure()
-            if s and s.get_name() == "prepare-window-handle":
-                # set the handle via the GstVideoOverlay interface (not on the element)
-                GstVideo.VideoOverlay.set_window_handle(msg.src, xid)
-            return Gst.BusSyncReply.PASS
-        pipe.get_bus().set_sync_handler(on_sync)
-
-        pipe.set_state(Gst.State.PLAYING)
-        # Let it preroll + render a few frames (pump GLib so bus/sink callbacks run).
-        ctx = GLib.MainContext.default()
-        deadline = time.time() + 3.0
-        while time.time() < deadline:
-            while ctx.pending():
-                ctx.iteration(False)
-            time.sleep(0.03)
-
-        # 3) Read the window back; SMPTE bars => plenty of non-zero bytes.
-        d.sync()
-        raw = win.get_image(0, 0, W, H, X.ZPixmap, 0xffffffff).data
-        data = raw if isinstance(raw, (bytes, bytearray)) else bytes(raw)
-
-        pipe.set_state(Gst.State.NULL)
-        win.unmap()
-        d.sync()
-
-        # Count DISTINCT pixels, not non-zero bytes: XGetImage returns 32-bit pixels
-        # whose constant padding byte would make an all-black window look 25% "non-zero"
-        # (a false pass). An undrawn/black window has ~1 distinct pixel; the SMPTE bars
-        # have many, and only land here if the sink actually rendered into THIS window.
-        px = memoryview(data)
-        distinct = len(set(bytes(px[i:i + 4]) for i in range(0, len(px) - 3, 4)))
-        print("distinct pixel values in the window: %d" % distinct)
-        self.assertGreater(
-            distinct, 8,
-            "window shows <=8 colours — the video sink did NOT render colour bars into it")
+    def test_managed_window_overlay_is_device_only(self):
+        """The realistic app-window case: overlay into a WM/compositor-managed window."""
+        n = render_and_count_colours(override_redirect=False)
+        print("managed (app-like) window: %d distinct colours" % n)
+        if n <= 8:
+            self.skipTest(
+                "video overlay into a managed window shows nothing on this Wayland/Xwayland "
+                "host (no hardware overlay plane; the compositor owns managed windows). This "
+                "is the N9-only path — verify video rendering on the device.")
+        self.assertGreater(n, 8)   # if it ever works here, make sure it really did
 
 
 if __name__ == "__main__":
