@@ -25,6 +25,7 @@
         <file>qml/components/delegates/RelatedDelegate.qml</file>
         <file>qml/components/delegates/HistoryCardDelegate.qml</file>
         <file>qml/components/delegates/PlaylistDelegate.qml</file>
+        <file>qml/components/delegates/ChannelDelegate.qml</file>
 
         <!-- components: ui (loading / empty / pagination / sections) -->
         <file>qml/components/ui/BusyOverlay.qml</file>
