@@ -16,12 +16,8 @@ Page {
 
     Component.onCompleted: {
         streams = innertube.video().streams(videoId);   // async: fetches /player
+        streams.loaded.connect(tryPlay);                 // play once the URL resolves
         tryPlay();                                       // in case it resolved synchronously
-    }
-
-    Connections {
-        target: streams
-        onLoaded: root.tryPlay()
     }
 
     BusyIndicator {
