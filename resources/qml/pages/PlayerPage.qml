@@ -2,10 +2,11 @@ import QtQuick 1.1
 import com.nokia.meego 1.0
 import "../js/UIConstants.js" as UI
 
-// Fullscreen video player with a custom YouTube-style overlay (N9-themed): the
-// GStreamer video overlay renders into the app's X window on a plane BELOW the Qt
-// UI, so the page stays transparent and only the controls are drawn. Tap the video
-// to toggle the controls; they auto-hide after a few seconds.
+// Audio now-playing screen. Phase-1 audio: plays the progressive stream in
+// AudioMode (mode 0) — the GStreamer pipeline decodes only the audio branch and
+// routes the video pad to fakesink, so nothing renders (video is dropped). The same
+// YouTube-style overlay controls (play/pause + scrubber) drive playback. Tap to
+// toggle the controls; they auto-hide after a few seconds.
 Page {
     id: root
     property string videoId: ""
@@ -13,8 +14,12 @@ Page {
     property bool controlsShown: true
 
     function tryPlay() {
-        if (streams && streams.progressiveUrl != "")
-            player.play(streams.progressiveUrl, 1);   // mode 1 = video
+        if (streams && streams.progressiveUrl != "") {
+            console.log("[player] audio play:", streams.progressiveUrl.substring(0, 90));
+            player.play(streams.progressiveUrl, 0);   // mode 0 = audio (video pad -> fakesink)
+        } else if (streams && streams.status === 4) { // Status.Failed
+            console.log("[player] no stream:", streams.errorString);
+        }
     }
     // ms -> "m:ss"
     function fmt(ms) {
