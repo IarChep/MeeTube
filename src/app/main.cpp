@@ -105,12 +105,16 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
 #endif
         yt::media::ProgressiveSource *src = new yt::media::ProgressiveSource(playerNam);
         playerNam->setParent(src);      // NAM lifetime follows the source
+        yt::media::GstAppPipeline *pipe = new yt::media::GstAppPipeline;
         yt::media::StreamPlayer *player =
-            new yt::media::StreamPlayer(src, new yt::media::GstAppPipeline, new yt::media::PolicyGuard);
+            new yt::media::StreamPlayer(src, pipe, new yt::media::PolicyGuard);
         viewer.rootContext()->setContextProperty("player", player);
         viewer.setOrientation(QmlApplicationViewer::ScreenOrientationLockPortrait);
         viewer.setSource(QUrl("qrc:/qml/main.qml"));
         viewer.showExpanded();
+        // Video overlay renders into the app's top-level X window (fullscreen player).
+        // winId() is stable after show; the pipeline uses it lazily when video plays.
+        pipe->setVideoWindow(viewer.winId());
 
         rc = app->exec();
         // Scope end: ~QmlApplicationViewer tears down the QML engine and with it

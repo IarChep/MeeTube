@@ -6,6 +6,7 @@
         <!-- pages -->
         <file>qml/pages/MainPage.qml</file>
         <file>qml/pages/VideoPage.qml</file>
+        <file>qml/pages/PlayerPage.qml</file>
         <file>qml/pages/FeedPage.qml</file>
         <file>qml/pages/PlaylistsPage.qml</file>
         <file>qml/pages/AccountPage.qml</file>

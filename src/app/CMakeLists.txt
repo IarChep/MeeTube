@@ -114,8 +114,9 @@ if(BUILD_N9)
     target_link_libraries(meetube PRIVATE ${RESOURCEQT_LIBRARIES})
 
     # GStreamer 0.10 appsrc pipeline (GstAppPipeline) for media playback. From the
-    # device sysroot via PKG_CONFIG_SYSROOT_DIR. gstreamer-app-0.10 provides appsrc.
-    pkg_check_modules(GST gstreamer-0.10 gstreamer-app-0.10 REQUIRED)
+    # device sysroot via PKG_CONFIG_SYSROOT_DIR. gstreamer-app-0.10 provides appsrc;
+    # gstreamer-interfaces-0.10 provides GstXOverlay (video overlay window handle).
+    pkg_check_modules(GST gstreamer-0.10 gstreamer-app-0.10 gstreamer-interfaces-0.10 REQUIRED)
     target_include_directories(meetube PRIVATE ${GST_INCLUDE_DIRS})
     target_link_libraries(meetube PRIVATE ${GST_LIBRARIES})
 
