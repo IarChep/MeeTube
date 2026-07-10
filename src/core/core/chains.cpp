@@ -28,7 +28,9 @@
 #include "parsers/playerparser.h"
 #include "parsers/continuation.h"
 #include "parsers/ytjson.h"
+#include "parsers/suggestparser.h"
 #include <memory>
+#include <QUrl>
 
 namespace yt { namespace core {
 
@@ -525,6 +527,22 @@ void fetchDislikes(IHttp &http, const QString &videoId, const JobToken &job,
         out.ok = true;
         out.value.likes    = v.likes    ? (qint64) gj::toInt64(v.likes)    : -1;
         out.value.dislikes = v.dislikes ? (qint64) gj::toInt64(v.dislikes) : -1;
+        done(out);
+    });
+}
+
+void fetchSearchSuggestions(IHttp &http, const QString &query, const JobToken &job,
+                            std::function<void(const Outcome<QStringList> &)> done)
+{
+    const QString hl = http.session().hl.isEmpty() ? QString("en") : http.session().hl;
+    const QString q  = QString::fromUtf8(QUrl::toPercentEncoding(query));
+    const QString url = QString(Catalog::kSuggestUrl)
+                      + "?client=firefox&ds=yt&hl=" + hl + "&q=" + q;
+    http.get(url, job, [done](const Reply &r) {
+        Outcome<QStringList> out;
+        if (!r.ok) { out.error = r.error; done(out); return; }
+        out.ok = true;
+        out.value = parseSuggestions(*r.body);
         done(out);
     });
 }

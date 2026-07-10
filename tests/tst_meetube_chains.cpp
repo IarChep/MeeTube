@@ -356,6 +356,32 @@ private slots:
         QVERIFY(out.error.contains("could not resolve channel"));
     }
 
+    // ---- fetchSearchSuggestions (GET suggest endpoint) ----
+    void searchSuggestions() {
+        FakeHttp t;
+        t.setGetBody("[\"cat\",[\"cat videos\",\"cats\"]]");
+        JobToken job = newJob();
+        Outcome<QStringList> out; int calls = 0;
+        fetchSearchSuggestions(t, "cat", job, [&](const Outcome<QStringList> &r){ out = r; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(out.ok);
+        QCOMPARE(out.value.size(), 2);
+        QCOMPARE(out.value.at(0), QString("cat videos"));
+        QVERIFY(t.lastGetUrl().contains("q=cat"));
+        QVERIFY(t.lastGetUrl().contains("client=firefox"));
+    }
+    void searchSuggestionsTransportError() {
+        FakeHttp t;                       // no setGetBody → get() delivers a failed Reply
+        JobToken job = newJob();
+        Outcome<QStringList> out; int calls = 0;
+        fetchSearchSuggestions(t, "cat", job, [&](const Outcome<QStringList> &r){ out = r; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(!out.ok);
+        QCOMPARE(out.value.size(), 0);
+    }
+
     void channelByIdUnavailable() {
         FakeHttp t;
         t.queue("browse", "{}");   // empty header → no id/username

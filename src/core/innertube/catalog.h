@@ -9,14 +9,17 @@ namespace yt {
 // Where the other rotting constants live (kept beside the code that uses them):
 //   - per-client versions + user-agents .... innertube/clientconfig.cpp
 //   - nav feed IDs + search types .......... innertube/innertube.cpp
-//   - hardcoded category list .............. requests/categoryrequest.cpp
-//   - search sort tokens (base64 protobuf) . requests/videorequest.cpp
+//   - search/browse body params (protobuf) . requests/bodies.cpp
 //
 // Header-only `static const` (internal linkage per TU — no ODR concern).
 namespace Catalog {
 
     // EU consent cookie — without it, consent-gated regions return empty feeds.
     static const char *const kConsentCookie = "SOCS=CAISAiAD";
+
+    // Public query-suggestion endpoint (client=firefox → clean JSON array
+    // ["query",[suggestions…]]). Anonymous GET; no context/client.
+    static const char *const kSuggestUrl = "https://suggestqueries.google.com/complete/search";
 
     // OAuth 2.0 TV "limited-input device" credentials (public, scraped from
     // YouTube-TV). Used by the device-code login (Phase 3). FRAGILE: may rotate —
