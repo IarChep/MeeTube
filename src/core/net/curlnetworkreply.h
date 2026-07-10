@@ -39,12 +39,16 @@ protected:
 private:
     static size_t writeCb(char *ptr, size_t sz, size_t nmemb, void *userp);
     static size_t headerCb(char *ptr, size_t sz, size_t nmemb, void *userp);
+    // libcurl VERBOSE sink (installed only under MEETUBE_NET_DEBUG). Static so the C ABI
+    // is clean and moc never sees a lambda. Returns 0 (nonzero would abort the transfer).
+    static int debugCb(CURL *h, curl_infotype type, char *data, size_t size, void *userp);
     bool appendBody(const char *p, size_t n);      // false = cap exceeded, abort transfer
     void handleHeaderLine(const QByteArray &line);
 
     QPointer<CurlEngine> m_engine;  // guarded: nulls itself if the engine dies first
     CURL        *m_easy;
     curl_slist  *m_reqHeaders;
+    QByteArray   m_url;         // requested URL (diagnostics only)
     QByteArray   m_post;        // owned request body (kept alive for CURLOPT_POSTFIELDS)
     QByteArray   m_buffer;      // unread response bytes
     bool         m_inMulti;

@@ -8,6 +8,11 @@ class QSocketNotifier;
 namespace yt { namespace net {
 class CurlNetworkReply;
 
+// Runtime net-tracing gate (env MEETUBE_NET_DEBUG=1). Read once, cached. When off,
+// production is untouched (no libcurl VERBOSE, no per-request logging). Shared by
+// curlnetworkreply.cpp and curlengine.cpp.
+bool netDebugEnabled();
+
 // One libcurl `multi` handle driven by the owning thread's Qt event loop
 // (CURLMOPT_SOCKETFUNCTION -> QSocketNotifiers, CURLMOPT_TIMERFUNCTION -> QTimer).
 // Exactly ONE instance per network-active thread; curl multi handles are not shared

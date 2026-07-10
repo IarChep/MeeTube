@@ -1,9 +1,16 @@
 #include "net/curlengine.h"
 #include "net/curlnetworkreply.h"
 #include <QSocketNotifier>
+#include <QtGlobal>
 #include <climits>
 
 namespace yt { namespace net {
+
+bool netDebugEnabled()
+{
+    static const bool on = (qgetenv("MEETUBE_NET_DEBUG") == "1");
+    return on;
+}
 
 CurlEngine::CurlEngine(QObject *parent) : QObject(parent), m_multi(0)
 {
@@ -113,6 +120,11 @@ void CurlEngine::checkCompletions()
         long status = 0;
         curl_easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &status);
         curl_multi_remove_handle(m_multi, easy);
+        // getinfo is valid here (handle removed from the multi, but curl_easy_cleanup is
+        // deferred to ~CurlNetworkReply). engine=<this> disambiguates the GUI (images) vs
+        // worker (core::Http) engine in the interleaved log.
+        if (netDebugEnabled())
+            qWarning("[net] DONE engine=%p code=%d status=%ld", (void *) this, (int) res, status);
         if (owner) owner->onCurlDone((int) res, status);
     }
 }

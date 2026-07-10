@@ -2,6 +2,7 @@
 #include "net/curlengine.h"
 #include <QIODevice>
 #include <QTimer>
+#include <QThread>
 #include <cstring>
 
 namespace yt { namespace net {
@@ -24,6 +25,21 @@ static QNetworkReply::NetworkError mapCurl(int code)
     }
 }
 
+// static — libcurl VERBOSE sink (installed only under MEETUBE_NET_DEBUG). The TEXT frames
+// carry "* Trying <ip>:port…", "* connect to <ip> port <p> failed: <reason>",
+// "* Couldn't connect…"; HEADER_IN/OUT prove whether a proxy CONNECT happened. DATA/SSL_DATA
+// (bodies, binary) are dropped. `data` is NOT NUL-terminated — use the explicit size.
+int CurlNetworkReply::debugCb(CURL *, curl_infotype type, char *data, size_t size, void *)
+{
+    if (type != CURLINFO_TEXT && type != CURLINFO_HEADER_IN && type != CURLINFO_HEADER_OUT)
+        return 0;
+    QByteArray b(data, (int) size);
+    while (b.endsWith('\n') || b.endsWith('\r')) b.chop(1);
+    const char *tag = (type == CURLINFO_TEXT) ? "*" : (type == CURLINFO_HEADER_OUT ? ">" : "<");
+    qWarning("[curl] %s %s", tag, b.constData());
+    return 0;   // MUST be 0 — a nonzero return aborts the transfer
+}
+
 CurlNetworkReply::CurlNetworkReply(CurlEngine *engine, QNetworkAccessManager::Operation op,
                                    const QNetworkRequest &req, QIODevice *outgoingData,
                                    const QByteArray &caBundle, QObject *parent)
@@ -43,6 +59,7 @@ CurlNetworkReply::CurlNetworkReply(CurlEngine *engine, QNetworkAccessManager::Op
         return;
     }
     const QByteArray url = req.url().toEncoded();
+    m_url = url;   // kept for the failure diagnostic in onCurlDone()
     curl_easy_setopt(m_easy, CURLOPT_URL, url.constData());
     curl_easy_setopt(m_easy, CURLOPT_WRITEFUNCTION, &CurlNetworkReply::writeCb);
     curl_easy_setopt(m_easy, CURLOPT_WRITEDATA, this);
@@ -53,6 +70,32 @@ CurlNetworkReply::CurlNetworkReply(CurlEngine *engine, QNetworkAccessManager::Op
     curl_easy_setopt(m_easy, CURLOPT_TIMEOUT_MS, 30000L);    // hard ceiling (images); core::Http also watchdogs
     if (!caBundle.isEmpty())
         curl_easy_setopt(m_easy, CURLOPT_CAINFO, caBundle.constData());
+
+    // Force IPv4. The N9's mobile/WiFi networks are commonly IPv4-only — no global IPv6
+    // address and no IPv6 default route — yet YouTube's DNS is dual-stack (returns AAAA).
+    // Left to its own devices libcurl attempts those IPv6 addresses first and every
+    // connect() returns ENETUNREACH ("Network is unreachable"), so the whole transfer
+    // fails with CURLE_COULDNT_CONNECT ("Couldn't connect to server") — the exact device
+    // regression vs the old Qt-4.7 QNAM, which effectively used IPv4. Every endpoint this
+    // app talks to (youtubei / google APIs / ytimg / RYD / oauth) is reachable over IPv4,
+    // so pinning IPv4 matches the device's real connectivity with no downside.
+    // (Confirmed on-device 2026-07-10 via strace: connect(AF_INET6,…:443)=ENETUNREACH ×N,
+    //  connect(AF_INET,…:443)=0.)  ponytail: drop to CURL_IPRESOLVE_WHATEVER if a target
+    //  network ever provides real IPv6 and an endpoint goes v6-only.
+    curl_easy_setopt(m_easy, CURLOPT_IPRESOLVE, (long) CURL_IPRESOLVE_V4);
+
+    // Opt-in libcurl tracing (env MEETUBE_NET_DEBUG=1): the VERBOSE "* Trying <ip>:443…" /
+    // "* connect to <ip> failed: <reason>" TEXT lines name the real cause (os_errno is
+    // often 0 on the multi/Happy-Eyeballs path, so the trace — not the errno — is the
+    // load-bearing signal).
+    if (netDebugEnabled()) {
+        curl_easy_setopt(m_easy, CURLOPT_VERBOSE, 1L);
+        curl_easy_setopt(m_easy, CURLOPT_DEBUGFUNCTION, &CurlNetworkReply::debugCb);
+        curl_easy_setopt(m_easy, CURLOPT_DEBUGDATA, this);
+        qWarning("[net] REQ %s %s (thread=%p)",
+                 op == QNetworkAccessManager::PostOperation ? "POST" : "GET",
+                 url.constData(), (void *) QThread::currentThreadId());
+    }
 
     // Restrict schemes to http/https: URLs come from remote YouTube JSON (thumbnail /
     // RYD hrefs), so an attacker-controlled `file://`/`gopher://`/`dict://` would be an
@@ -177,6 +220,33 @@ void CurlNetworkReply::onCurlDone(int curlCode, long)
     m_inMulti = false;   // CurlEngine already removed the handle before calling us
     m_finished = true;
     if (curlCode != CURLE_OK) {
+        // Guard on m_easy: the init-fail path (onInitFailed -> CURLE_FAILED_INIT) reaches
+        // here with a NULL handle. getinfo is valid post-multi_remove (checkCompletions
+        // removed it) because curl_easy_cleanup is deferred to our dtor. os_errno is
+        // best-effort (often 0 on the multi/Happy-Eyeballs path) — the [curl] VERBOSE
+        // "* connect to … failed: <reason>" trace is the authoritative cause.
+        if (netDebugEnabled() && m_easy) {
+            long osErrno = 0, httpCode = 0, primaryPort = 0, httpVer = 0;
+            char *primaryIp = 0, *localIp = 0, *effUrl = 0;
+            curl_off_t tName = 0, tConn = 0, tApp = 0, tTotal = 0;
+            curl_easy_getinfo(m_easy, CURLINFO_OS_ERRNO,          &osErrno);
+            curl_easy_getinfo(m_easy, CURLINFO_PRIMARY_IP,        &primaryIp);
+            curl_easy_getinfo(m_easy, CURLINFO_PRIMARY_PORT,      &primaryPort);
+            curl_easy_getinfo(m_easy, CURLINFO_LOCAL_IP,          &localIp);
+            curl_easy_getinfo(m_easy, CURLINFO_EFFECTIVE_URL,     &effUrl);
+            curl_easy_getinfo(m_easy, CURLINFO_RESPONSE_CODE,     &httpCode);
+            curl_easy_getinfo(m_easy, CURLINFO_HTTP_VERSION,      &httpVer);
+            curl_easy_getinfo(m_easy, CURLINFO_NAMELOOKUP_TIME_T, &tName);
+            curl_easy_getinfo(m_easy, CURLINFO_CONNECT_TIME_T,    &tConn);
+            curl_easy_getinfo(m_easy, CURLINFO_APPCONNECT_TIME_T, &tApp);
+            curl_easy_getinfo(m_easy, CURLINFO_TOTAL_TIME_T,      &tTotal);
+            qWarning("[net] FAIL code=%d (%s) os_errno=%ld primaryIP=%s:%ld localIP=%s "
+                     "http=%ld status=%ld t_dns=%ldus t_conn=%ldus t_tls=%ldus t_total=%ldus url=%s",
+                     curlCode, curl_easy_strerror((CURLcode) curlCode), osErrno,
+                     primaryIp ? primaryIp : "(null)", primaryPort, localIp ? localIp : "(null)",
+                     httpVer, httpCode, (long) tName, (long) tConn, (long) tApp, (long) tTotal,
+                     effUrl ? effUrl : m_url.constData());
+        }
         setError(mapCurl(curlCode), QString::fromLatin1(curl_easy_strerror((CURLcode) curlCode)));
         emit error(mapCurl(curlCode));
     }
