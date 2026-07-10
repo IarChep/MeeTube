@@ -28,13 +28,13 @@ Page {
 
     tools: ToolBarLayout {
         ToolIcon {
-            iconId: "toolbar-back-white"
+            iconId: "toolbar-back"          // ToolIcon appends -white for the inverted toolbar
             onClicked: { player.stop(); pageStack.pop(); }
         }
         ToolIcon {
             // StreamPlayer.State ints: Playing = 3, Paused = 4 (enum not registered to QML).
-            iconId: player.state == 3 ? "toolbar-mediacontrol-pause-white"
-                                      : "toolbar-mediacontrol-play-white"
+            iconId: player.state == 3 ? "toolbar-mediacontrol-pause"
+                                      : "toolbar-mediacontrol-play"
             onClicked: {
                 if (player.state == 3) player.pause();
                 else if (player.state == 4) player.resume();
