@@ -5,6 +5,7 @@
 #if defined(BUILD_N9)
 #include <gst/gst.h>
 #include <gst/app/gstappsrc.h>
+#include <QTimer>
 #endif
 namespace yt { namespace media {
 
@@ -37,9 +38,11 @@ private:
     GstElement *m_vconv; GstElement *m_vsink;   // vconv non-null only in video mode
     guint m_busWatchId;
     WId m_winId;
+    QTimer m_posTimer;   // polls position/duration while playing
     PlaybackMode m_mode; bool m_seekable; qint64 m_total;
 private slots:
     void emitNeedData(qint64 n);   // marshalled from the streaming thread
+    void onPosTick();              // query + emit position/duration
 #endif
 };
 }}
