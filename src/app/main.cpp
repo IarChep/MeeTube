@@ -15,6 +15,7 @@
 
 #include "models/servicemetatypes.h"
 #include "innertube/innertube.h"
+#include "innertube/searchsuggest.h"
 #include "harmattan/maskeditem.h"
 #include "harmattan/perlinbackground.h"
 #include "harmattan/qrimageprovider.h"
@@ -71,6 +72,7 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     // declared directly in QML (Avatar's root).
     qmlRegisterType<MaskedItem>("MeeTube", 1, 0, "MaskedItem");
     qmlRegisterType<PerlinBackground>("MeeTube", 1, 0, "PerlinBackground");
+    qmlRegisterType<yt::SearchSuggest>("MeeTube", 1, 0, "SearchSuggest");
 
     int rc;
     {
