@@ -95,7 +95,9 @@ Page {
     TextField {
         id: field
         anchors {
-            top: parent.top; topMargin: UI.PADDING_LARGE
+            // Clear the global HeaderBar, which overlays the top of the page area
+            // (same idiom as MainPage's content offset).
+            top: parent.top; topMargin: headerBar.height + UI.PADDING_LARGE
             left: parent.left; leftMargin: UI.DEFAULT_MARGIN
             right: parent.right; rightMargin: UI.DEFAULT_MARGIN
         }
@@ -231,8 +233,8 @@ Page {
 
         BusyOverlay {
             running: page.activeModel
-                     && page.activeModel.status === Status.Loading
-                     && page.activeModel.count === 0
+                     ? (page.activeModel.status === Status.Loading && page.activeModel.count === 0)
+                     : false
             text: "Searching…"
         }
 
