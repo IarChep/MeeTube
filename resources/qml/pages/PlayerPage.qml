@@ -1,18 +1,28 @@
 import QtQuick 1.1
 import com.nokia.meego 1.0
+import "../js/UIConstants.js" as UI
 
-// Fullscreen video player. The GStreamer video overlay renders into the app's X
-// window on a plane BELOW the Qt UI, so this page stays transparent (no opaque
-// background) — the video shows through; only the busy indicator and toolbar draw.
+// Fullscreen video player with a custom YouTube-style overlay (N9-themed): the
+// GStreamer video overlay renders into the app's X window on a plane BELOW the Qt
+// UI, so the page stays transparent and only the controls are drawn. Tap the video
+// to toggle the controls; they auto-hide after a few seconds.
 Page {
     id: root
     property string videoId: ""
     property variant streams: null
+    property bool controlsShown: true
 
     function tryPlay() {
         if (streams && streams.progressiveUrl != "")
             player.play(streams.progressiveUrl, 1);   // mode 1 = video
     }
+    // ms -> "m:ss"
+    function fmt(ms) {
+        if (ms <= 0) return "0:00";
+        var s = Math.floor(ms / 1000); var m = Math.floor(s / 60); s = s % 60;
+        return m + ":" + (s < 10 ? "0" : "") + s;
+    }
+    function poke() { controlsShown = true; hideTimer.restart(); }   // keep controls up
 
     Component.onCompleted: {
         streams = innertube.video().streams(videoId);   // async: fetches /player
@@ -20,25 +30,93 @@ Page {
         tryPlay();                                       // in case it resolved synchronously
     }
 
+    // Tap the video area to toggle the controls (sits below the controls layer).
+    MouseArea {
+        anchors.fill: parent
+        onClicked: { root.controlsShown = !root.controlsShown; if (root.controlsShown) hideTimer.restart(); }
+    }
+
+    Timer { id: hideTimer; interval: 3500; running: root.controlsShown; onTriggered: root.controlsShown = false }
+
     BusyIndicator {
         anchors.centerIn: parent
         running: player.state == 1 || player.state == 2   // Loading | Buffering
         visible: running
     }
 
-    tools: ToolBarLayout {
-        ToolIcon {
-            iconId: "toolbar-back"          // ToolIcon appends -white for the inverted toolbar
-            onClicked: { player.stop(); pageStack.pop(); }
+    // ---- YouTube-style controls: top back bar, centre play/pause, bottom scrubber ----
+    Item {
+        id: controls
+        anchors.fill: parent
+        opacity: root.controlsShown ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: 200 } }
+
+        Rectangle {   // top scrim bar
+            id: topBar
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: UI.SIZE_BUTTON; color: UI.COLOR_INVERTED_BACKGROUND; opacity: 0.55
         }
-        ToolIcon {
-            // StreamPlayer.State ints: Playing = 3, Paused = 4 (enum not registered to QML).
-            iconId: player.state == 3 ? "toolbar-mediacontrol-pause"
-                                      : "toolbar-mediacontrol-play"
-            onClicked: {
-                if (player.state == 3) player.pause();
-                else if (player.state == 4) player.resume();
+        Image {       // back (sibling of topBar so it draws at full opacity)
+            id: backIcon
+            anchors { left: parent.left; leftMargin: UI.PADDING_DOUBLE; verticalCenter: topBar.verticalCenter }
+            source: "image://theme/icon-m-toolbar-back-white"
+            smooth: true
+            MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
+                        onClicked: { player.stop(); pageStack.pop(); } }
+        }
+
+        Image {       // centre play/pause. StreamPlayer.State: Playing = 3, Paused = 4.
+            anchors.centerIn: parent
+            width: UI.SIZE_BUTTON; height: UI.SIZE_BUTTON
+            fillMode: Image.PreserveAspectFit; smooth: true
+            source: player.state == 3 ? "image://theme/icon-m-toolbar-mediacontrol-pause-white"
+                                      : "image://theme/icon-m-toolbar-mediacontrol-play-white"
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    if (player.state == 3) player.pause();
+                    else if (player.state == 4) player.resume();
+                    root.poke();
+                }
             }
         }
+
+        Rectangle {   // bottom scrim bar
+            id: botBar
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: UI.SIZE_BUTTON; color: UI.COLOR_INVERTED_BACKGROUND; opacity: 0.55
+        }
+        Item {        // scrubber row (sibling of botBar, full opacity)
+            anchors { left: parent.left; right: parent.right; leftMargin: UI.PADDING_DOUBLE
+                      rightMargin: UI.PADDING_DOUBLE; verticalCenter: botBar.verticalCenter }
+            height: botBar.height
+            Label {
+                id: posLbl
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                text: root.fmt(player.position)
+                color: UI.COLOR_INVERTED_FOREGROUND; font.pixelSize: UI.FONT_SMALL
+            }
+            Label {
+                id: durLbl
+                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                text: root.fmt(player.duration)
+                color: UI.COLOR_INVERTED_FOREGROUND; font.pixelSize: UI.FONT_SMALL
+            }
+            Slider {
+                id: scrub
+                anchors { left: posLbl.right; right: durLbl.left; leftMargin: UI.PADDING_LARGE
+                          rightMargin: UI.PADDING_LARGE; verticalCenter: parent.verticalCenter }
+                minimumValue: 0
+                maximumValue: player.duration > 0 ? player.duration : 1
+                onPressedChanged: { if (!pressed) player.seek(value); root.poke(); }
+            }
+        }
+    }
+
+    // Follow playback position on the scrubber unless the user is dragging it.
+    Connections {
+        target: player
+        onPositionChanged: if (!scrub.pressed) scrub.value = player.position
     }
 }

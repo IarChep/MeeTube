@@ -28,6 +28,8 @@ GstAppPipeline::GstAppPipeline(QObject *parent)
 {
     // gst_init is idempotent; main.cpp also inits, but this guards standalone use.
     gst_init(0, 0);
+    m_posTimer.setInterval(500);   // 2 Hz position/duration updates for the scrubber
+    connect(&m_posTimer, SIGNAL(timeout()), this, SLOT(onPosTick()));
 }
 
 GstAppPipeline::~GstAppPipeline() { teardown(); }
@@ -169,10 +171,21 @@ void GstAppPipeline::pushData(const QByteArray &chunk)
 
 void GstAppPipeline::endOfStream() { if (m_appsrc) gst_app_src_end_of_stream(GST_APP_SRC(m_appsrc)); }
 
-void GstAppPipeline::play()   { if (m_pipeline) gst_element_set_state(m_pipeline, GST_STATE_PLAYING); }
-void GstAppPipeline::pause()  { if (m_pipeline) gst_element_set_state(m_pipeline, GST_STATE_PAUSED); }
-void GstAppPipeline::resume() { if (m_pipeline) gst_element_set_state(m_pipeline, GST_STATE_PLAYING); }
-void GstAppPipeline::stop()   { teardown(); }
+void GstAppPipeline::play()   { if (m_pipeline) { gst_element_set_state(m_pipeline, GST_STATE_PLAYING); m_posTimer.start(); } }
+void GstAppPipeline::pause()  { if (m_pipeline) gst_element_set_state(m_pipeline, GST_STATE_PAUSED); m_posTimer.stop(); }
+void GstAppPipeline::resume() { if (m_pipeline) { gst_element_set_state(m_pipeline, GST_STATE_PLAYING); m_posTimer.start(); } }
+void GstAppPipeline::stop()   { m_posTimer.stop(); teardown(); }
+
+// Poll position + duration (nanoseconds -> ms) for the scrubber. 0.10 query API
+// takes a GstFormat* (reset it before the second query).
+void GstAppPipeline::onPosTick()
+{
+    if (!m_pipeline) return;
+    GstFormat fmt = GST_FORMAT_TIME; gint64 pos = 0, dur = 0;
+    if (gst_element_query_position(m_pipeline, &fmt, &pos)) emit positionChanged((qint64)(pos / GST_MSECOND));
+    fmt = GST_FORMAT_TIME;
+    if (gst_element_query_duration(m_pipeline, &fmt, &dur)) emit durationChanged((qint64)(dur / GST_MSECOND));
+}
 void GstAppPipeline::seek(qint64 ms)
 {
     if (m_pipeline && m_seekable)
