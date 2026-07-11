@@ -268,7 +268,14 @@ void fetchPlayer(IHttp &http, const QString &videoId, const JobToken &job,
                  std::function<void(const PlayerOutcome &)> done)
 {
     std::shared_ptr<PlayerAccum> acc = std::make_shared<PlayerAccum>();
-    playerTry(http, videoId, ClientId::IOS, acc, job, done);
+    // ANDROID_VR first: it is the one InnerTube client that (2026) still returns
+    // directly-fetchable progressive itag=18 URLs — no PoToken/GVS gate, no signature
+    // decipher, no n-param transform (yt-dlp's default for a no-JS runtime). The plain
+    // ANDROID/IOS itag=18 URLs are now PoToken-gated → googlevideo 403s them regardless
+    // of headers, which is the on-device failure we hit. ANDROID stays as the last
+    // fallback (playerTry recurses to it); IOS is dropped (it never yielded usable
+    // streams and is gated too).
+    playerTry(http, videoId, ClientId::ANDROID_VR, acc, job, done);
 }
 
 // ---- fetchChannelById — userrequest.cpp:28-32, 66-69 ------------------------
