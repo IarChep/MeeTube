@@ -48,10 +48,10 @@ Page {
             labels.push("Video " + vs[i].label);
             urls.push(vs[i].url); modes.push(1);
         }
-        var as = streams ? streams.audioStreams : [];
-        for (i = 0; i < as.length; i++) {
-            labels.push("Audio " + as[i].label);
-            urls.push(as[i].url); modes.push(0);
+        var auds = streams ? streams.audioStreams : [];
+        for (i = 0; i < auds.length; i++) {
+            labels.push("Audio " + auds[i].label);
+            urls.push(auds[i].url); modes.push(0);
         }
         qualLabels = labels; qualUrls = urls; qualModes = modes;
     }
