@@ -16,7 +16,10 @@ std::string browse(const QString &browseId, const QString &params, const QString
 std::string search(const QString &query, const std::string &params);
 std::string nextVideo(const QString &videoId);
 std::string nextContinuation(const QString &token);
-std::string player(const QString &videoId);            // + contentCheckOk/racyCheckOk
+// withPlaybackContext adds playbackContext.contentPlaybackContext (html5Preference).
+// TVHTML5 needs it — an authed TV /player without it returns "UNPLAYABLE: The page
+// needs to be reloaded". Off for the mobile player clients (IOS/ANDROID_VR).
+std::string player(const QString &videoId, bool withPlaybackContext = false);
 std::string resolveUrl(const QString &url);
 std::string accountsList();                            // {accountReadMask:{returnOwner:true}}
 std::string subscribeChannels(const QString &channelId);

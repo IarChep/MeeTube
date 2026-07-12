@@ -34,11 +34,16 @@ struct Context {
 
 } // namespace cj
 
-// IOS + ANDROID_VR are used ONLY for the anonymous /player. Those requests must stay
-// "clean" (no visitorData / X-Goog-Visitor-Id) or YouTube returns a SABR-only player
-// response without the hlsManifestUrl we play (device-verified).
-static bool isPlayerClient(ClientId id) {
-    return id == ClientId::IOS || id == ClientId::ANDROID_VR;
+// IOS is used ONLY for the anonymous /player and must stay "clean" (no visitorData /
+// X-Goog-Visitor-Id) or YouTube returns a SABR-only player response without the
+// hlsManifestUrl we play (device-verified). ANDROID_VR is the OPPOSITE since the
+// 2026-07 bot wall (live-verified 2026-07-12 against the N9's own IP + TLS stack):
+// a visitor-LESS request now hits a per-video "Sign in to confirm you're not a bot"
+// LOGIN_REQUIRED, while the same request WITH the session's WEB-seeded visitorData
+// returns OK carrying direct progressive URLs (itag-18 ranged GET → 206; no n-param,
+// no pot) — serverAbrStreamingUrl coexists with the fetchable urls.
+static bool omitVisitor(ClientId id) {
+    return id == ClientId::IOS;
 }
 
 std::string ContextBuilder::contextJson(ClientId id, const Session &s) {
@@ -58,12 +63,10 @@ std::string ContextBuilder::contextJson(ClientId id, const Session &s) {
         ctx.client.androidSdkVersion = 32; ctx.client.osName = "Android"; ctx.client.osVersion = "12L";
         ctx.client.deviceMake = "Oculus"; ctx.client.deviceModel = "Quest 3"; ctx.client.platform = "MOBILE";
     }
-    // Omit visitorData on the anonymous mobile player clients (IOS / ANDROID_VR). A
-    // stale / cross-client visitorData (ours is captured from an earlier WEB/feed
-    // response) is a SABR "distrust" signal: YouTube then returns a SABR-only player
-    // response WITHOUT the hlsManifestUrl we play. A clean request (device-verified via
-    // wget) returns HLS. These clients are player-only, so feeds/browse are unaffected.
-    if (!isPlayerClient(id) && !s.visitorData.isEmpty())
+    // Omit visitorData ONLY on IOS (see omitVisitor above): there a cross-client
+    // visitorData is a SABR "distrust" signal that strips the hlsManifestUrl we play,
+    // while on ANDROID_VR the visitorData is what CLEARS the anti-bot LOGIN_REQUIRED.
+    if (!omitVisitor(id) && !s.visitorData.isEmpty())
         ctx.client.visitorData = s.visitorData.toStdString();
     // user + request: minimum-viable shape real clients send; harmless when
     // unneeded, but several endpoints behave better with it present (see
@@ -80,7 +83,7 @@ QList<QPair<QByteArray, QByteArray> > ContextBuilder::headers(ClientId id, const
     h << qMakePair(QByteArray("User-Agent"), QByteArray(ci.userAgent));
     // Consent cookie: without it, EU/consent-gated regions return empty feeds.
     h << qMakePair(QByteArray("Cookie"), QByteArray(Catalog::kConsentCookie));
-    if (!isPlayerClient(id) && !s.visitorData.isEmpty())
+    if (!omitVisitor(id) && !s.visitorData.isEmpty())
         h << qMakePair(QByteArray("X-Goog-Visitor-Id"), s.visitorData.toUtf8());
     // Bearer ONLY on TVHTML5: the token is minted with the TV client credentials
     // and every other client rejects it with 400 INVALID_ARGUMENT — not just the

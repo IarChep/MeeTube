@@ -11,8 +11,11 @@ const ClientInfo &clientInfo(ClientId id) {
         "com.google.android.youtube/20.10.38 (Linux; U; Android 14; en_US; SM-S928B) gzip", 3 };
     static const ClientInfo ANDROID_VR = { "ANDROID_VR", "1.65.10",
         "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip", 28 };
-    static const ClientInfo TV    = { "TVHTML5", "7.20260114.12.00",
-        "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko)", 7 };
+    // clientVersion must stay current: YouTube answers a stale TVHTML5 client with
+    // "UNPLAYABLE: The page needs to be reloaded". Kept in lockstep with yt-dlp's `tv`
+    // client (2026-07-12: 7.20260707.07.00 + the full Cobalt UA). Bump when TV re-breaks.
+    static const ClientInfo TV    = { "TVHTML5", "7.20260707.07.00",
+        "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)", 7 };
     switch (id) {
         case ClientId::WEB:        return WEB;
         case ClientId::WEB_SAFARI: return SAFARI;

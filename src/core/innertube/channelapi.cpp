@@ -31,13 +31,6 @@ QObject* ChannelApi::byId(const QString &channelId) {
     return d;
 }
 
-QObject* ChannelApi::resolve(const QString &handleUrl) {
-    ChannelDetails *d = qobject_cast<ChannelDetails *>(m_details.data());
-    if (!d) { d = new ChannelDetails(this); m_details = d; }
-    d->loadByUrl(handleUrl);
-    return d;
-}
-
 QObject* ChannelApi::searchChannels(const QString &query) {
     ChannelModel *m = qobject_cast<ChannelModel *>(m_search.data());
     if (!m) { m = new ChannelModel(this); m_search = m; }

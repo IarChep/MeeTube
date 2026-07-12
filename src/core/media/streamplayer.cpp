@@ -2,8 +2,23 @@
 #include "media/bytesource.h"
 #include "media/ipipeline.h"
 #include "media/ipolicy.h"
+#include "media/medialog.h"
 
 namespace yt { namespace media {
+
+static const char *stateName(int s)
+{
+    switch (s) {
+    case StreamPlayer::Idle:      return "Idle";
+    case StreamPlayer::Loading:   return "Loading";
+    case StreamPlayer::Buffering: return "Buffering";
+    case StreamPlayer::Playing:   return "Playing";
+    case StreamPlayer::Paused:    return "Paused";
+    case StreamPlayer::Stopped:   return "Stopped";
+    case StreamPlayer::Error:     return "Error";
+    default:                      return "?";
+    }
+}
 
 StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *policy, QObject *parent)
     : QObject(parent), m_source(source), m_pipeline(pipeline), m_policy(policy),
@@ -36,10 +51,17 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
 
 StreamPlayer::~StreamPlayer() { if (m_policy) m_policy->release(); }
 
-void StreamPlayer::setState(State s) { if (m_state != s) { m_state = s; emit stateChanged(); } }
+void StreamPlayer::setState(State s)
+{
+    if (m_state != s) {
+        PLOG() << "state" << stateName(m_state) << "->" << stateName(s);
+        m_state = s; emit stateChanged();
+    }
+}
 
 void StreamPlayer::fail(const QString &e)
 {
+    PLOG() << "FAIL:" << qPrintable(e);
     m_error = e;
     if (m_pipeline) m_pipeline->stop();
     if (m_policy) m_policy->release();
@@ -48,6 +70,7 @@ void StreamPlayer::fail(const QString &e)
 
 void StreamPlayer::play(const QString &url, int mode)
 {
+    PLOG() << "play mode=" << (mode == (int)VideoMode ? "video" : "audio") << "url=" << qPrintable(url);
     if (m_state != Idle && m_state != Stopped && m_state != Error) stop();
     m_url = url; m_mode = (mode == (int)VideoMode) ? VideoMode : AudioMode;
     emit modeChanged();
@@ -59,9 +82,11 @@ void StreamPlayer::play(const QString &url, int mode)
 void StreamPlayer::onGranted()
 {
     if (!m_granted) {                 // initial grant: open + configure + play
+        PLOG() << "policy granted (initial) — opening source";
         m_granted = true;
         m_source->open(m_url);
     } else if (m_state == Paused) {   // re-grant after preemption: resume
+        PLOG() << "policy re-granted — resuming";
         m_pipeline->resume();
         setState(Playing);
     }
@@ -69,6 +94,7 @@ void StreamPlayer::onGranted()
 
 void StreamPlayer::onOpened(qint64 total, bool seekable)
 {
+    PLOG() << "source opened total=" << total << "seekable=" << seekable;
     m_seekable = seekable; emit seekableChanged();
     m_pipeline->configure(m_mode, seekable, total);
     m_pipeline->play();
@@ -77,7 +103,7 @@ void StreamPlayer::onOpened(qint64 total, bool seekable)
 
 void StreamPlayer::onNeedData(qint64 n)      { if (m_source) m_source->requestData(n); }
 void StreamPlayer::onData(const QByteArray &c){ if (m_pipeline) m_pipeline->pushData(c); }
-void StreamPlayer::onSourceFinished()        { if (m_pipeline) m_pipeline->endOfStream(); }
+void StreamPlayer::onSourceFinished()        { PLOG() << "source EOS"; if (m_pipeline) m_pipeline->endOfStream(); }
 void StreamPlayer::onSourceFailed(const QString &e) { fail(e); }
 void StreamPlayer::onSeekByte(qint64 off)    { if (m_source) m_source->seek(off); }
 
@@ -87,14 +113,15 @@ void StreamPlayer::onBuffering(int pct)      { m_buffer = pct; emit bufferProgre
                                                else if (pct >= 100 && m_state == Buffering) setState(Playing); }
 void StreamPlayer::onPosition(qint64 ms)     { m_position = ms; emit positionChanged(); }
 void StreamPlayer::onDuration(qint64 ms)     { m_duration = ms; emit durationChanged(); }
-void StreamPlayer::onPipelineFinished()      { if (m_pipeline) m_pipeline->stop();
+void StreamPlayer::onPipelineFinished()      { PLOG() << "pipeline finished (playback complete)";
+                                               if (m_pipeline) m_pipeline->stop();
                                                if (m_policy) m_policy->release();
                                                setState(Stopped); emit playbackFinished(); }
 void StreamPlayer::onPipelineError(const QString &e) { fail(e); }
 
-void StreamPlayer::onLost()                  { if (m_pipeline) m_pipeline->pause(); setState(Paused); }
+void StreamPlayer::onLost()                  { PLOG() << "policy LOST — pausing"; if (m_pipeline) m_pipeline->pause(); setState(Paused); }
 void StreamPlayer::onDenied()                { fail(QString::fromLatin1("playback resource unavailable")); }
-void StreamPlayer::onReleasedByManager()     { if (m_pipeline) m_pipeline->stop(); setState(Stopped); }
+void StreamPlayer::onReleasedByManager()     { PLOG() << "policy released by manager — stopping"; if (m_pipeline) m_pipeline->stop(); setState(Stopped); }
 
 void StreamPlayer::pause()  { if (m_state == Playing) { m_pipeline->pause();  setState(Paused); } }
 void StreamPlayer::resume() { if (m_state == Paused)  { m_pipeline->resume(); setState(Playing); } }

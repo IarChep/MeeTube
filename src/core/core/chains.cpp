@@ -29,7 +29,10 @@
 #include "parsers/continuation.h"
 #include "parsers/ytjson.h"
 #include "parsers/suggestparser.h"
+#include "innertube/clientconfig.h"
+#include "media/medialog.h"
 #include <memory>
+#include <vector>
 #include <QUrl>
 
 namespace yt { namespace core {
@@ -202,7 +205,7 @@ void fetchComments(IHttp &http, const QString &videoId, const QString &page, con
 // transport-failed, captionsOk=false with the last error. One parsePlayer() read
 // per response (no re-read of the body).
 namespace {
-// Accumulator threaded through the IOS→ANDROID recursion.
+// Accumulator threaded through the player-client chain.
 struct PlayerAccum {
     bool haveCaptions;              // captions taken from a transport-ok response yet?
     QList<CT::Subtitle> captions;
@@ -211,17 +214,37 @@ struct PlayerAccum {
 };
 } // namespace
 
-static void playerTry(IHttp &http, const QString &videoId, ClientId client,
+// Walks the ordered /player client list (clients[idx]) until one yields streams; each
+// non-terminal miss recurses to idx+1. The list is built by fetchPlayer.
+static void playerTry(IHttp &http, const QString &videoId,
+                      std::shared_ptr<std::vector<ClientId>> clients, int idx,
                       std::shared_ptr<PlayerAccum> acc, const JobToken &job,
                       std::function<void(const PlayerOutcome &)> done)
 {
-    http.post("player", client, bodies::player(videoId), job,
-        [&http, videoId, client, acc, job, done](const Reply &r) {
-            const bool isLast = (client == ClientId::ANDROID);
+    const ClientId client = (*clients)[idx];
+    // TVHTML5 needs playbackContext.contentPlaybackContext or YouTube answers "UNPLAYABLE:
+    // The page needs to be reloaded" (yt-dlp #16212 — the player-JS/sts path). Mobile
+    // player clients (IOS/ANDROID_VR) stay minimal.
+    const bool tvCtx = (client == ClientId::TVHTML5);
+    http.post("player", client, bodies::player(videoId, tvCtx), job,
+        [&http, videoId, clients, idx, client, acc, job, done](const Reply &r) {
+            const bool isLast = (idx + 1 >= (int)clients->size());
 
             // ---- captions side (subtitlesrequest.cpp): first transport-ok wins ----
             if (r.ok) {
                 const PlayerResult pr = parsePlayer(*r.body);
+                if (media::playerDebugEnabled()) {
+                    int prog = 0; bool hls = false;
+                    for (const CT::Stream &s : pr.streams) {
+                        if (s.id == QLatin1String("hls")) hls = true; else if (s.width > 0) ++prog;
+                    }
+                    PLOG() << "player" << clientInfo(client).name
+                           << "playable=" << pr.playable << "streams=" << pr.streams.size()
+                           << "hls=" << hls << "prog=" << prog
+                           << "formats=" << pr.formatsSeen << "adaptive=" << pr.adaptiveSeen
+                           << "ciphered=" << pr.cipheredOnly << "sabr=" << pr.sabr
+                           << "reason=" << qPrintable(pr.reason);
+                }
                 if (!acc->haveCaptions) { acc->haveCaptions = true; acc->captions = pr.captions; }
 
                 // ---- streams side (streamsrequest.cpp:44-54) ----
@@ -249,6 +272,7 @@ static void playerTry(IHttp &http, const QString &videoId, ClientId client,
                 }
             } else {
                 acc->lastError = r.error;            // remember for the all-failed caption path
+                PLOG() << "player" << clientInfo(client).name << "TRANSPORT FAIL:" << qPrintable(r.error);
             }
 
             if (isLast) {
@@ -259,8 +283,8 @@ static void playerTry(IHttp &http, const QString &videoId, ClientId client,
                 else { out.captionsError = acc->lastError; }   // every attempt transport-failed
                 done(out); return;
             }
-            if (!live(job)) return;                  // canceled between IOS and ANDROID
-            playerTry(http, videoId, ClientId::ANDROID, acc, job, done);   // ANDROID is its own last attempt
+            if (!live(job)) return;                  // canceled between attempts
+            playerTry(http, videoId, clients, idx + 1, acc, job, done);
         });
 }
 
@@ -268,12 +292,33 @@ void fetchPlayer(IHttp &http, const QString &videoId, const JobToken &job,
                  std::function<void(const PlayerOutcome &)> done)
 {
     std::shared_ptr<PlayerAccum> acc = std::make_shared<PlayerAccum>();
-    // IOS first: its player response carries an hlsManifestUrl, and HLS segment delivery
-    // is the ONE path not PoToken-gated for a JS-less client (progressive itag=18 is
-    // gvs-403'd across ANDROID/ANDROID_VR/IOS as of 2026; device-verified). The request
-    // must be "clean" (no visitorData — see ContextBuilder) or YouTube returns a SABR-only
-    // response without the HLS manifest. ANDROID stays the last fallback.
-    playerTry(http, videoId, ClientId::IOS, acc, job, done);
+    std::shared_ptr<std::vector<ClientId>> clients = std::make_shared<std::vector<ClientId>>();
+
+    // TVHTML5 FIRST when signed in: the OAuth device-code bearer rides ONLY the TV client
+    // (contextbuilder attaches it there), and an AUTHENTICATED /player clears YouTube's
+    // "Sign in to confirm you're not a bot" gate that rejects the anonymous ANDROID_VR
+    // request (device-verified 2026-07-12: anon ANDROID_VR → LOGIN_REQUIRED). A real TV
+    // device plays via authed TVHTML5, so it should return playable formats — though they
+    // may be signatureCipher (needs decipher) or SABR; the MEETUBE_PLAYER_DEBUG trace
+    // (ciphered=/sabr=/prog=) tells which. Falls through to the anonymous clients on a miss.
+    if (!http.session().bearer.isEmpty()) clients->push_back(ClientId::TVHTML5);
+
+    // ANDROID_VR FIRST (yt-dlp's anonymous default too). WITH the session's WEB-seeded
+    // visitorData (ContextBuilder attaches it since 2026-07-12) it returns ready-to-fetch
+    // progressive URLs — server-signed (sig/lsig applied), NO &n=, NO &pot=, NO client-side
+    // decipher — so formats[].url plays directly (live-verified: itag-18 ranged GET → 206).
+    // WithOUT visitorData YouTube now answers per-video "Sign in to confirm you're not a
+    // bot" (LOGIN_REQUIRED) — the 2026-07 anti-bot wall. Plain ANDROID stays dropped: it
+    // requires a GVS PoToken (guaranteed 403).
+    clients->push_back(ClientId::ANDROID_VR);
+
+    // IOS last: its player response can carry an hlsManifestUrl (HLS delivery is a non-pot
+    // path for a JS-less client), but by 2026-07-12 most videos get SABR-only from IOS
+    // (hls 0/3 in live tests), so it's the fallback, not the lead. Must stay "clean"
+    // (no visitorData — see ContextBuilder) or the HLS manifest is stripped.
+    clients->push_back(ClientId::IOS);
+
+    playerTry(http, videoId, clients, 0, acc, job, done);
 }
 
 // ---- fetchChannelById — userrequest.cpp:28-32, 66-69 ------------------------

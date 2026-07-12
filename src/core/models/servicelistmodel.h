@@ -43,7 +43,6 @@ public:
     QHash<int, QByteArray> roleNames() const { return m_roles; }
 #endif
     Q_INVOKABLE QVariant data(int row, const QByteArray &role) const;
-    Q_INVOKABLE QVariantMap itemData(int row) const;
 
     QString errorString() const { return m_error; }
     int status() const { return m_status; }

@@ -59,21 +59,6 @@ void ChannelDetails::loadById(const QString &channelId) {
     });
 }
 
-void ChannelDetails::loadByUrl(const QString &handleUrl) {
-    cancelJob();
-    m_user = CT::User();
-    m_job = core::newJob();
-    m_status = core::Loading;
-    emit statusChanged();
-    const ApiRef api = apiRef();
-    if (!api.host || !api.http) { core::Outcome<CT::User> o; o.error = "not supported"; applyChannel(o); return; }
-    const core::JobToken job = m_job;
-    ChannelDetails *self = this;
-    api.host->invoke([api, handleUrl, job, self]() {
-        core::fetchChannelByUrl(*api.http, handleUrl, job, deliverChannel(api, job, self));
-    });
-}
-
 void ChannelDetails::cancelJob() {
     if (m_actionJob) m_actionJob->canceled.store(true);
     if (m_subCheckJob) m_subCheckJob->canceled.store(true);

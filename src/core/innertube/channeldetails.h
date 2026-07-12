@@ -45,9 +45,8 @@ public:
     explicit ChannelDetails(QObject *parent = 0);
     ~ChannelDetails();
     Q_INVOKABLE void loadById(const QString &channelId);
-    Q_INVOKABLE void loadByUrl(const QString &handleUrl);
 
-    // The chain's delivery sink (fetchChannelById/ByUrl). Plain public method (not a
+    // The chain's delivery sink (fetchChannelById). Plain public method (not a
     // slot) so the meta-object stays frozen.
     void applyChannel(const yt::core::Outcome<CT::User> &r);
 

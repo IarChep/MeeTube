@@ -1,4 +1,5 @@
 #include "media/bytesource.h"
+#include "media/medialog.h"
 #include "innertube/clientconfig.h"
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -34,6 +35,7 @@ void ProgressiveSource::close()
 // Content-Range, and keep the bytes to hand back on the first requestData().
 void ProgressiveSource::open(const QString &url)
 {
+    PLOG() << "ByteSource: open" << qPrintable(url);
     m_url = url; m_offset = 0; m_haveFirst = false;
     issueWindow(0, kWindow, SLOT(onProbeFinished()));
 }
@@ -45,6 +47,7 @@ void ProgressiveSource::issueWindow(qint64 start, qint64 maxBytes, const char *s
     QNetworkRequest req((QUrl(m_url)));
     const QByteArray range = "bytes=" + QByteArray::number(start) + "-"
                            + QByteArray::number(start + win - 1);
+    PLOG() << "ByteSource: GET Range" << range.constData();
     req.setRawHeader("Range", range);
     req.setRawHeader("User-Agent", streamUserAgent());   // generic desktop UA, NOT the app UA
     m_reply = m_nam->get(req);
@@ -56,7 +59,11 @@ void ProgressiveSource::onProbeFinished()
     QNetworkReply *r = m_reply; m_reply = 0;
     if (!r) return;
     r->deleteLater();
-    if (r->error() != QNetworkReply::NoError) { emit failed(r->errorString()); return; }
+    const int http = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (r->error() != QNetworkReply::NoError) {
+        PLOG() << "ByteSource: probe FAILED http=" << http << qPrintable(r->errorString());
+        emit failed(r->errorString()); return;
+    }
     // Content-Range: bytes START-END/TOTAL
     const QByteArray cr = r->rawHeader("Content-Range");
     m_seekable = !cr.isEmpty();
@@ -65,6 +72,8 @@ void ProgressiveSource::onProbeFinished()
     m_firstWindow = r->readAll();
     m_haveFirst = !m_firstWindow.isEmpty();
     m_offset = m_firstWindow.size();
+    PLOG() << "ByteSource: probe OK http=" << http << "total=" << m_total
+           << "seekable=" << m_seekable << "firstWindow=" << m_firstWindow.size();
     emit opened(m_total, m_seekable);
 }
 
@@ -85,10 +94,15 @@ void ProgressiveSource::onWindowFinished()
     QNetworkReply *r = m_reply; m_reply = 0;
     if (!r) return;
     r->deleteLater();
-    if (r->error() != QNetworkReply::NoError) { emit failed(r->errorString()); return; }
+    if (r->error() != QNetworkReply::NoError) {
+        const int http = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        PLOG() << "ByteSource: window FAILED http=" << http << qPrintable(r->errorString());
+        emit failed(r->errorString()); return;
+    }
     const QByteArray w = r->readAll();
-    if (w.isEmpty()) { emit finished(); return; }
+    if (w.isEmpty()) { PLOG() << "ByteSource: window empty → EOS"; emit finished(); return; }
     m_offset += w.size();
+    PLOG() << "ByteSource: window +" << w.size() << "bytes (offset now" << m_offset << ")";
     emit data(w);
 }
 

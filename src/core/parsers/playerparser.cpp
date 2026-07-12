@@ -22,7 +22,9 @@ struct Format {
 };
 struct StreamingData {
     std::optional<std::string> hlsManifestUrl;
+    std::optional<std::string> serverAbrStreamingUrl;   // SABR offered; may coexist with fetchable urls
     std::optional<std::vector<Format>> formats;
+    std::optional<std::vector<Format>> adaptiveFormats;
 };
 struct VideoDetails {
     std::optional<std::string> videoId;
@@ -145,6 +147,12 @@ static PlayerResult parsePlayerRoot(const pj::PlayerRoot &root)
     PlayerResult r;
     r.playable = playableOf(root, &r.reason);
     r.streams  = streamsOf(root, &r.cipheredOnly);
+    if (root.streamingData) {
+        const pj::StreamingData &sd = *root.streamingData;
+        r.sabr = sd.serverAbrStreamingUrl && !sd.serverAbrStreamingUrl->empty();
+        r.formatsSeen  = sd.formats ? (int)sd.formats->size() : 0;
+        r.adaptiveSeen = sd.adaptiveFormats ? (int)sd.adaptiveFormats->size() : 0;
+    }
     r.details  = detailsOf(root);
     r.captions = captionsOf(root);
     return r;

@@ -40,7 +40,6 @@ public:
     Q_INVOKABLE QObject* comments(const QString &videoId);                          // CommentModel*
     Q_INVOKABLE QObject* details(const QString &videoId);                           // VideoDetails* (plain)
     Q_INVOKABLE QObject* streams(const QString &videoId);                           // StreamSet* (plain)
-    Q_INVOKABLE QObject* subtitles(const QString &videoId);                         // SubtitleSet* (plain)
 
 private:
     // One cached VideoModel per feed id — the home feed, the History carousel and
@@ -50,7 +49,6 @@ private:
     QPointer<QObject> m_comments;   // reused CommentModel
     QPointer<QObject> m_details;    // reused VideoDetails
     QPointer<QObject> m_streams;    // reused StreamSet
-    QPointer<QObject> m_subtitles;  // reused SubtitleSet
 };
 
 }
