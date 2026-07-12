@@ -135,9 +135,13 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
 #ifdef MEETUBE_CA_BUNDLE
         playerNam->setCaBundle(QByteArray(MEETUBE_CA_BUNDLE));
 #endif
-        // HLS source: progressive itag=18 is PoToken-gated (gvs 403) for every JS-less
-        // client as of 2026; the IOS HLS manifest's segments are the one un-gated path.
-        yt::media::HlsSource *src = new yt::media::HlsSource(playerNam);
+        // Both delivery paths live behind a URL router: HLS manifests (IOS) go to
+        // HlsSource, direct media URLs (ANDROID_VR progressive itag-18 / audio
+        // itag-140 — un-gated again since the 2026-07-12 visitorData fix) go to
+        // ProgressiveSource.
+        yt::media::RoutingSource *src = new yt::media::RoutingSource(
+            new yt::media::HlsSource(playerNam),
+            new yt::media::ProgressiveSource(playerNam));
         playerNam->setParent(src);      // NAM lifetime follows the source
         yt::media::GstAppPipeline *pipe = new yt::media::GstAppPipeline;
         yt::media::StreamPlayer *player =

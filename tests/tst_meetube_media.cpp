@@ -124,6 +124,18 @@ public:
     void close() {}
 };
 
+// Records which child RoutingSource opened.
+class RecordingSource : public yt::media::ByteSource {
+    Q_OBJECT
+public:
+    QString openedUrl;
+    RecordingSource() : yt::media::ByteSource(0) {}
+    void open(const QString &u) { openedUrl = u; }
+    void requestData(qint64) {}
+    bool seek(qint64) { return false; }
+    void close() {}
+};
+
 // Compile-only anchor for Task 1: proves the media/ seams compile and moc.
 class tst_meetube_media : public QObject {
     Q_OBJECT
@@ -266,6 +278,23 @@ private slots:
         player.play(QString("http://y/v"), yt::media::AudioMode);   // second play while Playing
         QCOMPARE(pipe->stopped, 1);          // pre-fix: 0 (no teardown) -> stacked
         QCOMPARE(pol->acquired, 2);          // re-acquired after the stop
+    }
+
+    // RoutingSource: manifest URLs go to the HLS child, direct media URLs to the
+    // progressive child (the bug: itag-18 fed to HlsSource -> "no audio playlist").
+    void routingSourcePicksChildByUrl() {
+        RecordingSource *hls = new RecordingSource;
+        RecordingSource *prog = new RecordingSource;
+        yt::media::RoutingSource r(hls, prog);
+        r.open("https://manifest.googlevideo.com/api/manifest/hls_variant/x/y");
+        QVERIFY(!hls->openedUrl.isEmpty());
+        QVERIFY(prog->openedUrl.isEmpty());
+        hls->openedUrl.clear();
+        r.open("https://rr3.googlevideo.com/videoplayback?itag=18&mime=video%2Fmp4");
+        QVERIFY(!prog->openedUrl.isEmpty());
+        QVERIFY(hls->openedUrl.isEmpty());
+        r.open("https://x.example/path/index.m3u8");
+        QVERIFY(!hls->openedUrl.isEmpty());
     }
 };
 
