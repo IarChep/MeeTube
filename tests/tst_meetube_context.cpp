@@ -22,21 +22,24 @@ private slots:
         // IOS device identity present
         QVERIFY(c.contains("\"deviceMake\":\"Apple\""));
     }
-    // visitorData is sent on normal clients but OMITTED on the player-only clients
-    // (IOS / ANDROID_VR) — a clean player request keeps YouTube from returning a
-    // SABR-only response without the hlsManifestUrl.
+    // visitorData is OMITTED only on IOS (it strips the hlsManifestUrl there) but
+    // SENT on ANDROID_VR — since the 2026-07 bot wall a visitor-less ANDROID_VR
+    // /player gets per-video "Sign in to confirm you're not a bot" (LOGIN_REQUIRED).
     void playerClientsOmitVisitorData() {
         Session s; s.visitorData = "VD";
         QVERIFY(QString::fromStdString(ContextBuilder::contextJson(ClientId::ANDROID, s))
                     .contains("\"visitorData\":\"VD\""));   // normal client keeps it
         QVERIFY(!QString::fromStdString(ContextBuilder::contextJson(ClientId::IOS, s))
                     .contains("\"visitorData\""));
-        QVERIFY(!QString::fromStdString(ContextBuilder::contextJson(ClientId::ANDROID_VR, s))
-                    .contains("\"visitorData\""));
-        bool iosHasVid = false;
+        QVERIFY(QString::fromStdString(ContextBuilder::contextJson(ClientId::ANDROID_VR, s))
+                    .contains("\"visitorData\":\"VD\""));   // clears the anti-bot gate
+        bool iosHasVid = false, vrHasVid = false;
         const QList<QPair<QByteArray,QByteArray> > h = ContextBuilder::headers(ClientId::IOS, s);
         for (int i = 0; i < h.size(); ++i) if (h[i].first == "X-Goog-Visitor-Id") iosHasVid = true;
         QVERIFY(!iosHasVid);
+        const QList<QPair<QByteArray,QByteArray> > hv = ContextBuilder::headers(ClientId::ANDROID_VR, s);
+        for (int i = 0; i < hv.size(); ++i) if (hv[i].first == "X-Goog-Visitor-Id") vrHasVid = true;
+        QVERIFY(vrHasVid);
     }
     void webContextHasUserRequest() {
         Session s;

@@ -31,10 +31,10 @@ private slots:
 
     void streamsFromAndroidFallback() {
         FakeHttp t;
-        // IOS reply: playable but no streams → triggers fallback to ANDROID
+        // ANDROID_VR reply: playable but no streams → triggers fallback to IOS
         t.queue("player",
                 "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{\"formats\":[]}}");
-        // ANDROID reply: good fixture with real streams
+        // IOS reply: good fixture with real streams
         t.queue("player", loadFixtureRaw("player_ios.json"));
         JobToken job = newJob();
         PlayerOutcome out; int calls = 0;
@@ -45,6 +45,22 @@ private slots:
         QVERIFY(out.streams.size() >= 3);
         QCOMPARE(out.streams[0].id, QString("hls"));
         QCOMPARE(t.sent.size(), 2);
+    }
+
+    // Signed in → TVHTML5 is tried FIRST for /player (the OAuth bearer rides only TV),
+    // and a TV response with streams short-circuits the anonymous ANDROID_VR/IOS fallbacks.
+    void streamsFromAuthedTvFirst() {
+        FakeHttp t;
+        t.session().bearer = QString("tok");                     // signed in
+        t.queue("player", loadFixtureRaw("player_ios.json"));    // TV reply: real streams
+        JobToken job = newJob();
+        PlayerOutcome out; int calls = 0;
+        fetchPlayer(t, "vid", job, [&](const PlayerOutcome &r) { out = r; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(out.streamsOk);
+        QCOMPARE(t.sent.size(), 1);                              // TV alone satisfied it
+        QCOMPARE(t.lastClientFor("player"), (int)ClientId::TVHTML5);
     }
 
     // Both clients non-playable → streamsOk false with the playability reason.
@@ -79,7 +95,7 @@ private slots:
         QCOMPARE(calls, 1);
         QVERIFY(!out.streamsOk);
         QVERIFY(out.streamsError.contains("decipher"));
-        QCOMPARE(t.sent.size(), 2);   // tried IOS, then ANDROID
+        QCOMPARE(t.sent.size(), 2);   // tried ANDROID_VR, then IOS
     }
 
     // Captions ride the FIRST transport-ok response and stay ok even when streams
@@ -92,8 +108,8 @@ private slots:
             "\"captions\":{\"playerCaptionsTracklistRenderer\":{\"captionTracks\":["
             "{\"baseUrl\":\"https://x/cap\",\"languageCode\":\"en\","
             "\"name\":{\"simpleText\":\"English\"}}]}}}";
+        t.queue("player", capOnly);   // ANDROID_VR
         t.queue("player", capOnly);   // IOS
-        t.queue("player", capOnly);   // ANDROID
         JobToken job = newJob();
         PlayerOutcome out; int calls = 0;
         fetchPlayer(t, "vid", job, [&](const PlayerOutcome &r) { out = r; ++calls; });

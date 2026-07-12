@@ -41,6 +41,7 @@ add_library(meetube-core STATIC
     net/curlengine.cpp
     net/curlnetworkreply.cpp
     net/curlnetworkaccessmanager.cpp
+    media/medialog.cpp
     media/ipolicy.cpp
     media/ipipeline.cpp
     media/bytesource.cpp

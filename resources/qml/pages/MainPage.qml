@@ -16,16 +16,16 @@ Page {
 
     tools: mainTools
 
-    // Cached AccountDetails (innertube.account().details()) — stored once so the toolbar
-    // avatar binds to a single object rather than re-invoking details() per binding.
-    property variant accountDetails: innertube.account().details()
+    // Cached AccountDetails (innertube.accountDetails()) — stored once so the toolbar
+    // avatar binds to a single object rather than re-invoking it per binding.
+    property variant accountDetails: innertube.accountDetails()
 
     // Refresh the cached AccountDetails on sign-in so the toolbar squircle swaps from
     // placeholder to the real avatar (fixes the stale-placeholder-after-sign-in gap).
     Connections {
         target: appWindow
         onSignedInChanged: {
-            if (appWindow.signedIn) page.accountDetails = innertube.account().details();
+            if (appWindow.signedIn) page.accountDetails = innertube.accountDetails();
         }
     }
 

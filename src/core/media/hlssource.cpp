@@ -15,6 +15,7 @@
  */
 
 #include "media/hlssource.h"
+#include "media/medialog.h"
 #include "innertube/clientconfig.h"
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -48,6 +49,7 @@ void HlsSource::get(const QString &url, const char *slot)
 
 void HlsSource::open(const QString &url)
 {
+    PLOG() << "HLS: open master" << qPrintable(url);
     m_segments.clear(); m_seg = 0;
     get(url, SLOT(onMasterFinished()));
 }
@@ -57,9 +59,15 @@ void HlsSource::onMasterFinished()
     QNetworkReply *r = m_reply; m_reply = 0;
     if (!r) return;
     r->deleteLater();
-    if (r->error() != QNetworkReply::NoError) { emit failed(r->errorString()); return; }
+    if (r->error() != QNetworkReply::NoError) {
+        PLOG() << "HLS: master FAILED http=" << r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+               << qPrintable(r->errorString());
+        emit failed(r->errorString()); return;
+    }
     const QString variant = pickAudioPlaylist(r->readAll());
-    if (variant.isEmpty()) { emit failed(QString::fromLatin1("no audio playlist in HLS master")); return; }
+    if (variant.isEmpty()) { PLOG() << "HLS: no audio playlist in master";
+                             emit failed(QString::fromLatin1("no audio playlist in HLS master")); return; }
+    PLOG() << "HLS: master OK, audio variant" << qPrintable(variant);
     get(variant, SLOT(onVariantFinished()));
 }
 
@@ -68,9 +76,15 @@ void HlsSource::onVariantFinished()
     QNetworkReply *r = m_reply; m_reply = 0;
     if (!r) return;
     r->deleteLater();
-    if (r->error() != QNetworkReply::NoError) { emit failed(r->errorString()); return; }
+    if (r->error() != QNetworkReply::NoError) {
+        PLOG() << "HLS: variant FAILED http=" << r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+               << qPrintable(r->errorString());
+        emit failed(r->errorString()); return;
+    }
     m_segments = parseSegments(r->readAll());
-    if (m_segments.isEmpty()) { emit failed(QString::fromLatin1("no HLS segments")); return; }
+    if (m_segments.isEmpty()) { PLOG() << "HLS: no segments in variant";
+                                emit failed(QString::fromLatin1("no HLS segments")); return; }
+    PLOG() << "HLS: variant OK," << m_segments.size() << "segments";
     emit opened(-1, false);   // unknown total, forward-only (STREAM appsrc)
 }
 
@@ -85,9 +99,14 @@ void HlsSource::onSegmentFinished()
     QNetworkReply *r = m_reply; m_reply = 0;
     if (!r) return;
     r->deleteLater();
-    if (r->error() != QNetworkReply::NoError) { emit failed(r->errorString()); return; }
+    if (r->error() != QNetworkReply::NoError) {
+        PLOG() << "HLS: segment" << m_seg << "FAILED http=" << r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+               << qPrintable(r->errorString());
+        emit failed(r->errorString()); return;
+    }
     const QByteArray seg = r->readAll();
-    if (seg.isEmpty()) { emit finished(); return; }
+    if (seg.isEmpty()) { PLOG() << "HLS: empty segment → EOS"; emit finished(); return; }
+    PLOG() << "HLS: segment" << m_seg << "/" << m_segments.size() << "+" << seg.size() << "bytes";
     emit data(seg);
 }
 

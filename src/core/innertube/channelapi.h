@@ -31,7 +31,6 @@ public:
     explicit ChannelApi(QObject *parent = 0);
 
     Q_INVOKABLE QObject* byId(const QString &channelId);         // ChannelDetails* (plain header)
-    Q_INVOKABLE QObject* resolve(const QString &handleUrl);      // ChannelDetails* (@handle → header)
     Q_INVOKABLE QObject* searchChannels(const QString &query);   // ChannelModel* (list)
     Q_INVOKABLE QObject* subscribedChannels();                   // ChannelModel* (FEchannels grid)
     Q_INVOKABLE QObject* videos(const QString &channelId);       // VideoModel* (channel uploads)

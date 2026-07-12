@@ -16,6 +16,7 @@
 
 #include "streamset.h"
 #include "innertube/innertube.h"
+#include "media/medialog.h"
 
 namespace yt {
 
@@ -67,11 +68,18 @@ void StreamSet::cancel() {
 
 // Streams side of the player outcome: hls / first progressive with width>0.
 void StreamSet::applyPlayer(const core::PlayerOutcome &r) {
-    if (!r.streamsOk) { m_error = r.streamsError; m_status = core::Failed; emit statusChanged(); return; }
+    if (!r.streamsOk) {
+        PLOG() << "StreamSet: streams FAILED:" << qPrintable(r.streamsError);
+        m_error = r.streamsError; m_status = core::Failed; emit statusChanged(); return;
+    }
     for (const CT::Stream &s : r.streams) {
         if (s.id == QLatin1String("hls")) m_hls = s.url;
         else if (m_progressive.isEmpty() && s.width > 0) m_progressive = s.url;
     }
+    PLOG() << "StreamSet: ready — hls=" << (m_hls.isEmpty() ? "no" : "yes")
+           << "progressive=" << (m_progressive.isEmpty() ? "no" : "yes");
+    if (!m_hls.isEmpty())         PLOG() << "  hlsUrl:"         << qPrintable(m_hls);
+    if (!m_progressive.isEmpty()) PLOG() << "  progressiveUrl:" << qPrintable(m_progressive);
     m_status = core::Ready;
     emit loaded();
     emit statusChanged();

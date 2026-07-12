@@ -1,4 +1,5 @@
 #include "media/gstpipeline.h"
+#include "media/medialog.h"
 
 #if !defined(BUILD_N9)   // ---- host stub ----
 #include <QString>
@@ -68,6 +69,16 @@ void GstAppPipeline::buildPipeline()
         m_vconv = 0;
         m_vsink = gst_element_factory_make("fakesink", "vsink");
     }
+
+    PLOG() << "gst: buildPipeline mode=" << (m_mode == VideoMode ? "video" : "audio")
+           << "seekable=" << m_seekable << "total=" << m_total;
+    // A null here = a missing GStreamer 0.10 plugin on the device (the usual cause of
+    // silent playback failure). Name the culprits so the trace pinpoints it.
+    if (!m_appsrc || !m_decode || !m_aconv || !m_ares || !m_asink || !m_vsink)
+        PLOG() << "gst: MISSING element(s) —"
+               << "appsrc=" << (m_appsrc != 0) << "decodebin2=" << (m_decode != 0)
+               << "audioconvert=" << (m_aconv != 0) << "audioresample=" << (m_ares != 0)
+               << "autoaudiosink=" << (m_asink != 0) << "vsink=" << (m_vsink != 0);
 
     // appsrc: stream-type seekable (byte offsets), unknown or known size, block on full.
     // GST_APP_STREAM_TYPE_SEEKABLE (=1) means the source answers seek events; STREAM (=0)
@@ -142,9 +153,13 @@ gboolean GstAppPipeline::onBusCb(GstBus *, GstMessage *msg, gpointer user)
 {
     GstAppPipeline *self = static_cast<GstAppPipeline *>(user);
     switch (GST_MESSAGE_TYPE(msg)) {
-    case GST_MESSAGE_EOS: emit self->finished(); break;
+    case GST_MESSAGE_EOS: PLOG() << "gst: EOS"; emit self->finished(); break;
     case GST_MESSAGE_ERROR: {
         GError *err = 0; gchar *dbg = 0; gst_message_parse_error(msg, &err, &dbg);
+        // The debug string (element + reason, e.g. "gstsouphttpsrc.c… Not Found") is far
+        // more actionable than err->message alone — surface it before it's freed.
+        PLOG() << "gst: ERROR from" << GST_OBJECT_NAME(GST_MESSAGE_SRC(msg)) << ":"
+               << (err ? err->message : "gst error") << "| debug:" << (dbg ? dbg : "(none)");
         emit self->error(QString::fromUtf8(err ? err->message : "gst error"));
         if (err) g_error_free(err); if (dbg) g_free(dbg);
         break; }
@@ -153,6 +168,8 @@ gboolean GstAppPipeline::onBusCb(GstBus *, GstMessage *msg, gpointer user)
     case GST_MESSAGE_STATE_CHANGED:
         if (GST_MESSAGE_SRC(msg) == GST_OBJECT(self->m_pipeline)) {
             GstState olds, news, pend; gst_message_parse_state_changed(msg, &olds, &news, &pend);
+            PLOG() << "gst: pipeline state" << gst_element_state_get_name(olds)
+                   << "->" << gst_element_state_get_name(news);
             if (news == GST_STATE_PLAYING) emit self->started();
         }
         break;

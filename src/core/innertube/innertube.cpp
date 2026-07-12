@@ -15,6 +15,7 @@
  */
 
 #include "innertube.h"
+#include "innertube/accountdetails.h"
 
 namespace yt {
 
@@ -23,7 +24,7 @@ Innertube *Innertube::self = 0;
 Innertube::Innertube(QObject *parent)
     : QObject(parent), m_http(new core::Http), m_store(QString(), this),
       m_manager(apiRef(), &m_store, this),
-      m_video(0), m_channel(0), m_playlist(0), m_accountApi(0) {
+      m_video(0), m_channel(0), m_playlist(0) {
     // m_http is PARENTLESS (new core::Http, not new core::Http(this)) so it can be
     // moved to the worker thread below; a Qt parent would forbid moveToThread. It is
     // still constructed BEFORE m_manager in the init list, so apiRef() = {&m_host,
@@ -84,9 +85,11 @@ PlaylistApi* Innertube::playlistApi() {
     return m_playlist;
 }
 
-AccountApi* Innertube::accountApi() {
-    if (!m_accountApi) m_accountApi = new AccountApi(&m_store, this);
-    return m_accountApi;
+QObject* Innertube::accountDetails() {
+    AccountDetails *d = qobject_cast<AccountDetails *>(m_accountDetails.data());
+    if (!d) { d = new AccountDetails(&m_store, this); m_accountDetails = d; }
+    d->load();
+    return d;
 }
 
 void Innertube::applyBearer() {
@@ -118,22 +121,6 @@ QVariantList Innertube::feedSections() const {
         m["label"] = QString::fromLatin1(s.label);
         m["id"]    = QString::fromLatin1(s.id);
         m["requiresAuth"] = s.auth;
-        out << m;
-    }
-    return out;
-}
-
-QVariantList Innertube::authedFeeds() const {
-    QVariantList out;
-    struct { const char *label; const char *id; } feeds[] = {
-        { "Subscriptions", "FEsubscriptions" },
-        { "History",       "FEhistory" },
-        { "Library",       "FElibrary" } };
-    for (int i = 0; i < 3; ++i) {
-        QVariantMap m;
-        m["label"] = QString::fromLatin1(feeds[i].label);
-        m["kind"]  = QString::fromLatin1("video");
-        m["id"]    = QString::fromLatin1(feeds[i].id);
         out << m;
     }
     return out;

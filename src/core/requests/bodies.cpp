@@ -21,10 +21,20 @@ struct Next {
     std::optional<std::string> videoId;
     std::optional<std::string> continuation;
 };
+struct ContentPlaybackContext {
+    std::string html5Preference = "HTML5_PREF_WANTS";
+    // signatureTimestamp (from base.js, regex) goes here once player-JS handling exists;
+    // omitted (nullopt) until then.
+    std::optional<int> signatureTimestamp;
+};
+struct PlaybackContext {
+    ContentPlaybackContext contentPlaybackContext;
+};
 struct Player {
     std::string videoId;
     bool contentCheckOk = true;
     bool racyCheckOk = true;
+    std::optional<PlaybackContext> playbackContext;   // TVHTML5 only (else "reloaded")
 };
 struct Resolve {
     std::string url;
@@ -107,10 +117,11 @@ std::string nextContinuation(const QString &token)
     return dump(b);
 }
 
-std::string player(const QString &videoId)
+std::string player(const QString &videoId, bool withPlaybackContext)
 {
     bj::Player b;
     b.videoId = videoId.toStdString();
+    if (withPlaybackContext) b.playbackContext = bj::PlaybackContext{};
     return dump(b);
 }
 

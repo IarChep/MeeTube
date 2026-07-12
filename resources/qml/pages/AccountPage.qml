@@ -22,7 +22,7 @@ Page {
     property variant historyModel
 
     Component.onCompleted: {
-        page.details = innertube.account().details();
+        page.details = innertube.accountDetails();
         page.historyModel = innertube.video().feed("FEhistory");
     }
 

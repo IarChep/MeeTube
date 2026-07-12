@@ -41,16 +41,6 @@ QVariant ServiceListModel::data(int row, const QByteArray &role) const {
     return (row < 0 || row >= itemCount() || idx < 0) ? QVariant() : roleData(row, idx);
 }
 
-QVariantMap ServiceListModel::itemData(int row) const {
-    QVariantMap map;
-    if (row < 0 || row >= itemCount()) return map;
-    for (QHash<QByteArray, int>::const_iterator it = m_roleIndex.constBegin();
-         it != m_roleIndex.constEnd(); ++it) {
-        map[QString::fromUtf8(it.key())] = roleData(row, it.value());
-    }
-    return map;
-}
-
 bool ServiceListModel::canFetchMore() const {
     return !m_next.isEmpty() && m_status != yt::core::Loading;
 }

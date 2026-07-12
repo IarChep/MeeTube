@@ -30,6 +30,10 @@ struct PlayerResult {
     QString reason;                     // "<STATUS>: <reason>" when !playable
     QList<CT::Stream> streams;          // hls first, then non-ciphered progressive
     bool cipheredOnly = false;          // formats present but every one ciphered
+    // Diagnostics (set by parsePlayer; used by the player trace — MEETUBE_PLAYER_DEBUG):
+    bool sabr = false;                  // serverAbrStreamingUrl present → SABR-only session
+    int  formatsSeen = 0;               // muxed streamingData.formats[] count
+    int  adaptiveSeen = 0;              // streamingData.adaptiveFormats[] count
     QList<CT::Subtitle> captions;
     CT::Video details;
 };

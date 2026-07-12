@@ -20,13 +20,13 @@
 #include <QObject>
 #include <QVariantList>
 #include <QVariantMap>
+#include <QPointer>
 #include "innertube/session.h"
 #include "innertube/accountstore.h"
 #include "innertube/accountmanager.h"
 #include "innertube/videoapi.h"
 #include "innertube/channelapi.h"
 #include "innertube/playlistapi.h"
-#include "innertube/accountapi.h"
 #include "innertube/apiref.h"
 #include "threading/workerhost.h"
 #include "core/http.h"
@@ -53,13 +53,6 @@ class Innertube : public QObject {
 public:
     static Innertube* instance();              // lazy singleton
 
-    // The live InnerTube session — owned by the callback transport (m_http). After
-    // the flip m_http lives on the worker thread, so this reaches a WORKER-affine
-    // object: it is NOT safe to touch the returned Session from the GUI thread. It
-    // currently has no callers; kept for symmetry. Mutate the session only via
-    // applySettings()/applyBearer() (which hop to the worker via m_host.invoke()).
-    Session& session() { return m_http->session(); }
-
     // The seam every facade uses to reach the backend (the WorkerHost dispatcher +
     // the callback transport the chains run on). GUI-affine until Task 14.
     ApiRef apiRef() { return ApiRef(&m_host, m_http); }
@@ -77,9 +70,6 @@ public:
 
     Q_INVOKABLE QVariantList navEntries() const;       // hardcoded (ported from the YouTube plugin)
     Q_INVOKABLE QVariantList searchTypes() const;      // hardcoded (ported from the YouTube plugin)
-    // Authed personalized feeds (FE browseIds): only meaningful when signed in. The
-    // UI feeds these to a VideoModel, whose browse carries the Bearer (WEB client).
-    Q_INVOKABLE QVariantList authedFeeds() const;
     // Home/Subscriptions strip — the two top-level feed sections.
     // Home is public; Subscriptions requires authentication.
     Q_INVOKABLE QVariantList feedSections() const;
@@ -97,11 +87,12 @@ public:
     VideoApi*    videoApi();
     ChannelApi*  channelApi();
     PlaylistApi* playlistApi();
-    AccountApi*  accountApi();
     Q_INVOKABLE QObject* video()    { return videoApi(); }
     Q_INVOKABLE QObject* channel()  { return channelApi(); }
     Q_INVOKABLE QObject* playlist() { return playlistApi(); }
-    Q_INVOKABLE QObject* account()  { return accountApi(); }
+    // The signed-in user's identity — a cached AccountDetails* (seeded from the store,
+    // re-load()s per call). QML: innertube.accountDetails().
+    Q_INVOKABLE QObject* accountDetails();
 
 private Q_SLOTS:
     // Copy the account manager's current bearer into the session so authed browse/
@@ -124,7 +115,7 @@ private:
     VideoApi    *m_video;
     ChannelApi  *m_channel;
     PlaylistApi *m_playlist;
-    AccountApi  *m_accountApi;
+    QPointer<QObject> m_accountDetails;   // reused AccountDetails (identity)
 };
 
 }
