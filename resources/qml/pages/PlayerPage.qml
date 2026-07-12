@@ -84,6 +84,18 @@ Page {
         onAccepted: root.playRow(selectedIndex)
     }
 
+    // Chroma-key hole for the hardware video overlay. In video mode the GStreamer
+    // omapxvsink DSS plane sits BELOW the UI and shows through every pixel Qt paints
+    // in exactly this colour — so this opaque, full-screen rectangle IS the video
+    // surface, and the controls above composite on top of the live video. The
+    // colour comes from the player (single source of truth shared with the sink;
+    // tune with MEETUBE_COLORKEY). Backmost child so everything else draws over it.
+    Rectangle {
+        anchors.fill: parent
+        color: player.overlayColorKey
+        visible: player.mode === 1        // video only; audio mode has no overlay
+    }
+
     // Tap the video area to toggle the controls (sits below the controls layer).
     MouseArea {
         anchors.fill: parent
