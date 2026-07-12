@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QByteArray>
 #include <QString>
+#include <QList>
 class QNetworkAccessManager;
 class QNetworkReply;
 namespace yt { namespace media {
@@ -29,7 +30,11 @@ protected:
     QNetworkAccessManager *m_nam;
 };
 
-// Progressive single-file source: sequential Range-window GETs, byte-exact seek.
+// Progressive single-file source: Range-window GETs with one-window read-ahead.
+// A background fetch keeps up to kReadAhead windows buffered so the next block is
+// already in hand when the pipeline asks — the download of block N+1 overlaps the
+// playback of block N (without prefetch, each GET's whole RTT sat in the critical
+// path and starved playback ~30 s after the preroll drained).
 class ProgressiveSource : public ByteSource {
     Q_OBJECT
 public:
@@ -43,15 +48,18 @@ private slots:
     void onProbeFinished();
     void onWindowFinished();
 private:
-    void issueWindow(qint64 start, qint64 maxBytes, const char *slot);
+    void issueWindow(qint64 start, const char *slot);
+    void topUp();            // start a prefetch if under the read-ahead target
     static const qint64 kWindow = 2 * 1024 * 1024;   // 2 MiB, well under the 32 MB reply cap
+    static const int kReadAhead = 2;                 // windows kept buffered (~4 MiB / ~1 min)
     QString  m_url;
     qint64   m_total;        // <0 = unknown
-    qint64   m_offset;       // next byte to fetch
+    qint64   m_fetchOffset;  // next byte to request from the server
     bool     m_seekable;
-    QByteArray m_firstWindow;// probed in open(), delivered on first requestData()
-    bool     m_haveFirst;
-    QNetworkReply *m_reply;  // at most one in flight
+    bool     m_eof;          // server returned an empty tail
+    bool     m_waiting;      // consumer asked but no ready window yet -> deliver on arrival
+    QList<QByteArray> m_ready;   // prefetched windows awaiting delivery (FIFO)
+    QNetworkReply *m_reply;  // at most one fetch in flight (probe or prefetch)
 };
 
 // Routes open() to the HLS child for manifest URLs, else to the progressive

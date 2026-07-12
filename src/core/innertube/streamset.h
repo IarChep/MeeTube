@@ -17,6 +17,7 @@
 #ifndef YT_STREAMSET_H
 #define YT_STREAMSET_H
 #include <QObject>
+#include <QVariantList>
 #include "servicedatatypes.h"
 #include "core/chains.h"
 #include "core/status.h"
@@ -25,14 +26,18 @@
 
 namespace yt {
 
-// The playable stream(s) for one video — NOT a list model (no ListView): a plain
-// object exposing the adaptive HLS manifest url and a best progressive fallback.
-// Loads via fetchPlayer (streams side of the merged player outcome).
+// The full stream catalog for one video. Beyond the auto-picked default URLs
+// (hls / progressive / audio) it exposes the complete, queryable lists of
+// selectable video (muxed) and audio (adaptive) tracks so the UI can switch
+// quality/track: each entry is a map {itag,label,mime,bitrate,width,height,
+// hasAudio,url}. Loads via fetchPlayer (streams side of the merged outcome).
 class StreamSet : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString hlsUrl         READ hlsUrl         NOTIFY loaded)
     Q_PROPERTY(QString progressiveUrl READ progressiveUrl NOTIFY loaded)
     Q_PROPERTY(QString audioUrl       READ audioUrl       NOTIFY loaded)
+    Q_PROPERTY(QVariantList videoStreams READ videoStreams NOTIFY loaded)
+    Q_PROPERTY(QVariantList audioStreams READ audioStreams NOTIFY loaded)
     Q_PROPERTY(int     status         READ status         NOTIFY statusChanged)
     Q_PROPERTY(QString errorString    READ errorString    NOTIFY statusChanged)
 public:
@@ -46,6 +51,10 @@ public:
     QString hlsUrl()         const { return m_hls; }
     QString progressiveUrl() const { return m_progressive; }
     QString audioUrl()       const { return m_audio; }
+    QVariantList videoStreams() const { return m_videoStreams; }
+    QVariantList audioStreams() const { return m_audioStreams; }
+    // The stream url for an itag ("18","140",…) — empty if not in the catalog.
+    Q_INVOKABLE QString urlForItag(const QString &itag) const;
     int     status()         const { return m_status; }
     QString errorString()    const { return m_error; }
 public Q_SLOTS:
@@ -59,6 +68,8 @@ private:
     void cancelJob();
     yt::core::JobToken m_job;
     QString m_hls, m_progressive, m_audio, m_error;
+    QList<CT::Stream> m_catalog;
+    QVariantList m_videoStreams, m_audioStreams;
     int m_status;
 };
 

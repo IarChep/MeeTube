@@ -47,7 +47,10 @@ struct User {
     bool subscribed = false;
 };
 struct Comment { QString id, body, date, userId, username, thumbnailUrl, videoId; };
-struct Stream  { QString id, url, description; int width = 0, height = 0; };
+// One playable track. id = itag ("18","140",…) or "hls". A muxed format has
+// hasAudio && width>0; a video-only adaptive has width>0 && !hasAudio; an
+// audio-only adaptive has width==0 && hasAudio. bitrate is bits/s (0 if unknown).
+struct Stream  { QString id, url, description, mimeType; int width = 0, height = 0, bitrate = 0; bool hasAudio = false; };
 struct Subtitle{ QString id, url, title, language; };
 struct Category{ QString id, title; };
 struct Account { QString id, username, thumbnailUrl, handle, channelId; };

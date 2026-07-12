@@ -21,40 +21,49 @@ static QByteArray streamUserAgent()
 }
 
 ProgressiveSource::ProgressiveSource(QNetworkAccessManager *nam, QObject *parent)
-    : ByteSource(nam, parent), m_total(-1), m_offset(0), m_seekable(false),
-      m_haveFirst(false), m_reply(0) {}
+    : ByteSource(nam, parent), m_total(-1), m_fetchOffset(0), m_seekable(false),
+      m_eof(false), m_waiting(false), m_reply(0) {}
 
 ProgressiveSource::~ProgressiveSource() { close(); }
 
 void ProgressiveSource::close()
 {
     if (m_reply) { m_reply->disconnect(this); m_reply->abort(); m_reply->deleteLater(); m_reply = 0; }
+    m_ready.clear();
+    m_waiting = false;
 }
 
 // Probe the first window: learn total size + seekability from the 206
-// Content-Range, and keep the bytes to hand back on the first requestData().
+// Content-Range. The probe IS the first window fetch; its bytes seed the queue.
 void ProgressiveSource::open(const QString &url)
 {
     PLOG() << "ByteSource: open" << qPrintable(url);
-    m_url = url; m_offset = 0; m_haveFirst = false;
-    issueWindow(0, kWindow, SLOT(onProbeFinished()));
+    m_url = url; m_fetchOffset = 0; m_eof = false; m_waiting = false; m_ready.clear();
+    issueWindow(0, SLOT(onProbeFinished()));
 }
 
-void ProgressiveSource::issueWindow(qint64 start, qint64 maxBytes, const char *slot)
+void ProgressiveSource::issueWindow(qint64 start, const char *slot)
 {
-    close();
-    const qint64 win = maxBytes < kWindow ? maxBytes : kWindow;
     // fromEncoded, NOT QUrl(QString): Qt 4.7's QUrl(QString) re-encodes the '%' of
     // existing escapes (%3D -> %253D, %2C -> %252C), corrupting the sig-covered
     // googlevideo params -> HTTP 403 (device-verified 2026-07-13; raw libcurl 206).
     QNetworkRequest req(QUrl::fromEncoded(m_url.toUtf8()));
     const QByteArray range = "bytes=" + QByteArray::number(start) + "-"
-                           + QByteArray::number(start + win - 1);
+                           + QByteArray::number(start + kWindow - 1);
     PLOG() << "ByteSource: GET Range" << range.constData();
     req.setRawHeader("Range", range);
     req.setRawHeader("User-Agent", streamUserAgent());   // generic desktop UA, NOT the app UA
     m_reply = m_nam->get(req);
     connect(m_reply, SIGNAL(finished()), this, slot);
+}
+
+// Start a prefetch if nothing is in flight and we're under the read-ahead target.
+void ProgressiveSource::topUp()
+{
+    if (m_reply || m_eof) return;
+    if (m_total >= 0 && m_fetchOffset >= m_total) { m_eof = true; return; }
+    if (m_ready.size() >= kReadAhead) return;    // enough buffered already
+    issueWindow(m_fetchOffset, SLOT(onWindowFinished()));
 }
 
 void ProgressiveSource::onProbeFinished()
@@ -75,29 +84,28 @@ void ProgressiveSource::onProbeFinished()
     m_seekable = !cr.isEmpty();
     const int slash = cr.lastIndexOf('/');
     m_total = (slash >= 0) ? cr.mid(slash + 1).trimmed().toLongLong() : -1;
-    m_firstWindow = r->readAll();
-    m_haveFirst = !m_firstWindow.isEmpty();
-    m_offset = m_firstWindow.size();
+    const QByteArray w = r->readAll();
+    if (!w.isEmpty()) { m_ready << w; m_fetchOffset += w.size(); } else m_eof = true;
     PLOG() << "ByteSource: probe OK http=" << http << "total=" << m_total
-           << "seekable=" << m_seekable << "firstWindow=" << m_firstWindow.size();
+           << "seekable=" << m_seekable << "firstWindow=" << w.size();
     emit opened(m_total, m_seekable);
+    topUp();                                     // begin reading ahead
 }
 
-void ProgressiveSource::requestData(qint64 maxBytes)
+void ProgressiveSource::requestData(qint64 /*maxBytes*/)
 {
-    if (m_haveFirst) {                       // hand back the probed window first
-        m_haveFirst = false;
-        const QByteArray w = m_firstWindow; m_firstWindow.clear();
-        emit data(w);
+    // maxBytes ignored: appsrc hints its 4096-byte blocksize, and one HTTPS round
+    // trip per 4 KiB caps throughput below the itag-18 bitrate (playback starved
+    // ~30 s in device tests). We always move whole windows; the read-ahead keeps
+    // the next one ready, and appsrc's own queue provides backpressure.
+    if (!m_ready.isEmpty()) {
+        emit data(m_ready.takeFirst());
+        topUp();
         return;
     }
-    if (m_total >= 0 && m_offset >= m_total) { emit finished(); return; }
-    // Ignore tiny hints: appsrc asks per its 4096-byte blocksize, and one HTTPS
-    // round trip per 4 KiB caps throughput at ~40 KB/s — below the itag-18 bitrate,
-    // so playback starved ~30 s after the 2 MiB preroll drained (device-observed
-    // 2026-07-13). Always fetch a full window; appsrc's queue provides backpressure
-    // (need-data simply pauses until it drains).
-    issueWindow(m_offset, qMax(maxBytes, kWindow), SLOT(onWindowFinished()));
+    if (m_eof && !m_reply) { emit finished(); return; }
+    m_waiting = true;                            // deliver as soon as a fetch lands
+    topUp();
 }
 
 void ProgressiveSource::onWindowFinished()
@@ -112,18 +120,25 @@ void ProgressiveSource::onWindowFinished()
         return;
     }
     const QByteArray w = r->readAll();
-    if (w.isEmpty()) { PLOG() << "ByteSource: window empty → EOS"; emit finished(); return; }
-    m_offset += w.size();
-    PLOG() << "ByteSource: window +" << w.size() << "bytes (offset now" << m_offset << ")";
-    emit data(w);
+    if (w.isEmpty()) {
+        PLOG() << "ByteSource: window empty → EOS";
+        m_eof = true;
+        if (m_waiting) { m_waiting = false; emit finished(); }
+        return;
+    }
+    m_fetchOffset += w.size();
+    PLOG() << "ByteSource: window +" << w.size() << "bytes (fetchOffset now" << m_fetchOffset << ")";
+    if (m_waiting) { m_waiting = false; emit data(w); }   // consumer was blocked on this
+    else m_ready << w;
+    topUp();                                     // keep the buffer full
 }
 
 bool ProgressiveSource::seek(qint64 byteOffset)
 {
     if (!m_seekable) return false;
-    close();
-    m_offset = byteOffset;
-    m_haveFirst = false; m_firstWindow.clear();
+    close();                                     // drops in-flight fetch + buffered windows
+    m_fetchOffset = byteOffset;
+    m_eof = false;
     return true;
 }
 

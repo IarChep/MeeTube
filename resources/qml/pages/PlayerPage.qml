@@ -13,6 +13,11 @@ Page {
     property variant streams: null
     property bool controlsShown: true
 
+    // Quality/track picker state, filled from streams.videoStreams/audioStreams.
+    property variant qualLabels: []   // display strings for the SelectionDialog
+    property variant qualUrls: []     // parallel: stream url per row
+    property variant qualModes: []    // parallel: 0 = audio, 1 = video per row
+
     // Pick in device-verified order: progressive muxed (ANDROID_VR itag-18) plays
     // as VIDEO (mode 1 — H.264 360p + AAC, overlay into the app window); HLS (IOS)
     // and audio-only adaptive (itag-140, the IOS SABR fallback) stay audio (mode 0).
@@ -31,6 +36,31 @@ Page {
             console.log("[player] no stream:", streams.errorString);
         }
     }
+
+    // Build the flat quality menu from the catalog: muxed video first (playable
+    // with sound), then audio-only tracks. Kept as parallel arrays so the
+    // SelectionDialog's selectedIndex maps straight to a url + mode.
+    function buildQualityMenu() {
+        var labels = []; var urls = []; var modes = [];
+        var vs = streams ? streams.videoStreams : [];
+        var i;
+        for (i = 0; i < vs.length; i++) {
+            labels.push("Video " + vs[i].label);
+            urls.push(vs[i].url); modes.push(1);
+        }
+        var as = streams ? streams.audioStreams : [];
+        for (i = 0; i < as.length; i++) {
+            labels.push("Audio " + as[i].label);
+            urls.push(as[i].url); modes.push(0);
+        }
+        qualLabels = labels; qualUrls = urls; qualModes = modes;
+    }
+
+    function playRow(i) {
+        if (i < 0 || i >= qualUrls.length) return;
+        console.log("[player] switch to", qualLabels[i]);
+        player.play(qualUrls[i], qualModes[i]);
+    }
     // ms -> "m:ss"
     function fmt(ms) {
         if (ms <= 0) return "0:00";
@@ -42,7 +72,16 @@ Page {
     Component.onCompleted: {
         streams = innertube.video().streams(videoId);   // async: fetches /player
         streams.loaded.connect(tryPlay);                 // play once the URL resolves
+        streams.loaded.connect(buildQualityMenu);        // populate the picker too
         tryPlay();                                       // in case it resolved synchronously
+    }
+
+    // Quality / audio-track picker (video qualities first, then audio tracks).
+    SelectionDialog {
+        id: qualityDialog
+        titleText: "Quality / track"
+        model: root.qualLabels
+        onAccepted: root.playRow(selectedIndex)
     }
 
     // Tap the video area to toggle the controls (sits below the controls layer).
@@ -79,6 +118,15 @@ Page {
             smooth: true
             MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
                         onClicked: { player.stop(); pageStack.pop(); } }
+        }
+        Image {       // quality / track picker (right of the top bar)
+            id: qualityIcon
+            anchors { right: parent.right; rightMargin: UI.PADDING_DOUBLE; verticalCenter: topBar.verticalCenter }
+            source: "image://theme/icon-m-toolbar-view-menu-white"
+            smooth: true
+            visible: root.qualLabels.length > 1     // hide when there's nothing to choose
+            MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
+                        onClicked: { qualityDialog.open(); root.poke(); } }
         }
 
         Image {       // centre play/pause. StreamPlayer.State: Playing = 3, Paused = 4.

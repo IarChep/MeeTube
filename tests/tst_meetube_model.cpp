@@ -567,7 +567,7 @@ private slots:
         QCOMPARE(d.m_fake.sent.size(), 0);   // no action fired
     }
 
-    // StreamSet: projects the stream list into hlsUrl.
+    // StreamSet: slices the catalog into hls / default picks / video+audio lists.
     void streamSetLoads() {
         TestStreamSet s;
         s.m_fake.queue("player", loadFixtureRaw("player_ios.json"));
@@ -575,6 +575,17 @@ private slots:
         s.m_fake.flush();
         QVERIFY(!s.hlsUrl().isEmpty());
         QCOMPARE((int)s.status(), (int)core::Ready);
+        // Selectable video = muxed only (18,22); default progressive = smallest (18).
+        QCOMPARE(s.videoStreams().size(), 2);
+        QVERIFY(s.progressiveUrl().contains("vid18") || s.progressiveUrl().contains("18"));
+        // Selectable audio = adaptive audio-only (140,251); default = itag 140.
+        QCOMPARE(s.audioStreams().size(), 2);
+        QCOMPARE(s.audioUrl(), QString("https://gv.example/aud140"));
+        // urlForItag reaches the whole catalog, video-only 137 included.
+        QCOMPARE(s.urlForItag("137"), QString("https://gv.example/vid137"));
+        // The default video pick carries audio (playable single-source).
+        QVariantMap v0 = s.videoStreams().at(0).toMap();
+        QVERIFY(v0["hasAudio"].toBool());
     }
 
     // ChannelDetails: single channel header via UserRequest.

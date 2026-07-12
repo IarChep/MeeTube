@@ -17,9 +17,11 @@ struct Format {
     std::optional<std::string> url;
     std::optional<std::string> qualityLabel;
     std::optional<std::string> mimeType;
+    std::optional<std::string> audioQuality;
     std::optional<FlexInt> itag;
     std::optional<FlexInt> width;
     std::optional<FlexInt> height;
+    std::optional<FlexInt> bitrate;
 };
 struct StreamingData {
     std::optional<std::string> hlsManifestUrl;
@@ -75,6 +77,32 @@ static bool playableOf(const pj::PlayerRoot &root, QString *reason)
     return true;
 }
 
+// Build one CT::Stream from a parsed format (muxed or adaptive). `muxed` = came
+// from streamingData.formats (video+audio in one file). Returns false if the
+// format has no fetchable url (ciphered / SABR-withheld).
+static bool streamOf(const pj::Format &f, bool muxed, CT::Stream &s)
+{
+    const QString url = qstr(f.url);
+    if (url.isEmpty()) return false;
+    const QString mime = qstr(f.mimeType);
+    s.id = QString::number(toInt64(f.itag));
+    s.url = url;
+    s.mimeType = mime;
+    s.width = (int)toInt64(f.width);
+    s.height = (int)toInt64(f.height);
+    s.bitrate = (int)toInt64(f.bitrate);
+    s.hasAudio = muxed || mime.startsWith(QLatin1String("audio/"));
+    // Human label: "360p" for video, else the audio quality tier / mime subtype.
+    if (!qstr(f.qualityLabel).isEmpty())      s.description = qstr(f.qualityLabel);
+    else if (s.width > 0)                     s.description = QString::number(s.height) + "p";
+    else if (!qstr(f.audioQuality).isEmpty()) s.description = qstr(f.audioQuality);
+    else                                      s.description = mime.section(QLatin1Char(';'), 0, 0);
+    return true;
+}
+
+// The FULL stream catalog: HLS manifest + every url-ful muxed / video-only /
+// audio-only format, each tagged (see CT::Stream). StreamSet slices this into
+// its video/audio lists and default picks; consumers can select any entry.
 static QList<CT::Stream> streamsOf(const pj::PlayerRoot &root, bool *sawCipheredOnly)
 {
     QList<CT::Stream> out;
@@ -82,41 +110,21 @@ static QList<CT::Stream> streamsOf(const pj::PlayerRoot &root, bool *sawCiphered
     if (!root.streamingData) return out;
     const pj::StreamingData &sd = *root.streamingData;
     const QString hls = qstr(sd.hlsManifestUrl);
-    if (!hls.isEmpty()) { CT::Stream s; s.id = "hls"; s.description = "HLS (adaptive)"; s.url = hls; out << s; }
+    if (!hls.isEmpty()) {
+        CT::Stream s; s.id = "hls"; s.description = "HLS (adaptive)"; s.url = hls; s.hasAudio = true;
+        out << s;
+    }
     int formatsSeen = 0;
-    if (sd.formats) {
+    if (sd.formats)         // muxed video+audio (itag 18/22)
         for (const pj::Format &f : *sd.formats) {
             ++formatsSeen;
-            const QString url = qstr(f.url);
-            if (url.isEmpty()) continue;                 // skip ciphered formats (no decipher — out of scope)
-            CT::Stream s;
-            s.id = QString::number(toInt64(f.itag));
-            s.description = qstr(f.qualityLabel);
-            s.url = url;
-            s.width = (int)toInt64(f.width);
-            s.height = (int)toInt64(f.height);
-            out << s;
+            CT::Stream s; if (streamOf(f, true, s)) out << s;
         }
-    }
-    // Best audio-only adaptive stream (id="audio"). IOS SABR responses drop the
-    // hlsManifestUrl AND all progressive formats but keep URL-ful audio-only
-    // adaptiveFormats (live-verified 2026-07-12: itag-140 ranged GET → 206, no
-    // n-throttle, no pot) — without this the audio app has nothing to play there.
-    // itag 140 (128k AAC) preferred, else the first url-ful audio/*.
-    if (sd.adaptiveFormats) {
-        CT::Stream best;
+    if (sd.adaptiveFormats) // separate video-only + audio-only tracks
         for (const pj::Format &f : *sd.adaptiveFormats) {
-            const QString url = qstr(f.url);
-            if (url.isEmpty() || !qstr(f.mimeType).startsWith(QLatin1String("audio/"))) continue;
-            if (best.url.isEmpty() || toInt64(f.itag) == 140) {
-                best.id = QString::fromLatin1("audio");
-                best.description = QString::fromLatin1("audio-only");
-                best.url = url;
-                if (toInt64(f.itag) == 140) break;
-            }
+            ++formatsSeen;
+            CT::Stream s; if (streamOf(f, false, s)) out << s;
         }
-        if (!best.url.isEmpty()) out << best;
-    }
     // Nothing playable but formats were present → every format was ciphered.
     if (sawCipheredOnly) *sawCipheredOnly = out.isEmpty() && formatsSeen > 0;
     return out;
