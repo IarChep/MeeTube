@@ -250,17 +250,31 @@ private slots:
     void streams() {
         const std::string p = loadFixtureRaw("player_ios.json");
         QList<CT::Stream> s = parseStreams(p);
-        QCOMPARE(s.size(), 4);                  // hls + itag18 + itag22 + best adaptive audio; ciphered itag137 dropped
+        // Full catalog: hls + muxed 18/22 + adaptive video 137 + adaptive audio
+        // 251/140. The ciphered muxed 137 (no url) is dropped.
+        QCOMPARE(s.size(), 6);
         QCOMPARE(s[0].id, QString("hls"));
         QVERIFY(s[0].url.contains("index.m3u8"));
-        bool saw18=false; for (int i=0;i<s.size();++i) if (s[i].id=="18") { saw18=true; QCOMPARE(s[i].height, 360); }
-        QVERIFY(saw18);
-        for (int i=0;i<s.size();++i) QVERIFY(s[i].id != QString("137"));
-        // Best audio-only adaptive: itag 140 preferred over the earlier-listed 251;
-        // the url-ful VIDEO adaptive (137) must not leak in.
-        bool sawAudio=false;
-        for (int i=0;i<s.size();++i) if (s[i].id=="audio") { sawAudio=true; QCOMPARE(s[i].url, QString("https://gv.example/aud140")); }
-        QVERIFY(sawAudio);
+        QVERIFY(s[0].hasAudio);
+        // helper: find a stream by itag
+        CT::Stream m18, m137, a140, a251;
+        for (int i=0;i<s.size();++i) {
+            if (s[i].id=="18")  m18  = s[i];
+            if (s[i].id=="137") m137 = s[i];
+            if (s[i].id=="140") a140 = s[i];
+            if (s[i].id=="251") a251 = s[i];
+        }
+        // muxed 18: video + audio
+        QCOMPARE(m18.height, 360);
+        QVERIFY(m18.width > 0 && m18.hasAudio);
+        // adaptive 137: video-only (present in catalog, NOT audio)
+        QCOMPARE(m137.height, 1080);
+        QVERIFY(m137.width > 0 && !m137.hasAudio);
+        QCOMPARE(m137.url, QString("https://gv.example/vid137"));
+        // adaptive audio: width 0, hasAudio, both present
+        QVERIFY(a140.width == 0 && a140.hasAudio);
+        QCOMPARE(a140.url, QString("https://gv.example/aud140"));
+        QVERIFY(a251.width == 0 && a251.hasAudio);
     }
     void videoDetails() {
         const std::string p = loadFixtureRaw("player_ios.json");
