@@ -234,13 +234,15 @@ static void playerTry(IHttp &http, const QString &videoId,
             if (r.ok) {
                 const PlayerResult pr = parsePlayer(*r.body);
                 if (media::playerDebugEnabled()) {
-                    int prog = 0; bool hls = false;
+                    int prog = 0; bool hls = false, aud = false;
                     for (const CT::Stream &s : pr.streams) {
-                        if (s.id == QLatin1String("hls")) hls = true; else if (s.width > 0) ++prog;
+                        if (s.id == QLatin1String("hls")) hls = true;
+                        else if (s.id == QLatin1String("audio")) aud = true;
+                        else if (s.width > 0) ++prog;
                     }
                     PLOG() << "player" << clientInfo(client).name
                            << "playable=" << pr.playable << "streams=" << pr.streams.size()
-                           << "hls=" << hls << "prog=" << prog
+                           << "hls=" << hls << "prog=" << prog << "audio=" << aud
                            << "formats=" << pr.formatsSeen << "adaptive=" << pr.adaptiveSeen
                            << "ciphered=" << pr.cipheredOnly << "sabr=" << pr.sabr
                            << "reason=" << qPrintable(pr.reason);

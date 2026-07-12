@@ -31,7 +31,7 @@ ApiRef StreamSet::apiRef() const {
 
 void StreamSet::load(const QString &videoId) {
     cancelJob();
-    m_hls.clear(); m_progressive.clear();
+    m_hls.clear(); m_progressive.clear(); m_audio.clear();
     m_job = core::newJob();
     m_status = core::Loading;
     emit statusChanged();
@@ -66,7 +66,8 @@ void StreamSet::cancel() {
     emit statusChanged();
 }
 
-// Streams side of the player outcome: hls / first progressive with width>0.
+// Streams side of the player outcome: hls / first progressive with width>0 /
+// best audio-only adaptive (the IOS SABR fallback).
 void StreamSet::applyPlayer(const core::PlayerOutcome &r) {
     if (!r.streamsOk) {
         PLOG() << "StreamSet: streams FAILED:" << qPrintable(r.streamsError);
@@ -74,12 +75,15 @@ void StreamSet::applyPlayer(const core::PlayerOutcome &r) {
     }
     for (const CT::Stream &s : r.streams) {
         if (s.id == QLatin1String("hls")) m_hls = s.url;
+        else if (s.id == QLatin1String("audio")) m_audio = s.url;
         else if (m_progressive.isEmpty() && s.width > 0) m_progressive = s.url;
     }
     PLOG() << "StreamSet: ready — hls=" << (m_hls.isEmpty() ? "no" : "yes")
-           << "progressive=" << (m_progressive.isEmpty() ? "no" : "yes");
+           << "progressive=" << (m_progressive.isEmpty() ? "no" : "yes")
+           << "audio=" << (m_audio.isEmpty() ? "no" : "yes");
     if (!m_hls.isEmpty())         PLOG() << "  hlsUrl:"         << qPrintable(m_hls);
     if (!m_progressive.isEmpty()) PLOG() << "  progressiveUrl:" << qPrintable(m_progressive);
+    if (!m_audio.isEmpty())       PLOG() << "  audioUrl:"       << qPrintable(m_audio);
     m_status = core::Ready;
     emit loaded();
     emit statusChanged();
