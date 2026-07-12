@@ -32,6 +32,7 @@ class StreamSet : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString hlsUrl         READ hlsUrl         NOTIFY loaded)
     Q_PROPERTY(QString progressiveUrl READ progressiveUrl NOTIFY loaded)
+    Q_PROPERTY(QString audioUrl       READ audioUrl       NOTIFY loaded)
     Q_PROPERTY(int     status         READ status         NOTIFY statusChanged)
     Q_PROPERTY(QString errorString    READ errorString    NOTIFY statusChanged)
 public:
@@ -44,6 +45,7 @@ public:
 
     QString hlsUrl()         const { return m_hls; }
     QString progressiveUrl() const { return m_progressive; }
+    QString audioUrl()       const { return m_audio; }
     int     status()         const { return m_status; }
     QString errorString()    const { return m_error; }
 public Q_SLOTS:
@@ -56,7 +58,7 @@ protected:
 private:
     void cancelJob();
     yt::core::JobToken m_job;
-    QString m_hls, m_progressive, m_error;
+    QString m_hls, m_progressive, m_audio, m_error;
     int m_status;
 };
 

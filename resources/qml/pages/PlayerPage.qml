@@ -13,11 +13,20 @@ Page {
     property variant streams: null
     property bool controlsShown: true
 
+    // Pick in device-verified order: HLS (IOS, HlsSource) → progressive muxed
+    // (ANDROID_VR itag-18, ProgressiveSource) → audio-only adaptive (itag-140,
+    // the IOS SABR fallback — same ProgressiveSource, nothing else available).
     function tryPlay() {
-        if (streams && streams.hlsUrl != "") {
-            console.log("[player] audio play (HLS):", streams.hlsUrl.substring(0, 90));
-            player.play(streams.hlsUrl, 0);   // mode 0 = audio; HLS segments via HlsSource
-        } else if (streams && streams.status === 4) { // Status.Failed
+        if (!streams) return;
+        var url = "";
+        var kind = "";
+        if (streams.hlsUrl != "") { url = streams.hlsUrl; kind = "HLS"; }
+        else if (streams.progressiveUrl != "") { url = streams.progressiveUrl; kind = "progressive"; }
+        else if (streams.audioUrl != "") { url = streams.audioUrl; kind = "audio-only"; }
+        if (url != "") {
+            console.log("[player] audio play (" + kind + "):", url.substring(0, 90));
+            player.play(url, 0);   // mode 0 = audio
+        } else if (streams.status === 4) { // Status.Failed
             console.log("[player] no stream:", streams.errorString);
         }
     }

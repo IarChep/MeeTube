@@ -250,12 +250,17 @@ private slots:
     void streams() {
         const std::string p = loadFixtureRaw("player_ios.json");
         QList<CT::Stream> s = parseStreams(p);
-        QCOMPARE(s.size(), 3);                  // hls + itag18 + itag22; ciphered itag137 dropped
+        QCOMPARE(s.size(), 4);                  // hls + itag18 + itag22 + best adaptive audio; ciphered itag137 dropped
         QCOMPARE(s[0].id, QString("hls"));
         QVERIFY(s[0].url.contains("index.m3u8"));
         bool saw18=false; for (int i=0;i<s.size();++i) if (s[i].id=="18") { saw18=true; QCOMPARE(s[i].height, 360); }
         QVERIFY(saw18);
         for (int i=0;i<s.size();++i) QVERIFY(s[i].id != QString("137"));
+        // Best audio-only adaptive: itag 140 preferred over the earlier-listed 251;
+        // the url-ful VIDEO adaptive (137) must not leak in.
+        bool sawAudio=false;
+        for (int i=0;i<s.size();++i) if (s[i].id=="audio") { sawAudio=true; QCOMPARE(s[i].url, QString("https://gv.example/aud140")); }
+        QVERIFY(sawAudio);
     }
     void videoDetails() {
         const std::string p = loadFixtureRaw("player_ios.json");

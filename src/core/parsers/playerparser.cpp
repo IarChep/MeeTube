@@ -16,6 +16,7 @@ struct PlayabilityStatus {
 struct Format {
     std::optional<std::string> url;
     std::optional<std::string> qualityLabel;
+    std::optional<std::string> mimeType;
     std::optional<FlexInt> itag;
     std::optional<FlexInt> width;
     std::optional<FlexInt> height;
@@ -96,6 +97,25 @@ static QList<CT::Stream> streamsOf(const pj::PlayerRoot &root, bool *sawCiphered
             s.height = (int)toInt64(f.height);
             out << s;
         }
+    }
+    // Best audio-only adaptive stream (id="audio"). IOS SABR responses drop the
+    // hlsManifestUrl AND all progressive formats but keep URL-ful audio-only
+    // adaptiveFormats (live-verified 2026-07-12: itag-140 ranged GET → 206, no
+    // n-throttle, no pot) — without this the audio app has nothing to play there.
+    // itag 140 (128k AAC) preferred, else the first url-ful audio/*.
+    if (sd.adaptiveFormats) {
+        CT::Stream best;
+        for (const pj::Format &f : *sd.adaptiveFormats) {
+            const QString url = qstr(f.url);
+            if (url.isEmpty() || !qstr(f.mimeType).startsWith(QLatin1String("audio/"))) continue;
+            if (best.url.isEmpty() || toInt64(f.itag) == 140) {
+                best.id = QString::fromLatin1("audio");
+                best.description = QString::fromLatin1("audio-only");
+                best.url = url;
+                if (toInt64(f.itag) == 140) break;
+            }
+        }
+        if (!best.url.isEmpty()) out << best;
     }
     // Nothing playable but formats were present → every format was ciphered.
     if (sawCipheredOnly) *sawCipheredOnly = out.isEmpty() && formatsSeen > 0;
