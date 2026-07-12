@@ -129,11 +129,16 @@ void GstAppPipeline::onPadAddedCb(GstElement *, GstPad *pad, gpointer user)
     GstCaps *caps = gst_pad_get_caps(pad);
     const gchar *name = gst_structure_get_name(gst_caps_get_structure(caps, 0));
     GstPad *sink = 0;
-    if (name && g_str_has_prefix(name, "audio"))
+    const bool isAudio = name && g_str_has_prefix(name, "audio");
+    if (isAudio)
         sink = gst_element_get_static_pad(self->m_aconv, "sink");
     else   // video -> colorspace (video mode) or fakesink (audio mode)
         sink = gst_element_get_static_pad(self->m_vconv ? self->m_vconv : self->m_vsink, "sink");
-    if (sink && !gst_pad_is_linked(sink)) gst_pad_link(pad, sink);
+    GstPadLinkReturn lr = GST_PAD_LINK_WAS_LINKED;
+    if (sink && !gst_pad_is_linked(sink)) lr = gst_pad_link(pad, sink);
+    PLOG() << "gst: pad-added" << (name ? name : "(no caps)")
+           << "->" << (isAudio ? "aconv" : (self->m_vconv ? "vconv" : "fakesink"))
+           << "link=" << (int)lr;
     if (sink) gst_object_unref(sink);
     gst_caps_unref(caps);
 }
