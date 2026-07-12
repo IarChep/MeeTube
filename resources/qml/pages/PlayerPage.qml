@@ -13,19 +13,20 @@ Page {
     property variant streams: null
     property bool controlsShown: true
 
-    // Pick in device-verified order: HLS (IOS, HlsSource) → progressive muxed
-    // (ANDROID_VR itag-18, ProgressiveSource) → audio-only adaptive (itag-140,
-    // the IOS SABR fallback — same ProgressiveSource, nothing else available).
+    // Pick in device-verified order: progressive muxed (ANDROID_VR itag-18) plays
+    // as VIDEO (mode 1 — H.264 360p + AAC, overlay into the app window); HLS (IOS)
+    // and audio-only adaptive (itag-140, the IOS SABR fallback) stay audio (mode 0).
     function tryPlay() {
         if (!streams) return;
         var url = "";
         var kind = "";
-        if (streams.hlsUrl != "") { url = streams.hlsUrl; kind = "HLS"; }
-        else if (streams.progressiveUrl != "") { url = streams.progressiveUrl; kind = "progressive"; }
+        var mode = 0;   // 0 = audio, 1 = video
+        if (streams.progressiveUrl != "") { url = streams.progressiveUrl; kind = "video/progressive"; mode = 1; }
+        else if (streams.hlsUrl != "") { url = streams.hlsUrl; kind = "HLS"; }
         else if (streams.audioUrl != "") { url = streams.audioUrl; kind = "audio-only"; }
         if (url != "") {
-            console.log("[player] audio play (" + kind + "):", url.substring(0, 90));
-            player.play(url, 0);   // mode 0 = audio
+            console.log("[player] play (" + kind + "):", url.substring(0, 90));
+            player.play(url, mode);
         } else if (streams.status === 4) { // Status.Failed
             console.log("[player] no stream:", streams.errorString);
         }
