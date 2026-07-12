@@ -80,12 +80,15 @@ void GstAppPipeline::buildPipeline()
                << "audioconvert=" << (m_aconv != 0) << "audioresample=" << (m_ares != 0)
                << "autoaudiosink=" << (m_asink != 0) << "vsink=" << (m_vsink != 0);
 
-    // appsrc: stream-type seekable (byte offsets), unknown or known size, block on full.
-    // GST_APP_STREAM_TYPE_SEEKABLE (=1) means the source answers seek events; STREAM (=0)
-    // is forward-only. (Do NOT use RANDOM_ACCESS=2 — it requires serving any offset on
-    // demand.) The enum comes from the included <gst/app/gstappsrc.h>.
+    // appsrc: ALWAYS forward-only STREAM. Advertising SEEKABLE makes qtdemux issue a
+    // byte-seek during preroll, and with no "seek-data" handler connected appsrc can't
+    // service it — the pipeline freezes in READY before the first need-data
+    // (device-observed 2026-07-13: probe 206/seekable=true -> no need-data, no error).
+    // STREAM is the device-verified working config; YouTube progressive mp4 is
+    // faststart (moov first), so push-mode demuxing works. In-stream seek, if ever
+    // needed, = connect "seek-data" + re-anchor the ByteSource window.
     g_object_set(G_OBJECT(m_appsrc),
-                 "stream-type", m_seekable ? GST_APP_STREAM_TYPE_SEEKABLE : GST_APP_STREAM_TYPE_STREAM,
+                 "stream-type", GST_APP_STREAM_TYPE_STREAM,
                  "format", GST_FORMAT_BYTES,
                  "is-live", FALSE,
                  "block", TRUE, NULL);
