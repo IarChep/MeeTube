@@ -12,13 +12,31 @@ private slots:
         QVERIFY(c.contains("\"clientName\":\"IOS\""));
         QVERIFY(c.contains("\"clientVersion\":\"20.49.6\""));
         QVERIFY(c.contains("\"hl\":\"en\""));
-        QVERIFY(c.contains("\"visitorData\":\"VD\""));
+        // IOS is a player-only client: visitorData is deliberately omitted so YouTube
+        // returns the HLS manifest instead of a SABR-only response (see ContextBuilder).
+        QVERIFY(!c.contains("\"visitorData\""));
         // user + request sub-contexts (minimum-viable shape)
         QVERIFY(c.contains("\"user\":{\"lockedSafetyMode\":false}"));
         QVERIFY(c.contains("\"useSsl\":true"));
         QVERIFY(c.contains("\"internalExperimentFlags\":[]"));
         // IOS device identity present
         QVERIFY(c.contains("\"deviceMake\":\"Apple\""));
+    }
+    // visitorData is sent on normal clients but OMITTED on the player-only clients
+    // (IOS / ANDROID_VR) — a clean player request keeps YouTube from returning a
+    // SABR-only response without the hlsManifestUrl.
+    void playerClientsOmitVisitorData() {
+        Session s; s.visitorData = "VD";
+        QVERIFY(QString::fromStdString(ContextBuilder::contextJson(ClientId::ANDROID, s))
+                    .contains("\"visitorData\":\"VD\""));   // normal client keeps it
+        QVERIFY(!QString::fromStdString(ContextBuilder::contextJson(ClientId::IOS, s))
+                    .contains("\"visitorData\""));
+        QVERIFY(!QString::fromStdString(ContextBuilder::contextJson(ClientId::ANDROID_VR, s))
+                    .contains("\"visitorData\""));
+        bool iosHasVid = false;
+        const QList<QPair<QByteArray,QByteArray> > h = ContextBuilder::headers(ClientId::IOS, s);
+        for (int i = 0; i < h.size(); ++i) if (h[i].first == "X-Goog-Visitor-Id") iosHasVid = true;
+        QVERIFY(!iosHasVid);
     }
     void webContextHasUserRequest() {
         Session s;

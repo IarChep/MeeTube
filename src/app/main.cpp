@@ -26,6 +26,7 @@
 #include "curlnamfactory.h"
 #include "media/streamplayer.h"
 #include "media/bytesource.h"
+#include "media/hlssource.h"
 #include "media/gstpipeline.h"
 #include "media/policyguard.h"
 #include "net/curlnetworkaccessmanager.h"
@@ -134,7 +135,9 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
 #ifdef MEETUBE_CA_BUNDLE
         playerNam->setCaBundle(QByteArray(MEETUBE_CA_BUNDLE));
 #endif
-        yt::media::ProgressiveSource *src = new yt::media::ProgressiveSource(playerNam);
+        // HLS source: progressive itag=18 is PoToken-gated (gvs 403) for every JS-less
+        // client as of 2026; the IOS HLS manifest's segments are the one un-gated path.
+        yt::media::HlsSource *src = new yt::media::HlsSource(playerNam);
         playerNam->setParent(src);      // NAM lifetime follows the source
         yt::media::GstAppPipeline *pipe = new yt::media::GstAppPipeline;
         yt::media::StreamPlayer *player =
