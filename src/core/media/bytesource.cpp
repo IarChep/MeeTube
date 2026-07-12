@@ -44,7 +44,10 @@ void ProgressiveSource::issueWindow(qint64 start, qint64 maxBytes, const char *s
 {
     close();
     const qint64 win = maxBytes < kWindow ? maxBytes : kWindow;
-    QNetworkRequest req((QUrl(m_url)));
+    // fromEncoded, NOT QUrl(QString): Qt 4.7's QUrl(QString) re-encodes the '%' of
+    // existing escapes (%3D -> %253D, %2C -> %252C), corrupting the sig-covered
+    // googlevideo params -> HTTP 403 (device-verified 2026-07-13; raw libcurl 206).
+    QNetworkRequest req(QUrl::fromEncoded(m_url.toUtf8()));
     const QByteArray range = "bytes=" + QByteArray::number(start) + "-"
                            + QByteArray::number(start + win - 1);
     PLOG() << "ByteSource: GET Range" << range.constData();
@@ -60,9 +63,12 @@ void ProgressiveSource::onProbeFinished()
     if (!r) return;
     r->deleteLater();
     const int http = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    if (r->error() != QNetworkReply::NoError) {
+    // http >= 400 too: the NAM does not map HTTP status to a reply error, and a 403
+    // probe used to sail through as "OK" with an empty body ("Stream contains no data").
+    if (r->error() != QNetworkReply::NoError || http >= 400) {
         PLOG() << "ByteSource: probe FAILED http=" << http << qPrintable(r->errorString());
-        emit failed(r->errorString()); return;
+        emit failed(http >= 400 ? QString::fromLatin1("stream HTTP %1").arg(http) : r->errorString());
+        return;
     }
     // Content-Range: bytes START-END/TOTAL
     const QByteArray cr = r->rawHeader("Content-Range");
@@ -94,10 +100,11 @@ void ProgressiveSource::onWindowFinished()
     QNetworkReply *r = m_reply; m_reply = 0;
     if (!r) return;
     r->deleteLater();
-    if (r->error() != QNetworkReply::NoError) {
-        const int http = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const int http = r->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (r->error() != QNetworkReply::NoError || http >= 400) {
         PLOG() << "ByteSource: window FAILED http=" << http << qPrintable(r->errorString());
-        emit failed(r->errorString()); return;
+        emit failed(http >= 400 ? QString::fromLatin1("stream HTTP %1").arg(http) : r->errorString());
+        return;
     }
     const QByteArray w = r->readAll();
     if (w.isEmpty()) { PLOG() << "ByteSource: window empty → EOS"; emit finished(); return; }

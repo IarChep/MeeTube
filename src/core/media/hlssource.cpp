@@ -41,7 +41,9 @@ void HlsSource::close()
 void HlsSource::get(const QString &url, const char *slot)
 {
     close();
-    QNetworkRequest req((QUrl(url)));
+    // fromEncoded: QUrl(QString) double-encodes %-escapes (see bytesource.cpp) —
+    // manifest/segment URLs are served pre-encoded by googlevideo.
+    QNetworkRequest req(QUrl::fromEncoded(url.toUtf8()));
     req.setRawHeader("User-Agent", iosUserAgent());
     m_reply = m_nam->get(req);
     connect(m_reply, SIGNAL(finished()), this, slot);
