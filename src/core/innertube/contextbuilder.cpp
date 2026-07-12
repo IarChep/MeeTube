@@ -51,7 +51,13 @@ std::string ContextBuilder::contextJson(ClientId id, const Session &s) {
         ctx.client.androidSdkVersion = 32; ctx.client.osName = "Android"; ctx.client.osVersion = "12L";
         ctx.client.deviceMake = "Oculus"; ctx.client.deviceModel = "Quest 3"; ctx.client.platform = "MOBILE";
     }
-    if (!s.visitorData.isEmpty()) ctx.client.visitorData = s.visitorData.toStdString();
+    // Omit visitorData on the ANDROID_VR player request. A stale / cross-client
+    // visitorData (ours is captured from an earlier WEB/feed response) is a gvs
+    // "distrust" signal that can PoToken-gate the returned stream URL; the working WP
+    // reference sends none on its mobile player. ANDROID_VR is player-only here, so
+    // this doesn't affect any feed/browse.
+    if (id != ClientId::ANDROID_VR && !s.visitorData.isEmpty())
+        ctx.client.visitorData = s.visitorData.toStdString();
     // user + request: minimum-viable shape real clients send; harmless when
     // unneeded, but several endpoints behave better with it present (see
     // docs/INNERTUBE_API.md §5).
@@ -67,7 +73,7 @@ QList<QPair<QByteArray, QByteArray> > ContextBuilder::headers(ClientId id, const
     h << qMakePair(QByteArray("User-Agent"), QByteArray(ci.userAgent));
     // Consent cookie: without it, EU/consent-gated regions return empty feeds.
     h << qMakePair(QByteArray("Cookie"), QByteArray(Catalog::kConsentCookie));
-    if (!s.visitorData.isEmpty())
+    if (id != ClientId::ANDROID_VR && !s.visitorData.isEmpty())
         h << qMakePair(QByteArray("X-Goog-Visitor-Id"), s.visitorData.toUtf8());
     // Bearer ONLY on TVHTML5: the token is minted with the TV client credentials
     // and every other client rejects it with 400 INVALID_ARGUMENT — not just the
