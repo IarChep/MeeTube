@@ -92,7 +92,12 @@ void ProgressiveSource::requestData(qint64 maxBytes)
         return;
     }
     if (m_total >= 0 && m_offset >= m_total) { emit finished(); return; }
-    issueWindow(m_offset, maxBytes, SLOT(onWindowFinished()));
+    // Ignore tiny hints: appsrc asks per its 4096-byte blocksize, and one HTTPS
+    // round trip per 4 KiB caps throughput at ~40 KB/s — below the itag-18 bitrate,
+    // so playback starved ~30 s after the 2 MiB preroll drained (device-observed
+    // 2026-07-13). Always fetch a full window; appsrc's queue provides backpressure
+    // (need-data simply pauses until it drains).
+    issueWindow(m_offset, qMax(maxBytes, kWindow), SLOT(onWindowFinished()));
 }
 
 void ProgressiveSource::onWindowFinished()
