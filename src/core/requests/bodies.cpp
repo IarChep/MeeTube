@@ -21,15 +21,8 @@ struct Next {
     std::optional<std::string> videoId;
     std::optional<std::string> continuation;
 };
-struct ContentPlaybackContext {
-    std::string html5Preference = "HTML5_PREF_WANTS";
-};
-struct PlaybackContext {
-    ContentPlaybackContext contentPlaybackContext;
-};
 struct Player {
     std::string videoId;
-    PlaybackContext playbackContext;   // parity with the working reference player body
     bool contentCheckOk = true;
     bool racyCheckOk = true;
 };

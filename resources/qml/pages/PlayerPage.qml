@@ -14,9 +14,9 @@ Page {
     property bool controlsShown: true
 
     function tryPlay() {
-        if (streams && streams.progressiveUrl != "") {
-            console.log("[player] audio play:", streams.progressiveUrl.substring(0, 90));
-            player.play(streams.progressiveUrl, 0);   // mode 0 = audio (video pad -> fakesink)
+        if (streams && streams.hlsUrl != "") {
+            console.log("[player] audio play (HLS):", streams.hlsUrl.substring(0, 90));
+            player.play(streams.hlsUrl, 0);   // mode 0 = audio; HLS segments via HlsSource
         } else if (streams && streams.status === 4) { // Status.Failed
             console.log("[player] no stream:", streams.errorString);
         }

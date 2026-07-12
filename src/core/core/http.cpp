@@ -283,12 +283,7 @@ void Http::post(const QString &endpoint, ClientId client, const std::string &bod
     }
 
     // (c) MISS: issue the network call and register the Pending.
-    // The InnerTube API key rides the URL on /player (parity with the reference client);
-    // other endpoints stay keyless (context auth).
-    QString query = QLatin1String("?prettyPrint=false");
-    if (endpoint == QLatin1String("player"))
-        query += QLatin1String("&key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8");
-    QNetworkRequest req(QUrl(m_baseUrl + endpoint + query));
+    QNetworkRequest req(QUrl(m_baseUrl + endpoint + "?prettyPrint=false"));
     const QList<QPair<QByteArray, QByteArray> > &hs = cachedHeaders(client);
     for (int i = 0; i < hs.size(); ++i)
         req.setRawHeader(hs[i].first, hs[i].second);
