@@ -31,6 +31,7 @@ public:
                     connect(&m_srv, SIGNAL(newConnection()), this, SLOT(onConn())); }
     int port() const { return m_srv.serverPort(); }
     QByteArray body;                 // set by the test
+    QByteArray lastRequestLine;      // "GET /path?query HTTP/1.1" as received
 private slots:
     void onConn() {
         QTcpSocket *s = m_srv.nextPendingConnection();
@@ -41,6 +42,7 @@ private slots:
         QTcpSocket *s = qobject_cast<QTcpSocket *>(sender());
         QByteArray req = s->readAll();
         if (!req.contains("\r\n\r\n")) return;
+        lastRequestLine = req.left(req.indexOf('\r'));
         qint64 start = 0, end = body.size() - 1; bool partial = false;
         int r = req.indexOf("Range: bytes=");
         if (r >= 0) {
@@ -161,6 +163,20 @@ private slots:
         src.requestData(2 * 1024 * 1024);
         QTRY_COMPARE(got.count(), 1);
         QCOMPARE(got.at(0).at(0).toByteArray().size(), 2 * 1024 * 1024);  // one 2 MiB window
+    }
+
+    // Qt 4.7 QUrl(QString) double-encodes existing %-escapes (%2C -> %252C), which
+    // corrupted signed googlevideo params -> HTTP 403. ByteSource must pass the URL
+    // through byte-exact (QUrl::fromEncoded).
+    void progressivePreservesPercentEscapes() {
+        RangeServer srv; srv.body = QByteArray(1024, 'D');
+        yt::net::CurlNetworkAccessManager nam;
+        yt::media::ProgressiveSource src(&nam);
+        QSignalSpy opened(&src, SIGNAL(opened(qint64,bool)));
+        src.open(QString("http://127.0.0.1:%1/videoplayback?xpc=Eg%3D%3D&met=123%2C&mm=31%2C29").arg(srv.port()));
+        QTRY_COMPARE(opened.count(), 1);
+        QVERIFY(srv.lastRequestLine.contains("xpc=Eg%3D%3D&met=123%2C&mm=31%2C29"));
+        QVERIFY(!srv.lastRequestLine.contains("%25"));   // the double-encoding bug
     }
 
     // Successive requestData() calls walk the file window by window and then EOS.

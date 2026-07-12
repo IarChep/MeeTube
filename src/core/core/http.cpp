@@ -309,7 +309,9 @@ void Http::get(const QString &url, const JobToken &job, HttpFn done)
 {
     Q_ASSERT(thread() == QThread::currentThread());   // must run on the transport's (worker) thread
     const bool wantVisitor = m_session.visitorData.isEmpty();
-    QNetworkReply *reply = m_nam.get(QNetworkRequest(QUrl(url)));
+    // fromEncoded: arbitrary server-issued URLs (timedtext subtitles, RYD) may carry
+    // %-escapes; QUrl(QString) double-encodes them (see media/bytesource.cpp).
+    QNetworkReply *reply = m_nam.get(QNetworkRequest(QUrl::fromEncoded(url.toUtf8())));
 
     Waiter w; w.job = job; w.fn = done;
     Pending p;
