@@ -18,6 +18,7 @@ add_library(meetube-core STATIC
     innertube/contextbuilder.cpp
     core/http.cpp
     core/chains.cpp
+    core/debuglog.cpp
     requests/bodies.cpp
     innertube/accountstore.cpp
     innertube/accountmanager.cpp

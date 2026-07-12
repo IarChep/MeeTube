@@ -92,7 +92,7 @@ CurlNetworkReply::CurlNetworkReply(CurlEngine *engine, QNetworkAccessManager::Op
         curl_easy_setopt(m_easy, CURLOPT_VERBOSE, 1L);
         curl_easy_setopt(m_easy, CURLOPT_DEBUGFUNCTION, &CurlNetworkReply::debugCb);
         curl_easy_setopt(m_easy, CURLOPT_DEBUGDATA, this);
-        qWarning("[net] REQ %s %s (thread=%p)",
+        qDebug("[net] REQ %s %s (thread=%p)",
                  op == QNetworkAccessManager::PostOperation ? "POST" : "GET",
                  url.constData(), (void *) QThread::currentThreadId());
     }
@@ -240,7 +240,7 @@ void CurlNetworkReply::onCurlDone(int curlCode, long)
             curl_easy_getinfo(m_easy, CURLINFO_CONNECT_TIME_T,    &tConn);
             curl_easy_getinfo(m_easy, CURLINFO_APPCONNECT_TIME_T, &tApp);
             curl_easy_getinfo(m_easy, CURLINFO_TOTAL_TIME_T,      &tTotal);
-            qWarning("[net] FAIL code=%d (%s) os_errno=%ld primaryIP=%s:%ld localIP=%s "
+            qDebug("[net] FAIL code=%d (%s) os_errno=%ld primaryIP=%s:%ld localIP=%s "
                      "http=%ld status=%ld t_dns=%ldus t_conn=%ldus t_tls=%ldus t_total=%ldus url=%s",
                      curlCode, curl_easy_strerror((CURLcode) curlCode), osErrno,
                      primaryIp ? primaryIp : "(null)", primaryPort, localIp ? localIp : "(null)",
