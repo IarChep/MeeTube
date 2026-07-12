@@ -8,6 +8,7 @@
 #include "media/ipolicy.h"
 #include "net/curlnetworkaccessmanager.h"
 #include "media/bytesource.h"
+#include "core/debuglog.h"
 
 // Qt 4.7.4's QtTest ships no QTRY_COMPARE (added in 4.8) — same gap the loopback
 // tst_meetube_client/threading tests note. Shim it with a bounded spin that pumps
@@ -145,6 +146,20 @@ private slots:
     void seamsCompile() {
         QVERIFY(yt::media::AudioMode == 0);
         QVERIFY(yt::media::VideoMode == 1);
+    }
+
+    // The shared debug sink's category predicate: "1"/"all" enable everything,
+    // else a comma/space token list matches exactly; empty enables nothing.
+    void debugSinkCategories() {
+        using yt::core::debugSpecEnables;
+        QVERIFY(debugSpecEnables("1", "net"));
+        QVERIFY(debugSpecEnables("all", "player"));
+        QVERIFY(debugSpecEnables("net,player", "net"));
+        QVERIFY(debugSpecEnables("net player", "player"));   // space-separated
+        QVERIFY(debugSpecEnables(" player ", "player"));     // trimmed
+        QVERIFY(!debugSpecEnables("net", "player"));
+        QVERIFY(!debugSpecEnables("", "net"));
+        QVERIFY(!debugSpecEnables("networking", "net"));     // token, not substring
     }
 
     // open() probes the first 2 MiB window: it learns the total size and

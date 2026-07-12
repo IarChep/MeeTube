@@ -1,16 +1,15 @@
 #include "net/curlengine.h"
 #include "net/curlnetworkreply.h"
+#include "core/debuglog.h"
 #include <QSocketNotifier>
 #include <QtGlobal>
 #include <climits>
 
 namespace yt { namespace net {
 
-bool netDebugEnabled()
-{
-    static const bool on = (qgetenv("MEETUBE_NET_DEBUG") == "1");
-    return on;
-}
+// Thin alias over the shared sink's "net" category (core::logEnabled). Enable via
+// MEETUBE_DEBUG=net (or =1/all); the legacy MEETUBE_NET_DEBUG=1 still works too.
+bool netDebugEnabled() { return core::logEnabled("net"); }
 
 CurlEngine::CurlEngine(QObject *parent) : QObject(parent), m_multi(0)
 {
@@ -124,7 +123,7 @@ void CurlEngine::checkCompletions()
         // deferred to ~CurlNetworkReply). engine=<this> disambiguates the GUI (images) vs
         // worker (core::Http) engine in the interleaved log.
         if (netDebugEnabled())
-            qWarning("[net] DONE engine=%p code=%d status=%ld", (void *) this, (int) res, status);
+            qDebug("[net] DONE engine=%p code=%d status=%ld", (void *) this, (int) res, status);
         if (owner) owner->onCurlDone((int) res, status);
     }
 }

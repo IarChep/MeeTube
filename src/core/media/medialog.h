@@ -1,17 +1,14 @@
 #ifndef YT_MEDIA_MEDIALOG_H
 #define YT_MEDIA_MEDIALOG_H
-#include <QDebug>
+#include "core/debuglog.h"
 namespace yt { namespace media {
-// Player-path trace gate: env MEETUBE_PLAYER_DEBUG=1 (read once, cached), mirroring
-// net/curlengine.h's netDebugEnabled(). Off by default. Covers the whole playback
-// chain — client/streams resolution (core::fetchPlayer), URL selection (StreamSet),
-// the StreamPlayer state machine, the ByteSource googlevideo GETs (HTTP status of
-// each window — where a gvs 403 surfaces), and the device GStreamer pipeline.
+// Player-path trace gate — a thin alias over the shared sink's "player" category
+// (core::logEnabled). Kept for the few direct callers (e.g. core::fetchPlayer's
+// debug block). Covers the whole playback chain: streams resolution, URL
+// selection, the StreamPlayer state machine, ByteSource googlevideo GETs, and
+// the device GStreamer pipeline. Enable via MEETUBE_DEBUG=player (or =1/all).
 bool playerDebugEnabled();
 }}
-// PLOG() << … — one trace line, "[player]"-prefixed, emitted only when enabled.
-// The if/else guard leaves the streamed args UNEVALUATED when off (zero overhead)
-// and is dangling-else safe (the macro's own else consumes any trailing else).
-// Stream URLs with qPrintable() to avoid Qt4 QDebug's surrounding quotes.
-#define PLOG() if (!::yt::media::playerDebugEnabled()) {} else qDebug() << "[player]"
+// PLOG() << … — the player-category line of the shared sink (see core/debuglog.h).
+#define PLOG() MLOG("player")
 #endif
