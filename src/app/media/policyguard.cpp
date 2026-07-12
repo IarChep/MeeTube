@@ -19,6 +19,8 @@
 #if defined(BUILD_N9)
 #include <policy/resource-set.h>
 #include <policy/resources.h>
+#include <policy/audio-resource.h>
+#include <QCoreApplication>
 
 namespace yt { namespace media {
 
@@ -39,7 +41,17 @@ void PolicyGuard::acquire(PlaybackMode mode)
 {
     m_mode = mode;
     m_acquired = true;     // owns the set from here; release() will hand it back
-    m_set->addResource(ResourcePolicy::AudioPlaybackType);
+    // A bare AudioPlaybackType grants the resource but Harmattan's SYSTEM pulse
+    // (module-policy) still can't tell WHICH stream is ours, so it stays in the
+    // unclassified group and plays MUTED (device symptom: pipeline PLAYING, pads
+    // linked, zero sound). The documented libresourceqt pattern: an AudioResource
+    // carrying our PID + a wildcard stream tag lets policy match the pulsesink
+    // stream and unmute it. addResourceObject replaces any prior audio resource.
+    ResourcePolicy::AudioResource *audio =
+        new ResourcePolicy::AudioResource(QLatin1String("player"));
+    audio->setProcessID((quint32) QCoreApplication::applicationPid());
+    audio->setStreamTag(QLatin1String("media.name"), QLatin1String("*"));
+    m_set->addResourceObject(audio);   // set takes ownership
     if (mode == VideoMode) m_set->addResource(ResourcePolicy::VideoPlaybackType);
     m_set->update();       // register the modified set
     m_set->acquire();      // -> resourcesGranted() (or resourcesDenied())
