@@ -256,6 +256,10 @@ When generating or editing any `.qml`, **invoke the `nokia-n9-qml` skill**. Hard
 - No C++11 lambda / new-style `connect` — string `SIGNAL`/`SLOT` + a `QHash<QObject*,…> m_pending`
   + an `onFinished()` slot via `sender()`. (std::function callbacks for the transport are fine.)
 - No `QByteArray::fromStdString` — use `QByteArray(s.c_str())`.
+- **`QUrl(QString)` double-encodes existing %-escapes** (`%3D`→`%253D`, `%2C`→`%252C`), corrupting
+  signed googlevideo/timedtext URLs → HTTP 403. Every server-issued URL must enter Qt as
+  `QUrl::fromEncoded(url.toUtf8())` (done in `ByteSource`/`HlsSource`/`Http::get`; regression test
+  `progressivePreservesPercentEscapes`).
 - **Qt does no TLS/HTTPS.** All HTTP(S) goes through the `src/core/net/` libcurl + OpenSSL 3.x
   transport (custom `QNetworkAccessManager`), so `QSslSocket` / `QSslConfiguration` are never used
   and no OpenSSL is dlopen'd by Qt. (Qt 4.7.4's `QSslSocket` was ABI-locked to OpenSSL 1.0.x AND
