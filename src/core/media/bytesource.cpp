@@ -115,4 +115,38 @@ bool ProgressiveSource::seek(qint64 byteOffset)
     return true;
 }
 
+// ---- RoutingSource --------------------------------------------------------
+
+RoutingSource::RoutingSource(ByteSource *hls, ByteSource *progressive, QObject *parent)
+    : ByteSource(0, parent), m_hls(hls), m_prog(progressive), m_active(0)
+{
+    m_hls->setParent(this);
+    m_prog->setParent(this);
+    // Signal→signal forwarding for both children, connected once; the inactive
+    // child is never open()ed so it never emits.
+    ByteSource *kids[2] = { m_hls, m_prog };
+    for (int i = 0; i < 2; ++i) {
+        connect(kids[i], SIGNAL(opened(qint64,bool)), this, SIGNAL(opened(qint64,bool)));
+        connect(kids[i], SIGNAL(data(QByteArray)),    this, SIGNAL(data(QByteArray)));
+        connect(kids[i], SIGNAL(finished()),          this, SIGNAL(finished()));
+        connect(kids[i], SIGNAL(failed(QString)),     this, SIGNAL(failed(QString)));
+    }
+}
+
+void RoutingSource::open(const QString &url)
+{
+    if (m_active) m_active->close();
+    // YouTube HLS manifest URLs: manifest.googlevideo.com/api/manifest/hls_* or
+    // an explicit .m3u8 path; everything else is a direct media file.
+    const bool hls = url.contains(QLatin1String(".m3u8"))
+                  || url.contains(QLatin1String("/api/manifest/"));
+    m_active = hls ? m_hls : m_prog;
+    PLOG() << "RoutingSource: open as" << (hls ? "HLS" : "progressive");
+    m_active->open(url);
+}
+
+void RoutingSource::requestData(qint64 maxBytes) { if (m_active) m_active->requestData(maxBytes); }
+bool RoutingSource::seek(qint64 byteOffset)      { return m_active ? m_active->seek(byteOffset) : false; }
+void RoutingSource::close()                      { if (m_active) m_active->close(); }
+
 }} // namespace yt::media

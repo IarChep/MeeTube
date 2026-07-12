@@ -53,5 +53,23 @@ private:
     bool     m_haveFirst;
     QNetworkReply *m_reply;  // at most one in flight
 };
+
+// Routes open() to the HLS child for manifest URLs, else to the progressive
+// child (since the 2026-07-12 visitorData fix ANDROID_VR serves direct
+// progressive/audio URLs again, so the app needs BOTH paths live — the player
+// previously fed itag-18 URLs to HlsSource: "no audio playlist in master").
+// Both children's signals are forwarded permanently (signal→signal); only the
+// active child is ever open, the other stays silent.
+class RoutingSource : public ByteSource {
+    Q_OBJECT
+public:
+    RoutingSource(ByteSource *hls, ByteSource *progressive, QObject *parent = 0);
+    void open(const QString &url);
+    void requestData(qint64 maxBytes);
+    bool seek(qint64 byteOffset);
+    void close();
+private:
+    ByteSource *m_hls, *m_prog, *m_active;
+};
 }}
 #endif
