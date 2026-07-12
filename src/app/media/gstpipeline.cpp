@@ -64,7 +64,26 @@ void GstAppPipeline::buildPipeline()
     m_asink    = gst_element_factory_make("autoaudiosink", "asink");
     if (m_mode == VideoMode) {                          // video pad -> colorspace ! overlay sink
         m_vconv = gst_element_factory_make("ffmpegcolorspace", "vconv");
-        m_vsink = gst_element_factory_make("autovideosink", "vsink");
+        // omapxvsink explicitly (not autovideosink): the OMAP HW Xv overlay is a
+        // separate DSS plane below the UI, and we must turn OFF its colorkey
+        // autopaint. With autopaint on it repaints the colorkey into our X window
+        // every frame, racing Qt's whole-surface GL clear (FullClearOnEveryFrame)
+        // — that race is the flicker. Instead QML paints the colorkey (PlayerPage),
+        // stable every frame, and the overlay shows through it. Fall back to
+        // autovideosink if omapxvsink is unavailable (non-N9 stacks).
+        m_vsink = gst_element_factory_make("omapxvsink", "vsink");
+        if (!m_vsink) m_vsink = gst_element_factory_make("autovideosink", "vsink");
+        if (m_vsink) {
+            GObjectClass *k = G_OBJECT_GET_CLASS(m_vsink);
+            if (g_object_class_find_property(k, "autopaint-colorkey"))
+                g_object_set(G_OBJECT(m_vsink), "autopaint-colorkey", FALSE, NULL);
+            if (g_object_class_find_property(k, "colorkey"))
+                g_object_set(G_OBJECT(m_vsink), "colorkey", (gint) videoColorKey(), NULL);
+            if (g_object_class_find_property(k, "force-aspect-ratio"))
+                g_object_set(G_OBJECT(m_vsink), "force-aspect-ratio", TRUE, NULL);
+            if (g_object_class_find_property(k, "draw-borders"))
+                g_object_set(G_OBJECT(m_vsink), "draw-borders", TRUE, NULL);
+        }
     } else {                                            // audio only: swallow the video pad
         m_vconv = 0;
         m_vsink = gst_element_factory_make("fakesink", "vsink");

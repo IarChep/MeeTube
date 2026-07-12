@@ -3,8 +3,28 @@
 #include "media/ipipeline.h"
 #include "media/ipolicy.h"
 #include "media/medialog.h"
+#include <QByteArray>
 
 namespace yt { namespace media {
+
+// Chroma-key colour (see media/playbackmode.h). Parsed once from MEETUBE_COLORKEY
+// (hex RRGGBB); default magenta 0xFF00FF.
+int videoColorKey()
+{
+    static const int key = []() {
+        const QByteArray e = qgetenv("MEETUBE_COLORKEY");
+        if (e.isEmpty()) return 0xFF00FF;
+        bool ok = false;
+        const int v = e.toInt(&ok, 16);
+        return ok ? (v & 0xFFFFFF) : 0xFF00FF;
+    }();
+    return key;
+}
+
+QString videoColorKeyCss()
+{
+    return QString::fromLatin1("#%1").arg(videoColorKey() & 0xFFFFFF, 6, 16, QChar('0'));
+}
 
 static const char *stateName(int s)
 {

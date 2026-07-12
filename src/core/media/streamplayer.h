@@ -19,6 +19,7 @@ class StreamPlayer : public QObject {
     Q_PROPERTY(int     bufferProgress READ bufferProgress NOTIFY bufferProgressChanged)
     Q_PROPERTY(bool    seekable       READ seekable       NOTIFY seekableChanged)
     Q_PROPERTY(int     mode           READ mode           NOTIFY modeChanged)
+    Q_PROPERTY(QString overlayColorKey READ overlayColorKey CONSTANT)
     Q_PROPERTY(QString errorString    READ errorString    NOTIFY stateChanged)
 public:
     enum State { Idle, Loading, Buffering, Playing, Paused, Stopped, Error };
@@ -31,6 +32,7 @@ public:
     int     bufferProgress() const { return m_buffer; }
     bool    seekable()       const { return m_seekable; }
     int     mode()           const { return (int)m_mode; }
+    QString overlayColorKey() const { return videoColorKeyCss(); }
     QString errorString()    const { return m_error; }
 
     Q_INVOKABLE void play(const QString &url, int mode);   // mode: 0=audio,1=video
