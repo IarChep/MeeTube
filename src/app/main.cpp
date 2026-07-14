@@ -23,12 +23,18 @@
 #include "harmattan/perlinbackground.h"
 #include "harmattan/qrimageprovider.h"
 #include "harmattan/shareui.h"
+#include "harmattan/eglvideoitem.h"
+#if defined(BUILD_N9)
+#include <X11/Xlib.h>   // XInitThreads — required for gltexturesink (Nokia docs)
+#endif
 #include "curlnamfactory.h"
 #include "media/streamplayer.h"
 #include "media/bytesource.h"
 #include "media/hlssource.h"
 #include "media/gstpipeline.h"
+#include "media/qtmpipeline.h"
 #include "media/policyguard.h"
+#include "harmattan/videosurface.h"
 #include "net/curlnetworkaccessmanager.h"
 
 Q_DECL_EXPORT int main(int argc, char *argv[])
@@ -38,6 +44,15 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     // thread) depend on the process-global curl/OpenSSL state it sets up. Run it once
     // here, before any thread (createApplication, the worker QNAM) can touch libcurl.
     curl_global_init(CURL_GLOBAL_DEFAULT);
+
+#if defined(BUILD_N9)
+    // gltexturesink talks X/EGL from its streaming thread; Nokia's own comment
+    // (qgraphicsvideoitem_maemo6.cpp): "XInitThreads is necessary for
+    // gltexturesink". Under the booster this runs later than a plain binary's
+    // static ctor would, but that is exactly the timing the (working)
+    // QtMultimediaKit path already exercises in this app.
+    XInitThreads();
+#endif
 
     QScopedPointer<QApplication> app(createApplication(argc, argv));
     QCoreApplication::setApplicationName("MeeTube");
@@ -104,6 +119,8 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     qmlRegisterType<MaskedItem>("MeeTube", 1, 0, "MaskedItem");
     qmlRegisterType<PerlinBackground>("MeeTube", 1, 0, "PerlinBackground");
     qmlRegisterType<yt::SearchSuggest>("MeeTube", 1, 0, "SearchSuggest");
+    qmlRegisterType<VideoSurface>("MeeTube", 1, 0, "VideoSurface");
+    qmlRegisterType<EglVideoItem>("MeeTube", 1, 0, "EglVideoItem");
 
     int rc;
     {
@@ -144,16 +161,48 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
             new yt::media::HlsSource(playerNam),
             new yt::media::ProgressiveSource(playerNam));
         playerNam->setParent(src);      // NAM lifetime follows the source
-        yt::media::GstAppPipeline *pipe = new yt::media::GstAppPipeline;
+        // Pipeline backend — DEFAULT: the in-house appsrc GStreamer pipeline with
+        // the in-scene texture renderer (gltexturesink -> EglVideoItem, canon
+        // QtMultimediaKit protocol; MEETUBE_GST_TEXTURE=0 reverts it to the
+        // omapxvsink colorkey overlay). Device-verified 2026-07-15: network
+        // playback, aspect-correct letterboxing, working preroll.
+        // MEETUBE_QTM=1 switches to the stock QtMultimediaKit backend
+        // (StreamProxy loopback HTTP -> souphttpsrc + QGraphicsVideoItem),
+        // kept as the A/B reference implementation.
+        yt::media::IPipeline *pipe = 0;
+        yt::media::GstAppPipeline *gstPipe = 0;
+        yt::media::IPolicy *policy = 0;
+        QObject *qtmMedia = 0;
+        if (qgetenv("MEETUBE_QTM") == "1") {
+            yt::media::QtmPipeline *qtm = new yt::media::QtmPipeline;
+            qtmMedia = qtm->mediaObject();
+            pipe = qtm;
+            // The QtMultimediaKit engine acquires resource policy itself; a second
+            // app-side "player" set gets one of them revoked mid-playback.
+            policy = new yt::media::NullPolicy;
+        } else {
+            gstPipe = new yt::media::GstAppPipeline;
+            pipe = gstPipe;
+            policy = new yt::media::PolicyGuard;
+        }
         yt::media::StreamPlayer *player =
-            new yt::media::StreamPlayer(src, pipe, new yt::media::PolicyGuard);
+            new yt::media::StreamPlayer(src, pipe, policy);
         viewer.rootContext()->setContextProperty("player", player);
+        viewer.rootContext()->setContextProperty("qtmMedia", qtmMedia);
+        // gst path renderer selection for QML: the EglVideoItem (in-scene texture
+        // streaming, canon QtMultimediaKit protocol on OUR pipeline) vs the
+        // legacy colorkey Rectangle (omapxvsink). MEETUBE_GST_TEXTURE=0 reverts.
+        viewer.rootContext()->setContextProperty("gstPipeObj",
+            static_cast<QObject *>(gstPipe));
+        viewer.rootContext()->setContextProperty("gstTexture",
+            gstPipe != 0 && qgetenv("MEETUBE_GST_TEXTURE") != "0");
         viewer.setOrientation(QmlApplicationViewer::ScreenOrientationLockPortrait);
         viewer.setSource(QUrl("qrc:/qml/main.qml"));
         viewer.showExpanded();
         // Video overlay renders into the app's top-level X window (fullscreen player).
         // winId() is stable after show; the pipeline uses it lazily when video plays.
-        pipe->setVideoWindow(viewer.winId());
+        // (QtmPipeline needs no window — its renderer lives inside the QML scene.)
+        if (gstPipe) gstPipe->setVideoWindow(viewer.winId());
 
         rc = app->exec();
         // Scope end: ~QmlApplicationViewer tears down the QML engine and with it

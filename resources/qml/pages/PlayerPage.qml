@@ -1,5 +1,6 @@
 import QtQuick 1.1
 import com.nokia.meego 1.0
+import MeeTube 1.0
 import "../js/UIConstants.js" as UI
 
 // Audio now-playing screen. Phase-1 audio: plays the progressive stream in
@@ -12,6 +13,19 @@ Page {
     property string videoId: ""
     property variant streams: null
     property bool controlsShown: true
+
+    // Immersive player: no phone status bar and no rounded window corners while
+    // this page is on top; both restored when leaving (Deactivating fires for
+    // pop and for a page pushed above us alike).
+    onStatusChanged: {
+        if (status === PageStatus.Activating) {
+            appWindow.showStatusBar = false;
+            appWindow.platformStyle.cornersVisible = false;
+        } else if (status === PageStatus.Deactivating) {
+            appWindow.showStatusBar = true;
+            appWindow.platformStyle.cornersVisible = true;
+        }
+    }
 
     // Quality/track picker state, filled from streams.videoStreams/audioStreams.
     property variant qualLabels: []   // display strings for the SelectionDialog
@@ -90,10 +104,45 @@ Page {
     // surface, and the controls above composite on top of the live video. The
     // colour comes from the player (single source of truth shared with the sink;
     // tune with MEETUBE_COLORKEY). Backmost child so everything else draws over it.
+    // Used only on the omapxvsink path (gst backend without texture streaming);
+    // the QtMultimediaKit and gst-texture paths render in-scene instead.
     Rectangle {
         anchors.fill: parent
         color: player.overlayColorKey
-        visible: player.mode === 1        // video only; audio mode has no overlay
+        visible: player.mode === 1 && qtmMedia === null && !gstTexture
+    }
+
+    // In-scene video for the in-house gst pipeline in texture-streaming mode
+    // (MEETUBE_QTM=0): gltexturesink frames drawn as GL textures inside the QML
+    // scene by EglVideoItem — canon QtMultimediaKit protocol on OUR pipeline.
+    // Visible from page load: its first paint hands the scene GL context to the
+    // pipeline, which the sink needs BEFORE it is created (canon ordering).
+    // Letterboxed: full screen width, height from the native aspect ratio
+    // (pipeline reports it from the negotiated caps; 16:9 until known), centred.
+    EglVideoItem {
+        property real nativeW: gstPipeObj !== null ? gstPipeObj.videoWidth : 0
+        property real nativeH: gstPipeObj !== null ? gstPipeObj.videoHeight : 0
+        anchors.centerIn: parent
+        width: parent.width
+        height: nativeW > 0 && nativeH > 0
+                ? Math.round(parent.width * nativeH / nativeW)
+                : Math.round(parent.width * 9 / 16)
+        pipeline: gstPipeObj
+        visible: gstTexture && qtmMedia === null
+    }
+
+    // In-scene video for the QtMultimediaKit backend (MEETUBE_QTM=1): the stock
+    // engine renders decoded frames as a GL texture INSIDE the QML scene, so the
+    // controls above get true alpha blending. Backmost like the colorkey hole.
+    // MUST be visible (and painted) from page load, not just in video mode: the
+    // Harmattan QGraphicsVideoItem hands its surface to the renderer only after
+    // the first paint (needs the current GL context), and setMedia() with no
+    // surface yet builds a dead "video-output-bin" — device-observed
+    // "Configured videosink video-output-bin is not working".
+    VideoSurface {
+        anchors.fill: parent
+        mediaObject: qtmMedia
+        visible: qtmMedia !== null
     }
 
     // Tap the video area to toggle the controls (sits below the controls layer).

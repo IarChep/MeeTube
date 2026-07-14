@@ -50,7 +50,7 @@ endif()
 # Dependencies
 # ---------------------------------------------------------------------------
 find_package(Qt4 4.7.4 COMPONENTS
-    QtCore QtGui QtDeclarative QtNetwork QtTest REQUIRED)
+    QtCore QtGui QtDeclarative QtNetwork QtOpenGL QtTest REQUIRED)
 find_package(X11 REQUIRED)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)

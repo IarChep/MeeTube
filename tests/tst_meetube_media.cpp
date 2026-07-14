@@ -6,6 +6,8 @@
 #include <QElapsedTimer>
 #include "media/ipipeline.h"
 #include "media/ipolicy.h"
+#include "media/streamfeed.h"
+#include "media/streamproxy.h"
 #include "net/curlnetworkaccessmanager.h"
 #include "media/bytesource.h"
 #include "core/debuglog.h"
@@ -146,6 +148,103 @@ private slots:
     void seamsCompile() {
         QVERIFY(yt::media::AudioMode == 0);
         QVERIFY(yt::media::VideoMode == 1);
+    }
+
+    // StreamFeed: the QIODevice bridge for the QtMultimediaKit path. Sequential
+    // read of appended windows, queued readyRead "sips" (one per 4 KiB appended —
+    // the fd:// pump moves PIPE_BUF per signal), low-water needMore() (queued,
+    // once per drain), EOF = finish() + drained buffer -> atEnd().
+    void streamFeedBridgesPushToPull() {
+        yt::media::StreamFeed feed;
+        QVERIFY(feed.open(QIODevice::ReadOnly));
+        QVERIFY(feed.isSequential());
+        QCOMPARE(feed.bytesAvailable(), (qint64) 0);
+        QVERIFY(!feed.atEnd());
+
+        QSignalSpy ready(&feed, SIGNAL(readyRead()));
+        QSignalSpy need(&feed, SIGNAL(needMore(qint64)));
+
+        feed.append(QByteArray(10000, 'a'));             // 3 sips due (ceil 10000/4096)
+        QCOMPARE(feed.bytesAvailable(), (qint64) 10000);
+        for (int i = 0; i < 5; ++i) QCoreApplication::processEvents();
+        QVERIFY(ready.count() >= 3);                     // one pump sip per 4 KiB slice
+
+        QCOMPARE(feed.read(6000), QByteArray(6000, 'a')); // under low-water -> queues needMore
+        QCOMPARE(feed.read(6000), QByteArray(4000, 'a')); // short read drains it
+        QCOMPARE(feed.bytesAvailable(), (qint64) 0);
+        QVERIFY(!feed.atEnd());                           // dry but not EOS
+        for (int i = 0; i < 3; ++i) QCoreApplication::processEvents();
+        QCOMPARE(need.count(), 1);                        // once, not per read
+
+        feed.append(QByteArray(30, 'b'));                 // append clears the pending gate
+        feed.finish();
+        QCOMPARE(feed.read(100), QByteArray(30, 'b'));
+        QVERIFY(feed.atEnd());                            // EOS after drain
+        for (int i = 0; i < 3; ++i) QCoreApplication::processEvents();
+        QCOMPARE(need.count(), 1);                        // no needMore after finish()
+    }
+
+    // StreamProxy: the loopback HTTP bridge for the QtMultimediaKit path.
+    // GET inside the buffered window is served (206 + payload from the offset);
+    // a Range outside the window re-anchors upstream via seekByte().
+    void streamProxyServesRangesAndSeeks() {
+        yt::media::StreamProxy proxy;
+        QVERIFY(proxy.start());
+        proxy.setStream(1000, true);
+        QSignalSpy seeks(&proxy, SIGNAL(seekByte(qint64)));
+        QSignalSpy need(&proxy, SIGNAL(needMore(qint64)));
+        proxy.feed(QByteArray(1000, 'a'));                // whole stream buffered
+        proxy.finishInput();
+
+        QTcpSocket sock;
+        sock.connectToHost(QHostAddress::LocalHost, proxy.url().port());
+        // Single-thread test: qWait pumps the loop so BOTH sides progress (the
+        // file's standard loopback idiom). Connect first — Qt4 sockets don't
+        // buffer pre-connect writes — then request and collect until close.
+        {
+            QElapsedTimer et; et.start();
+            while (sock.state() != QAbstractSocket::ConnectedState && et.elapsed() < 3000)
+                QTest::qWait(10);
+        }
+        QCOMPARE((int) sock.state(), (int) QAbstractSocket::ConnectedState);
+        sock.write("GET " + proxy.url().path().toLatin1()
+                   + " HTTP/1.1\r\nHost: x\r\nRange: bytes=100-\r\n\r\n");
+        QByteArray resp;
+        {
+            QElapsedTimer et; et.start();
+            while (et.elapsed() < 3000) {
+                QTest::qWait(10);
+                resp += sock.readAll();
+                if (sock.state() == QAbstractSocket::UnconnectedState) break;
+            }
+        }
+        resp += sock.readAll();
+        QVERIFY2(resp.startsWith("HTTP/1.1 206"), resp.left(40).constData());
+        QVERIFY(resp.contains("Content-Range: bytes 100-999/1000"));
+        const int body = resp.indexOf("\r\n\r\n") + 4;
+        QCOMPARE(resp.size() - body, 900);                // exactly the tail
+        QCOMPARE(seeks.count(), 0);                       // in-window: no re-anchor
+
+        // Second connection with an out-of-window Range -> upstream seek.
+        proxy.setStream(100000, true);
+        proxy.feed(QByteArray(1000, 'x'));                // window = [0..1000)
+        QTcpSocket sock2;
+        QSignalSpy seeks2(&proxy, SIGNAL(seekByte(qint64)));
+        sock2.connectToHost(QHostAddress::LocalHost, proxy.url().port());
+        {
+            QElapsedTimer et; et.start();
+            while (sock2.state() != QAbstractSocket::ConnectedState && et.elapsed() < 3000)
+                QTest::qWait(10);
+        }
+        sock2.write("GET " + proxy.url().path().toLatin1()
+                    + " HTTP/1.1\r\nHost: x\r\nRange: bytes=50000-\r\n\r\n");
+        {
+            QElapsedTimer et; et.start();
+            while (seeks2.isEmpty() && et.elapsed() < 3000) QTest::qWait(10);
+        }
+        QCOMPARE(seeks2.count(), 1);
+        QCOMPARE(seeks2.first().first().toLongLong(), (qint64) 50000);
+        Q_UNUSED(need);
     }
 
     // The shared debug sink's category predicate: "1"/"all" enable everything,
