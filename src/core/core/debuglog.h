@@ -23,4 +23,9 @@ bool debugSpecEnables(const QByteArray &spec, const char *category);
 // The if/else guard leaves the streamed args UNEVALUATED when off (zero cost)
 // and is dangling-else safe. Stream URLs with qPrintable() to drop QDebug quotes.
 #define MLOG(cat) if (!::yt::core::logEnabled(cat)) {} else qDebug() << "[" cat "]"
+
+// PLOG() << … — the player-category line (streams resolution, the StreamPlayer
+// state machine, ByteSource googlevideo GETs, the device GStreamer pipeline).
+// Enable via MEETUBE_DEBUG=player (or =1/all).
+#define PLOG() MLOG("player")
 #endif

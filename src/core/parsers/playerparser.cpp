@@ -145,7 +145,6 @@ static CT::Video detailsOf(const pj::PlayerRoot &root)
     if (v.thumbnailUrl.isEmpty() && !v.id.isEmpty())
         v.thumbnailUrl = "https://i.ytimg.com/vi/" + v.id + "/hqdefault.jpg";
     v.largeThumbnailUrl = v.thumbnailUrl;
-    v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     return v;
 }
 

@@ -87,7 +87,7 @@ reads it via **`CURLOPT_CAINFO`**, seeded from the `MEETUBE_CA_BUNDLE` compile d
 ### CMake layout
 
 Root [CMakeLists.txt](CMakeLists.txt) orders: `add_subdirectory(deps)` (early — exports its
-cross-consumed vars as `CACHE INTERNAL`) → `src` → `tests` (host-only) → `bench_json`.
+cross-consumed vars as `CACHE INTERNAL`) → `src` → `tests` (host-only).
 **`src/` is a container** ([src/CMakeLists.txt](src/CMakeLists.txt)) that adds three subprojects
 in dependency order, each with its own CMakeLists:
 - [src/core/](src/core/CMakeLists.txt) — the **`meetube-core`** STATIC lib (types + parsers +
@@ -99,7 +99,7 @@ in dependency order, each with its own CMakeLists:
   **AUTORCC**), linking `meetube-core`. It also owns the booster/loader link options, the
   `WEBP_PLUGIN_DIR`/`MEETUBE_CA_BUNDLE` compile defs, the install rules, and the N9 `package` target.
 
-`deps/`, `tests/`, and the `bench_json` harness stay at the repo root.
+`deps/` and `tests/` stay at the repo root.
 
 ### Platform option: BUILD_N9
 
@@ -189,7 +189,7 @@ in dependency order, each with its own CMakeLists:
   builders (`browse`/`search`/`player`/…). The 9 QObject request classes + `ITransport`/
   `InnertubeClient` were **deleted** in the rework (→ `core::chains` + `core::Http`).
 - **`models/`** — `servicelistmodel` (the `QAbstractListModel` base; typed row seam
-  `itemCount`/`roleData`/`dropItems`), the five list models storing **typed `QList<CT::…>`** answered
+  `itemCount`/`roleData`/`dropItems`), the four list models storing **typed `QList<CT::…>`** answered
   by a zero-alloc `switch(role)` (no `QVariantMap`), `servicemetatypes`. Each facade fires a
   `core::chain` through `apiRef().host->invoke(...)` and delivers back via `invokeGui`, guarded by
   the `JobToken` gate (dtor + `cancel()` cancel the token — the cross-thread safety protocol).

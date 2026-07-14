@@ -73,7 +73,7 @@ add_subdirectory(deps)
 # Source subprojects (src/): the meetube-core lib (src/core/), the WebP plugin
 # (src/webp-imageformat/) and the GUI app (src/app/) — each with its own
 # CMakeLists.txt, added in dependency order by src/CMakeLists.txt. Placed before
-# tests/bench_json (which link meetube-core); deps/ is already added above so
+# tests/ (which links meetube-core); deps/ is already added above so
 # its targets + CACHE INTERNAL vars are visible inside src/.
 # ---------------------------------------------------------------------------
 add_subdirectory(src)
@@ -84,26 +84,6 @@ add_subdirectory(src)
 # ---------------------------------------------------------------------------
 if(NOT BUILD_N9)
     add_subdirectory(tests)
-endif()
-
-# ---------------------------------------------------------------------------
-# bench_json — parity-dump + micro-benchmark harness for the JSON backend.
-# Dev-only: never installed, not a ctest. OFF by default (only built when
-# measuring); the on-device numbers are the ones that matter, so it stays
-# device-runnable when enabled. No QtTest dependency — plain QtCore.
-# ---------------------------------------------------------------------------
-option(MEETUBE_BUILD_BENCH "Build the bench_json micro-benchmark harness" OFF)
-if(MEETUBE_BUILD_BENCH)
-    add_executable(bench_json tests/bench_json.cpp)
-    target_link_libraries(bench_json PRIVATE meetube-core)
-    if(BUILD_N9)
-        # Same device-runnability recipe as the app: hard-float loader pin + static
-        # C++ runtime (the device's GCC-4.x libstdc++ lacks this build's symbols).
-        target_link_options(bench_json PRIVATE
-            -static-libstdc++ -static-libgcc
-            -Wl,--dynamic-linker,/lib/ld-linux.so.3
-            -Wl,-rpath,/opt/meetube/lib -Wl,--disable-new-dtags)
-    endif()
 endif()
 
 # (The WebP plugin `qwebp` and the `meetube` app executable are built inside

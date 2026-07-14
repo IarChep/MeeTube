@@ -16,7 +16,7 @@
 
 #include "streamset.h"
 #include "innertube/innertube.h"
-#include "media/medialog.h"
+#include "core/debuglog.h"
 
 namespace yt {
 
