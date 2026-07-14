@@ -30,7 +30,7 @@
 #include "parsers/ytjson.h"
 #include "parsers/suggestparser.h"
 #include "innertube/clientconfig.h"
-#include "media/medialog.h"
+#include "core/debuglog.h"
 #include <memory>
 #include <vector>
 #include <QUrl>
@@ -155,7 +155,6 @@ void fetchWatch(IHttp &http, const QString &videoId, const JobToken &job,
             CT::Video primary; QList<CT::Video> related;
             parseWatchPage(*r.body, &primary, &related);
             primary.id = videoId;                    // /next does not echo the id; carry it
-            primary.commentsId = videoId; primary.subtitlesId = videoId; primary.relatedVideosId = videoId;
             out.ok = true; out.value.primary = primary; out.value.related = related;
             done(out);
         });
@@ -233,7 +232,7 @@ static void playerTry(IHttp &http, const QString &videoId,
             // ---- captions side (subtitlesrequest.cpp): first transport-ok wins ----
             if (r.ok) {
                 const PlayerResult pr = parsePlayer(*r.body);
-                if (media::playerDebugEnabled()) {
+                if (logEnabled("player")) {
                     int prog = 0; bool hls = false, aud = false;
                     for (const CT::Stream &s : pr.streams) {
                         if (s.id == QLatin1String("hls")) hls = true;

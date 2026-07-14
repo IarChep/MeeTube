@@ -36,7 +36,7 @@ void EglVideoItem::paint(QPainter *, const QStyleOptionGraphicsItem *, QWidget *
 
 #include "media/gstpipeline.h"
 #include "media/meegovideotexture.h"
-#include "media/medialog.h"
+#include "core/debuglog.h"
 #include <QPainter>
 #include <QStyleOptionGraphicsItem>
 #include <QX11Info>

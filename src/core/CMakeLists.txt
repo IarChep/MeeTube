@@ -36,13 +36,11 @@ add_library(meetube-core STATIC
     models/commentmodel.cpp
     models/playlistmodel.cpp
     models/channelmodel.cpp
-    models/accountmodel.cpp
     models/servicemetatypes.cpp
     threading/workerhost.cpp
     net/curlengine.cpp
     net/curlnetworkreply.cpp
     net/curlnetworkaccessmanager.cpp
-    media/medialog.cpp
     media/ipolicy.cpp
     media/ipipeline.cpp
     media/bytesource.cpp

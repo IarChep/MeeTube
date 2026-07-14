@@ -1,5 +1,5 @@
 #include "media/gstpipeline.h"
-#include "media/medialog.h"
+#include "core/debuglog.h"
 
 #if !defined(BUILD_N9)   // ---- host stub ----
 #include <QString>

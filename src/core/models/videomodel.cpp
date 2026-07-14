@@ -23,7 +23,7 @@ static QList<QByteArray> videoRoles() {
     QList<QByteArray> r;
     r << "id" << "title" << "description" << "thumbnailUrl" << "largeThumbnailUrl"
       << "date" << "duration" << "url" << "streamUrl" << "userId" << "username" << "avatarUrl"
-      << "viewCount" << "viewText" << "downloadable" << "commentsId" << "relatedVideosId" << "subtitlesId";
+      << "viewCount" << "viewText" << "downloadable";
     return r;
 }
 
@@ -31,8 +31,7 @@ static QList<QByteArray> videoRoles() {
 // handed to roleData() is the 0-based position in that list).
 enum VRole { RId, RTitle, RDescription, RThumbnailUrl, RLargeThumbnailUrl, RDate,
              RDuration, RUrl, RStreamUrl, RUserId, RUsername, RAvatarUrl,
-             RViewCount, RViewText, RDownloadable, RCommentsId, RRelatedVideosId,
-             RSubtitlesId, RVideoRoleCount };
+             RViewCount, RViewText, RDownloadable, RVideoRoleCount };
 
 VideoModel::VideoModel(QObject *parent)
     : ServiceListModel(videoRoles(), parent), m_canPage(false) {}
@@ -61,9 +60,6 @@ QVariant VideoModel::roleData(int row, int idx) const {
     case RViewCount: return v.viewCount;
     case RViewText: return v.viewText;
     case RDownloadable: return v.downloadable;
-    case RCommentsId: return v.commentsId;
-    case RRelatedVideosId: return v.relatedVideosId;
-    case RSubtitlesId: return v.subtitlesId;
     }
     return QVariant();
 }

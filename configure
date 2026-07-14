@@ -130,7 +130,6 @@ HOSTEOF
             -G "Unix Makefiles" \
             -DCMAKE_TOOLCHAIN_FILE="$CONAN_TOOLCHAIN_FILE" \
             -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
             -DQT_QMAKE_EXECUTABLE="$QMAKE" \
             -DBUILD_N9=OFF \
             "$@"

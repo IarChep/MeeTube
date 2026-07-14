@@ -284,9 +284,6 @@ private slots:
         QCOMPARE(v.username, QString("Chan A"));
         QCOMPARE(v.userId, QString("UCxxxx"));
         QCOMPARE(v.viewCount, (qint64)1234);
-        QCOMPARE(v.commentsId, QString("aaa11111111"));
-        QCOMPARE(v.subtitlesId, QString("aaa11111111"));
-        QCOMPARE(v.relatedVideosId, QString("aaa11111111"));
         QCOMPARE(v.description, QString("hello"));
         QVERIFY(!v.thumbnailUrl.isEmpty());
     }

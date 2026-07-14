@@ -282,7 +282,6 @@ void parseWatchPage(std::string_view response, CT::Video *primary, QList<CT::Vid
             }
         }
     }
-    v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     *primary = v;
 }
 

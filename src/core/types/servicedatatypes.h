@@ -25,8 +25,7 @@ namespace CT {
 
 struct Video {
     QString id, title, description, thumbnailUrl, largeThumbnailUrl, date, duration, url,
-            streamUrl, userId, username, avatarUrl, likeText, viewText,
-            commentsId, relatedVideosId, subtitlesId;
+            streamUrl, userId, username, avatarUrl, likeText, viewText;
     qint64 viewCount = 0;
     // Account-tied engagement state (populated only from authed /next; see WS1).
     int    likeStatus  = 0;    // 0 Indifferent, 1 Liked, 2 Disliked

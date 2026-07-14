@@ -15,7 +15,7 @@
  */
 
 #include "media/hlssource.h"
-#include "media/medialog.h"
+#include "core/debuglog.h"
 #include "innertube/clientconfig.h"
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>

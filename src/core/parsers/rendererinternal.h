@@ -386,9 +386,6 @@ inline CT::Video fromVideoRenderer(const rj::VideoR &r)
         v.viewCount = digitsOf(qstr(textOf(*r.viewCountText)));
     if (r.publishedTimeText)                    // "2 days ago" — shown on the delegate
         v.date = qstr(textOf(*r.publishedTimeText));
-    v.commentsId = v.id;
-    v.subtitlesId = v.id;
-    v.relatedVideosId = v.id;
     return v;
 }
 
@@ -449,7 +446,6 @@ inline CT::Video fromLockupVideo(const rj::Lockup &lm)
             }
         }
     }
-    v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     return v;
 }
 
@@ -522,7 +518,6 @@ inline CT::Video fromTile(const rj::Tile &t)
         }
     }
     v.url = "https://www.youtube.com/watch?v=" + v.id;
-    v.commentsId = v.id; v.subtitlesId = v.id; v.relatedVideosId = v.id;
     return v;
 }
 

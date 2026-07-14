@@ -204,9 +204,6 @@ private slots:
         QCOMPARE(calls, 1);
         QVERIFY(out.ok);
         QCOMPARE(out.value.primary.id, QString("vid42"));           // carried, /next doesn't echo it
-        QCOMPARE(out.value.primary.commentsId, QString("vid42"));   // id stamped everywhere
-        QCOMPARE(out.value.primary.subtitlesId, QString("vid42"));
-        QCOMPARE(out.value.primary.relatedVideosId, QString("vid42"));
         QCOMPARE(out.value.primary.description, QString("Hello description"));
         QVERIFY(out.value.related.size() >= 1);
         QVERIFY(t.sent.at(0).contains("\"videoId\":\"vid42\""));

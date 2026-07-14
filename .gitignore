@@ -1,6 +1,8 @@
 # build trees
 /build-sim/
 /build-n9/
+# ctest scratch (from running ctest in-tree)
+/tests/Testing/
 # Debian package outputs (produced by `make -C build-n9 package`)
 /*.deb
 /*.changes

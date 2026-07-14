@@ -2,7 +2,7 @@
 #include "media/bytesource.h"
 #include "media/ipipeline.h"
 #include "media/ipolicy.h"
-#include "media/medialog.h"
+#include "core/debuglog.h"
 #include <QByteArray>
 
 namespace yt { namespace media {
