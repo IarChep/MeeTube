@@ -104,16 +104,14 @@ Page {
     // surface, and the controls above composite on top of the live video. The
     // colour comes from the player (single source of truth shared with the sink;
     // tune with MEETUBE_COLORKEY). Backmost child so everything else draws over it.
-    // Used only on the omapxvsink path (gst backend without texture streaming);
-    // the QtMultimediaKit and gst-texture paths render in-scene instead.
+    // Used only with the Xv fallback renderer (MEETUBE_GST_TEXTURE=0).
     Rectangle {
         anchors.fill: parent
         color: player.overlayColorKey
-        visible: player.mode === 1 && qtmMedia === null && !gstTexture
+        visible: player.mode === 1 && !gstTexture
     }
 
-    // In-scene video for the in-house gst pipeline in texture-streaming mode
-    // (MEETUBE_QTM=0): gltexturesink frames drawn as GL textures inside the QML
+    // The video: gltexturesink frames drawn as GL textures inside the QML
     // scene by EglVideoItem — canon QtMultimediaKit protocol on OUR pipeline.
     // Visible from page load: its first paint hands the scene GL context to the
     // pipeline, which the sink needs BEFORE it is created (canon ordering).
@@ -128,21 +126,7 @@ Page {
                 ? Math.round(parent.width * nativeH / nativeW)
                 : Math.round(parent.width * 9 / 16)
         pipeline: gstPipeObj
-        visible: gstTexture && qtmMedia === null
-    }
-
-    // In-scene video for the QtMultimediaKit backend (MEETUBE_QTM=1): the stock
-    // engine renders decoded frames as a GL texture INSIDE the QML scene, so the
-    // controls above get true alpha blending. Backmost like the colorkey hole.
-    // MUST be visible (and painted) from page load, not just in video mode: the
-    // Harmattan QGraphicsVideoItem hands its surface to the renderer only after
-    // the first paint (needs the current GL context), and setMedia() with no
-    // surface yet builds a dead "video-output-bin" — device-observed
-    // "Configured videosink video-output-bin is not working".
-    VideoSurface {
-        anchors.fill: parent
-        mediaObject: qtmMedia
-        visible: qtmMedia !== null
+        visible: gstTexture
     }
 
     // Tap the video area to toggle the controls (sits below the controls layer).

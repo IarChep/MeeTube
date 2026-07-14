@@ -57,9 +57,6 @@ private:
     static void onGlFrameReadyCb(GstElement *sink, gint frame, gpointer user);
     // canon padBufferProbe: one-shot — first buffer reached the sink, caps final.
     static gboolean onNativeSizeProbeCb(GstPad *pad, GstBuffer *buf, gpointer user);
-    // DIAG(2026-07-14): buffer-count pad probe — counts buffers passing a pad.
-    static gboolean onBufProbeCb(GstPad *pad, GstBuffer *buf, gpointer counter);
-    void dumpPipelineState(GstBin *bin, int depth);   // DIAG: per-element (cur,pend)
     void buildPipeline();
     void teardown();
     GstElement *m_pipeline; GstElement *m_appsrc; GstElement *m_decode;
@@ -69,9 +66,6 @@ private:
     WId m_winId;
     QTimer m_posTimer;   // polls position/duration while playing
     PlaybackMode m_mode; bool m_seekable; qint64 m_total;
-    // DIAG(2026-07-14): preroll forensics — buffer counters + periodic state dump.
-    QTimer m_dumpTimer;
-    int m_cntDecVideo, m_cntDecAudio, m_cntVconvOut, m_cntVsinkIn;
     // Texture-streaming state (canon QGstreamerGLTextureRenderer): the scene GL
     // context, the gltexturesink element, and the frame handshake gate.
     QGLContext    *m_glCtx;
@@ -83,7 +77,6 @@ private:
 private slots:
     void emitNeedData(qint64 n);   // marshalled from the streaming thread
     void onPosTick();              // query + emit position/duration
-    void onDumpTick();             // DIAG: dump element states + probe counters
     void onGlFrame(int frame);     // GUI side of frame-ready: stash + notify item
     void updateNativeVideoSize();  // canon: negotiated sink caps -> videoWidth/Height
 #endif

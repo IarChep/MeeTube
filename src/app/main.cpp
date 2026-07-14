@@ -32,9 +32,7 @@
 #include "media/bytesource.h"
 #include "media/hlssource.h"
 #include "media/gstpipeline.h"
-#include "media/qtmpipeline.h"
 #include "media/policyguard.h"
-#include "harmattan/videosurface.h"
 #include "net/curlnetworkaccessmanager.h"
 
 Q_DECL_EXPORT int main(int argc, char *argv[])
@@ -119,7 +117,6 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
     qmlRegisterType<MaskedItem>("MeeTube", 1, 0, "MaskedItem");
     qmlRegisterType<PerlinBackground>("MeeTube", 1, 0, "PerlinBackground");
     qmlRegisterType<yt::SearchSuggest>("MeeTube", 1, 0, "SearchSuggest");
-    qmlRegisterType<VideoSurface>("MeeTube", 1, 0, "VideoSurface");
     qmlRegisterType<EglVideoItem>("MeeTube", 1, 0, "EglVideoItem");
 
     int rc;
@@ -161,48 +158,26 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
             new yt::media::HlsSource(playerNam),
             new yt::media::ProgressiveSource(playerNam));
         playerNam->setParent(src);      // NAM lifetime follows the source
-        // Pipeline backend — DEFAULT: the in-house appsrc GStreamer pipeline with
-        // the in-scene texture renderer (gltexturesink -> EglVideoItem, canon
-        // QtMultimediaKit protocol; MEETUBE_GST_TEXTURE=0 reverts it to the
-        // omapxvsink colorkey overlay). Device-verified 2026-07-15: network
-        // playback, aspect-correct letterboxing, working preroll.
-        // MEETUBE_QTM=1 switches to the stock QtMultimediaKit backend
-        // (StreamProxy loopback HTTP -> souphttpsrc + QGraphicsVideoItem),
-        // kept as the A/B reference implementation.
-        yt::media::IPipeline *pipe = 0;
-        yt::media::GstAppPipeline *gstPipe = 0;
-        yt::media::IPolicy *policy = 0;
-        QObject *qtmMedia = 0;
-        if (qgetenv("MEETUBE_QTM") == "1") {
-            yt::media::QtmPipeline *qtm = new yt::media::QtmPipeline;
-            qtmMedia = qtm->mediaObject();
-            pipe = qtm;
-            // The QtMultimediaKit engine acquires resource policy itself; a second
-            // app-side "player" set gets one of them revoked mid-playback.
-            policy = new yt::media::NullPolicy;
-        } else {
-            gstPipe = new yt::media::GstAppPipeline;
-            pipe = gstPipe;
-            policy = new yt::media::PolicyGuard;
-        }
+        // The ONE playback pipeline: appsrc ! decodebin2 with the in-scene texture
+        // renderer (gltexturesink -> EglVideoItem, canon QtMultimediaKit
+        // protocol). MEETUBE_GST_TEXTURE=0 falls back to the omapxvsink colorkey
+        // overlay renderer inside the same pipeline (rescue hatch for GL
+        // regressions). Device-verified 2026-07-15.
+        yt::media::GstAppPipeline *gstPipe = new yt::media::GstAppPipeline;
         yt::media::StreamPlayer *player =
-            new yt::media::StreamPlayer(src, pipe, policy);
+            new yt::media::StreamPlayer(src, gstPipe, new yt::media::PolicyGuard);
         viewer.rootContext()->setContextProperty("player", player);
-        viewer.rootContext()->setContextProperty("qtmMedia", qtmMedia);
-        // gst path renderer selection for QML: the EglVideoItem (in-scene texture
-        // streaming, canon QtMultimediaKit protocol on OUR pipeline) vs the
-        // legacy colorkey Rectangle (omapxvsink). MEETUBE_GST_TEXTURE=0 reverts.
         viewer.rootContext()->setContextProperty("gstPipeObj",
             static_cast<QObject *>(gstPipe));
         viewer.rootContext()->setContextProperty("gstTexture",
-            gstPipe != 0 && qgetenv("MEETUBE_GST_TEXTURE") != "0");
+            qgetenv("MEETUBE_GST_TEXTURE") != "0");
         viewer.setOrientation(QmlApplicationViewer::ScreenOrientationLockPortrait);
         viewer.setSource(QUrl("qrc:/qml/main.qml"));
         viewer.showExpanded();
-        // Video overlay renders into the app's top-level X window (fullscreen player).
-        // winId() is stable after show; the pipeline uses it lazily when video plays.
-        // (QtmPipeline needs no window — its renderer lives inside the QML scene.)
-        if (gstPipe) gstPipe->setVideoWindow(viewer.winId());
+        // For the Xv fallback renderer only: the overlay draws into the app's
+        // top-level X window. winId() is stable after show; the texture renderer
+        // never touches it.
+        gstPipe->setVideoWindow(viewer.winId());
 
         rc = app->exec();
         // Scope end: ~QmlApplicationViewer tears down the QML engine and with it

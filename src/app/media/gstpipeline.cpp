@@ -35,7 +35,6 @@ GstAppPipeline::GstAppPipeline(QObject *parent)
     : IPipeline(parent), m_pipeline(0), m_appsrc(0), m_decode(0),
       m_aconv(0), m_ares(0), m_asink(0), m_vconv(0), m_vsink(0), m_busWatchId(0),
       m_winId(0), m_mode(AudioMode), m_seekable(false), m_total(-1),
-      m_cntDecVideo(0), m_cntDecAudio(0), m_cntVconvOut(0), m_cntVsinkIn(0),
       m_glCtx(0), m_glSink(0), m_glFrame(-1), m_sizeProbeId(0)
 {
     m_videoW = m_videoH = 0;
@@ -43,9 +42,6 @@ GstAppPipeline::GstAppPipeline(QObject *parent)
     gst_init(0, 0);
     m_posTimer.setInterval(500);   // 2 Hz position/duration updates for the scrubber
     connect(&m_posTimer, SIGNAL(timeout()), this, SLOT(onPosTick()));
-    // DIAG(2026-07-14): while preroll is pending, dump pipeline forensics every 5 s.
-    m_dumpTimer.setInterval(5000);
-    connect(&m_dumpTimer, SIGNAL(timeout()), this, SLOT(onDumpTick()));
 }
 
 GstAppPipeline::~GstAppPipeline() { teardown(); }
@@ -145,32 +141,16 @@ void GstAppPipeline::buildPipeline()
         // Xv fallback: omapxvsink explicitly (not autovideosink) — the OMAP HW Xv
         // overlay is a separate DSS plane below the UI with autopaint OFF; QML
         // paints the colorkey (PlayerPage) and the overlay shows through it.
-        // DIAG(2026-07-14): MEETUBE_VSINK overrides the sink element (e.g.
-        // xvimagesink to bypass omapxvsink's framebuffer-memory buffer path).
-        const QByteArray vsinkName = qgetenv("MEETUBE_VSINK");
-        if (!m_vsink && !vsinkName.isEmpty())
-            m_vsink = gst_element_factory_make(vsinkName.constData(), "vsink");
         if (!m_vsink) m_vsink = gst_element_factory_make("omapxvsink", "vsink");
         if (!m_vsink) m_vsink = gst_element_factory_make("autovideosink", "vsink");
-        if (m_vsink) {
+        if (m_vsink && !m_glSink) {
+            // Xv fallback colorkey config (texture mode configured its sink above).
             GObjectClass *k = G_OBJECT_GET_CLASS(m_vsink);
-            PLOG() << "gst: vsink =" << G_OBJECT_TYPE_NAME(m_vsink)
-                   << "has-fbmem=" << (g_object_class_find_property(k, "use-framebuffer-memory") != 0);
+            PLOG() << "gst: vsink =" << G_OBJECT_TYPE_NAME(m_vsink);
             if (g_object_class_find_property(k, "autopaint-colorkey"))
                 g_object_set(G_OBJECT(m_vsink), "autopaint-colorkey", FALSE, NULL);
             if (g_object_class_find_property(k, "colorkey"))
                 g_object_set(G_OBJECT(m_vsink), "colorkey", (gint) videoColorKey(), NULL);
-            if (g_object_class_find_property(k, "force-aspect-ratio"))
-                g_object_set(G_OBJECT(m_vsink), "force-aspect-ratio", TRUE, NULL);
-            if (g_object_class_find_property(k, "draw-borders"))
-                g_object_set(G_OBJECT(m_vsink), "draw-borders", TRUE, NULL);
-            // DIAG(2026-07-14): MEETUBE_VSINK_FBMEM=0 → allocate frames from SHM
-            // instead of the framebuffer (needs no /dev/fb access — the suspected
-            // in-app preroll blocker; root-run harness pipelines preroll fine).
-            const QByteArray fbmem = qgetenv("MEETUBE_VSINK_FBMEM");
-            if (!fbmem.isEmpty() && g_object_class_find_property(k, "use-framebuffer-memory"))
-                g_object_set(G_OBJECT(m_vsink), "use-framebuffer-memory",
-                             fbmem != "0", NULL);
         }
     } else {                                            // audio only: swallow the video pad
         m_vconv = 0;
@@ -206,18 +186,9 @@ void GstAppPipeline::buildPipeline()
                      m_aconv, m_ares, m_asink, m_vsink, NULL);
     if (m_vconv) { gst_bin_add(GST_BIN(m_pipeline), m_vconv); gst_element_link(m_vconv, m_vsink); }
 
-    // DIAG(2026-07-14): count buffers entering/leaving the video branch, so the
-    // preroll-stall dump can tell "frames never reach the sink" from "sink eats
-    // frames but never prerolls". Reset per build.
-    m_cntDecVideo = m_cntDecAudio = m_cntVconvOut = m_cntVsinkIn = 0;
-    if (m_vconv) {
-        GstPad *p = gst_element_get_static_pad(m_vconv, "src");
-        if (p) { gst_pad_add_buffer_probe(p, G_CALLBACK(&GstAppPipeline::onBufProbeCb), &m_cntVconvOut); gst_object_unref(p); }
-    }
-    if (m_vsink) {
+    if (m_vsink && m_mode == VideoMode) {
         GstPad *p = gst_element_get_static_pad(m_vsink, "sink");
         if (p) {
-            gst_pad_add_buffer_probe(p, G_CALLBACK(&GstAppPipeline::onBufProbeCb), &m_cntVsinkIn);
             // canon padBufferProbe: one-shot native-size read once caps are final.
             m_sizeProbeId = gst_pad_add_buffer_probe(
                 p, G_CALLBACK(&GstAppPipeline::onNativeSizeProbeCb), this);
@@ -281,18 +252,8 @@ void GstAppPipeline::onPadAddedCb(GstElement *, GstPad *pad, gpointer user)
     PLOG() << "gst: pad-added" << (name ? name : "(no caps)")
            << "->" << (isAudio ? "aconv" : (self->m_vconv ? "vconv" : "fakesink"))
            << "link=" << (int)lr;
-    // DIAG(2026-07-14): count decoded buffers decodebin2 actually emits per branch.
-    gst_pad_add_buffer_probe(pad, G_CALLBACK(&GstAppPipeline::onBufProbeCb),
-                             isAudio ? &self->m_cntDecAudio : &self->m_cntDecVideo);
     if (sink) gst_object_unref(sink);
     gst_caps_unref(caps);
-}
-
-// static — DIAG(2026-07-14): tick a counter as buffers pass; TRUE = let it flow.
-gboolean GstAppPipeline::onBufProbeCb(GstPad *, GstBuffer *, gpointer counter)
-{
-    g_atomic_int_add(static_cast<int *>(counter), 1);
-    return TRUE;
 }
 
 // static — canon padBufferProbe: the first buffer reached the video sink, so the
@@ -331,37 +292,6 @@ void GstAppPipeline::updateNativeVideoSize()
         gst_caps_unref(caps);
     }
     gst_object_unref(pad);
-}
-
-// DIAG(2026-07-14): recursive per-element (return, current, pending) dump — the
-// element whose pending stays PAUSED with ret=ASYNC is the one blocking preroll.
-void GstAppPipeline::dumpPipelineState(GstBin *bin, int depth)
-{
-    GstIterator *it = gst_bin_iterate_elements(bin);
-    gpointer item = 0;
-    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
-        GstElement *e = GST_ELEMENT(item);
-        GstState cur = GST_STATE_VOID_PENDING, pend = GST_STATE_VOID_PENDING;
-        GstStateChangeReturn r = gst_element_get_state(e, &cur, &pend, 0);
-        PLOG() << "gst-dump:" << QString(depth * 2, QLatin1Char(' '))
-               << GST_OBJECT_NAME(e) << "ret=" << (int) r
-               << gst_element_state_get_name(cur) << "->"
-               << gst_element_state_get_name(pend);
-        if (GST_IS_BIN(e)) dumpPipelineState(GST_BIN(e), depth + 1);
-        gst_object_unref(e);
-    }
-    gst_iterator_free(it);
-}
-
-void GstAppPipeline::onDumpTick()
-{
-    if (!m_pipeline) { m_dumpTimer.stop(); return; }
-    guint64 lvl = 0;
-    if (m_appsrc) g_object_get(G_OBJECT(m_appsrc), "current-level-bytes", &lvl, NULL);
-    PLOG() << "gst-dump: === preroll forensics: appsrc-queue=" << (qulonglong) lvl
-           << "decVideo=" << m_cntDecVideo << "decAudio=" << m_cntDecAudio
-           << "vconvOut=" << m_cntVconvOut << "vsinkIn=" << m_cntVsinkIn;
-    dumpPipelineState(GST_BIN(m_pipeline), 1);
 }
 
 // static — the video sink asks for its X window id (prepare-xwindow-id, streaming
@@ -467,7 +397,7 @@ gboolean GstAppPipeline::onBusCb(GstBus *, GstMessage *msg, gpointer user)
             GstState olds, news, pend; gst_message_parse_state_changed(msg, &olds, &news, &pend);
             PLOG() << "gst: pipeline state" << gst_element_state_get_name(olds)
                    << "->" << gst_element_state_get_name(news);
-            if (news == GST_STATE_PLAYING) { self->m_dumpTimer.stop(); emit self->started(); }
+            if (news == GST_STATE_PLAYING) emit self->started();
         }
         break;
     default: break;
@@ -485,10 +415,10 @@ void GstAppPipeline::pushData(const QByteArray &chunk)
 
 void GstAppPipeline::endOfStream() { if (m_appsrc) gst_app_src_end_of_stream(GST_APP_SRC(m_appsrc)); }
 
-void GstAppPipeline::play()   { if (m_pipeline) { gst_element_set_state(m_pipeline, GST_STATE_PLAYING); m_posTimer.start(); m_dumpTimer.start(); } }
+void GstAppPipeline::play()   { if (m_pipeline) { gst_element_set_state(m_pipeline, GST_STATE_PLAYING); m_posTimer.start(); } }
 void GstAppPipeline::pause()  { if (m_pipeline) gst_element_set_state(m_pipeline, GST_STATE_PAUSED); m_posTimer.stop(); }
 void GstAppPipeline::resume() { if (m_pipeline) { gst_element_set_state(m_pipeline, GST_STATE_PLAYING); m_posTimer.start(); } }
-void GstAppPipeline::stop()   { m_posTimer.stop(); m_dumpTimer.stop(); teardown(); }
+void GstAppPipeline::stop()   { m_posTimer.stop(); teardown(); }
 
 // Poll position + duration (nanoseconds -> ms) for the scrubber. 0.10 query API
 // takes a GstFormat* (reset it before the second query).
