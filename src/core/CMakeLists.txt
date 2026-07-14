@@ -45,8 +45,6 @@ add_library(meetube-core STATIC
     media/medialog.cpp
     media/ipolicy.cpp
     media/ipipeline.cpp
-    media/streamfeed.cpp
-    media/streamproxy.cpp
     media/bytesource.cpp
     media/hlssource.cpp
     media/streamplayer.cpp

@@ -33,13 +33,9 @@ add_executable(meetube
     # (#if BUILD_N9) with host stubs so the Simulator build links without GStreamer.
     media/policyguard.cpp
     media/gstpipeline.cpp
-    # Alternative playback backend: the stock QtMultimediaKit QMediaPlayer fed from a
-    # StreamFeed QIODevice (MEETUBE_QTM=1), rendering in-scene via VideoSurface.
-    media/qtmpipeline.cpp
-    harmattan/videosurface.cpp
-    # In-scene renderer for the in-house pipeline: gltexturesink frames drawn as
-    # GL_TEXTURE_EXTERNAL_OES quads inside the QML scene (canon QtMultimediaKit
-    # protocol; see media/meegovideotexture.h for the hand-declared interface).
+    # In-scene renderer: gltexturesink frames drawn as GL_TEXTURE_EXTERNAL_OES
+    # quads inside the QML scene (canon QtMultimediaKit protocol; see
+    # media/meegovideotexture.h for the hand-declared interface).
     harmattan/eglvideoitem.cpp
     # QML resources (main.qml + pages/components + avatar-mask.png) baked into the
     # binary; main.cpp loads qrc:/qml/main.qml. Compiled via the target's AUTORCC.
@@ -128,21 +124,12 @@ if(BUILD_N9)
     target_include_directories(meetube PRIVATE ${GST_INCLUDE_DIRS})
     target_link_libraries(meetube PRIVATE ${GST_LIBRARIES})
 
-    # QtMultimediaKit 1.2 (QtmPipeline + VideoSurface): headers + lib straight from
-    # the device sysroot (libqtm-multimedia-dev is part of the slim image:
-    # /usr/include/qt4/QtMultimediaKit + /usr/include/qt4/QtMobility). Resolved via
-    # PKG_CONFIG_SYSROOT_DIR like the other device deps. The qt-mobility checkout at
-    # /opt/projects/qt-mobility stays a READ-ONLY reference for the engine sources
-    # (renderer protocol) only — the build does not depend on it.
-    pkg_check_modules(QTMKIT QtMultimediaKit REQUIRED)
-    target_include_directories(meetube PRIVATE ${QTMKIT_INCLUDE_DIRS})
-    target_link_libraries(meetube PRIVATE ${QTMKIT_LIBRARIES})
-
     # EglVideoItem / gltexturesink texture streaming: EGL (fence + display), GLESv2
     # (the external-OES draw), QtOpenGL (QGLContext/QGLShaderProgram), meego
     # interfaces (meego_gst_video_texture_*), X11 (XInitThreads + QX11Info display).
     # libgstmeegointerfaces ships no unversioned dev symlink — link the runtime
-    # file by absolute path (DT_NEEDED comes from its SONAME).
+    # file by absolute path (DT_NEEDED comes from its SONAME). Renderer protocol
+    # reference: the READ-ONLY qt-mobility checkout at /opt/projects/qt-mobility.
     target_link_libraries(meetube PRIVATE
         EGL GLESv2 X11 Qt4::QtOpenGL
         ${CMAKE_SYSROOT}/usr/lib/libgstmeegointerfaces-0.10.so.0)
