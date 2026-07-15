@@ -58,6 +58,9 @@ mt_test(tst_meetube_solver)
 # signature + solve n + textual URL assembly, preserving signed %-escapes) driven by
 # a REAL Solver from the base.js fixture; rankStreams picks best H.264/AAC for the N9.
 mt_test(tst_meetube_streamurl)
+# streamset: applyPlayer runs rankStreams to expose bestVideoUrl/bestAudioUrl
+# (H.264/AAC) and upgrade progressiveUrl to the best ranked muxed.
+mt_test(tst_meetube_streamset)
 
 find_package(CURL REQUIRED)
 mt_test(tst_meetube_curlnam tst_meetube_curlnam.cpp)
