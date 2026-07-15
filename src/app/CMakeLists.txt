@@ -51,7 +51,6 @@ add_executable(meetube
 # expect. This target used to live in the ROOT CMakeLists (→ build root); the src/
 # restructure moved it under src/app/, which made CMake emit it at build-*/src/app/meetube
 # and `build-sim/meetube` silently vanished. Pinning restores the historical location.
-# (bench_json, still added in the root CMakeLists, is already at the build root.)
 set_target_properties(meetube PROPERTIES
     AUTOMOC ON AUTORCC ON
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})

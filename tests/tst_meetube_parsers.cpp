@@ -98,7 +98,6 @@ private slots:
         QCOMPARE(ps[0].id, QString("PLtest123"));
         QCOMPARE(ps[0].title, QString("My Mix"));
         QCOMPARE(ps[0].videoCount, 1709);            // from the "1,709 videos" overlay
-        QCOMPARE(ps[0].videosId, QString("PLtest123"));  // videos() adds the VL prefix
     }
     // P2.2: channel header (c4TabbedHeaderRenderer) → CT::User (avatar = largest).
     void channelHeaderParses() {
@@ -314,7 +313,6 @@ private slots:
         QCOMPARE(p[0].title, QString("GDG Inspiring Stories"));
         QCOMPARE(p[0].videoCount, 5);
         QCOMPARE(p[0].thumbnailUrl, QString("https://i.ytimg.com/vi/YFJZk4H_Bk4/hqdefault.jpg"));
-        QCOMPARE(p[0].videosId, p[0].id);
     }
 
     void parsesAccountsList() {

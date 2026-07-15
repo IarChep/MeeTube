@@ -22,14 +22,14 @@ using namespace yt;
 static QList<QByteArray> channelRoles() {
     QList<QByteArray> r;
     r << "id" << "username" << "description" << "thumbnailUrl" << "subscriberCount"
-      << "videosId" << "playlistsId" << "subscribed";
+      << "subscribed";
     return r;
 }
 
 // Role indices — MUST stay in lockstep with channelRoles() order above (the roleIdx
 // handed to roleData() is the 0-based position in that list).
 enum ChRole { RId, RUsername, RDescription, RThumbnailUrl, RSubscriberCount,
-              RVideosId, RPlaylistsId, RSubscribed, RChannelRoleCount };
+              RSubscribed, RChannelRoleCount };
 
 ChannelModel::ChannelModel(QObject *parent)
     : ServiceListModel(channelRoles(), parent) {}
@@ -48,8 +48,6 @@ QVariant ChannelModel::roleData(int row, int idx) const {
     case RDescription: return u.description;
     case RThumbnailUrl: return u.thumbnailUrl;
     case RSubscriberCount: return u.subscriberCount;
-    case RVideosId: return u.videosId;
-    case RPlaylistsId: return u.playlistsId;
     case RSubscribed: return u.subscribed;
     }
     return QVariant();
