@@ -179,7 +179,7 @@ Page {
         id: topBar
         anchors { left: parent.left; right: parent.right; top: parent.top
                   topMargin: root.controlsShown ? 0 : -(height + UI.SIZE_PLAYER_SHADOW) }
-        height: UI.SIZE_PLAYER_BAR
+        height: UI.SIZE_PLAYER_TOPBAR
         color: UI.COLOR_SCRIM
         Behavior on anchors.topMargin { NumberAnimation { duration: UI.ANIM_DEFAULT; easing.type: Easing.OutCubic } }
 
@@ -197,49 +197,46 @@ Page {
             }
         }
 
-        ToolButton {
-            id: exitBtn
-            width: UI.SIZE_PLAYER_BUTTON; height: UI.SIZE_PLAYER_BUTTON
-            anchors { left: parent.left; leftMargin: UI.PADDING_XLARGE
+        Image {       // back — bare glyph; dims while pressed
+            id: backIcon
+            anchors { left: parent.left; leftMargin: UI.PADDING_DOUBLE
                       verticalCenter: parent.verticalCenter }
-            iconSource: "image://theme/icon-m-toolbar-back-white"
-            // The chrome png's 22px style margins overlap on a 40px button and
-            // the outline renders fat — shrink them along with the button.
-            platformStyle: ToolButtonStyle {
-                backgroundMarginLeft: 13; backgroundMarginTop: 13
-                backgroundMarginRight: 13; backgroundMarginBottom: 13
-            }
-            onClicked: { player.stop(); pageStack.pop(); }
-        }
-        Image {       // quality menu — a bare clickable glyph, no chrome
-            id: menuBtn
-            anchors { right: parent.right; rightMargin: UI.PADDING_XLARGE
-                      verticalCenter: parent.verticalCenter }
+            source: "image://theme/icon-m-toolbar-back-white"
+            opacity: backTap.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
             smooth: true
+            MouseArea { id: backTap; anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
+                        onClicked: { player.stop(); pageStack.pop(); } }
+        }
+        Image {       // quality / track picker — bare glyph; dims while pressed
+            id: qualityIcon
+            anchors { right: parent.right; rightMargin: UI.PADDING_DOUBLE
+                      verticalCenter: parent.verticalCenter }
             source: "image://theme/icon-m-toolbar-view-menu-white"
+            opacity: menuTap.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
+            smooth: true
             visible: root.qualLabels.length > 1     // hide when there's nothing to choose
-            MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
+            MouseArea { id: menuTap; anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
                         onClicked: { qualityDialog.open(); root.poke(); } }
         }
         Column {
-            anchors { left: exitBtn.right; leftMargin: UI.PADDING_XLARGE
-                      right: menuBtn.visible ? menuBtn.left : parent.right
+            anchors { left: backIcon.right; leftMargin: UI.PADDING_XLARGE
+                      right: qualityIcon.visible ? qualityIcon.left : parent.right
                       rightMargin: UI.PADDING_XLARGE
                       verticalCenter: parent.verticalCenter }
-            spacing: UI.PADDING_SMALL
+            spacing: 0
             Label {   // title — a single elided line
                 width: parent.width
                 text: root.videoTitle
                 elide: Text.ElideRight
                 color: UI.COLOR_INVERTED_FOREGROUND
-                font { family: UI.FONT_FAMILY; pixelSize: UI.FONT_LSMALL }
+                font { family: UI.FONT_FAMILY; pixelSize: UI.FONT_SMALL }
             }
             Label {   // author under it
                 width: parent.width
                 text: root.videoAuthor
                 elide: Text.ElideRight
                 color: UI.COLOR_INVERTED_SECONDARY_FOREGROUND
-                font { family: UI.FONT_FAMILY_LIGHT; pixelSize: UI.FONT_XSMALL }
+                font { family: UI.FONT_FAMILY_LIGHT; pixelSize: UI.FONT_XXSMALL }
             }
         }
     }
@@ -276,7 +273,9 @@ Page {
             smooth: true
             source: player.state == 3 ? "image://theme/icon-m-toolbar-mediacontrol-pause-white"
                                       : "image://theme/icon-m-toolbar-mediacontrol-play-white"
+            opacity: ppTap.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
             MouseArea {
+                id: ppTap
                 anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
                 onClicked: {
                     if (player.state == 3) player.pause();
