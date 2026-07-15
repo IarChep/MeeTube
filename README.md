@@ -34,7 +34,8 @@ top — adjust them to your setup. Tests are host-only:
   (the squircle mask, ShareUi) are ported from it.
 * [yt-dlp](https://github.com/yt-dlp/yt-dlp) — the map of how YouTube
   stream resolution actually works.
-* zemonkamin
+* [YouTube UWP](https://github.com/zemonkamin/youtube_uwp) by zemonkamin —
+  a number of the InnerTube API examples came from there.
 
 ## License
 
