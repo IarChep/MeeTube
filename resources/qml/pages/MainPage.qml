@@ -89,17 +89,26 @@ Page {
     // not visibly scroll from Home to News), true afterwards so real taps/swipes animate.
     property bool ready: false
 
-    Component.onCompleted: {
-        page.feedCache = ({});
-        page.allCategories = page.buildCategories();
-        // Default page: personalized Home when signed in, else the first topic (News) — the
-        // anonymous Home feed is empty (its page shows the login prompt instead).
+    // Initial category: personalized Home when signed in, else the first topic (News) —
+    // the anonymous Home feed is empty (its page shows the login prompt instead).
+    // DEFERRED until the pager has real geometry: selecting while its width is still 0
+    // leaves the view on page 0 while currentIndex says News (the launch bug where the
+    // login gate showed under the News chip). With valid geometry the ListView itself
+    // keeps chip highlight, currentIndex and content in lockstep.
+    function initialSelect() {
+        if (page.ready || pager.width <= 0) return;
         var startId = innertube.auth().signedIn
                       ? "FEwhat_to_watch"
                       : innertube.navEntries()[0].id;
         pager.currentIndex = Math.max(0, page.indexOfId(startId));
         page.syncCategoryFromPager();
         page.ready = true;
+    }
+
+    Component.onCompleted: {
+        page.feedCache = ({});
+        page.allCategories = page.buildCategories();
+        page.initialSelect();   // if geometry is late, pager.onWidthChanged re-runs it
     }
 
     // NO global header on Home: the CategoryChips strip IS the category selector. Leaving
@@ -151,6 +160,8 @@ Page {
         model: page.allCategories
 
         onCurrentIndexChanged: page.syncCategoryFromPager()
+
+        onWidthChanged: page.initialSelect()
 
         delegate: CategoryFeedView {
             width: pager.width
