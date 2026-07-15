@@ -2,6 +2,8 @@
 #include "innertube/contextbuilder.h"
 #include "parsers/ytjson.h"
 #include "parsers/jsonscan.h"
+#include "jsc/solver.h"                             // jsc::PlayerJs complete here (fwd-declared in http.h)
+#include "jsc/basejs.h"
 #include <QNetworkRequest>
 #include <QUrl>
 #include <QDateTime>
@@ -136,7 +138,8 @@ static Reply makeReply(QNetworkReply *r, bool timedOut, bool wantVisitor)
 
 Http::Http(QObject *parent)
     : QObject(parent), m_timeoutMs(kRequestTimeoutMs),
-      m_baseUrl(QLatin1String("https://www.youtube.com/youtubei/v1/"))
+      m_baseUrl(QLatin1String("https://www.youtube.com/youtubei/v1/")),
+      m_playerJsLoading(false), m_playerJsTried(false)
 {
     // m_nam and m_deadlineTimer are VALUE members, default-constructed with no parent —
     // so they take this ctor thread's affinity and, crucially, moveToThread() would NOT
@@ -160,6 +163,51 @@ Http::Http(QObject *parent)
     connect(&m_deadlineTimer, SIGNAL(timeout()), this, SLOT(onDeadline()));
     // No context/headers built yet — force a rebuild on the first request.
     invalidateSessionCaches();
+}
+
+// Out-of-line: m_playerJs is unique_ptr<jsc::PlayerJs> (incomplete in http.h). The dtor
+// must be emitted where PlayerJs is complete, else the implicit one in the moc TU would
+// destroy an incomplete type.
+Http::~Http() {}
+
+void Http::ensurePlayerJs(const JobToken &job, std::function<void(jsc::PlayerJs*)> done)
+{
+    if (m_playerJs || m_playerJsTried) {              // ready or already failed -> async deliver
+        m_playerJsWaiters.append(done);
+        // reuse a queued slot so we never call back re-entrantly (mirrors get()'s contract):
+        QMetaObject::invokeMethod(this, "deliverPlayerJs", Qt::QueuedConnection);
+        return;
+    }
+    m_playerJsWaiters.append(done);
+    if (m_playerJsLoading) return;                    // a fetch is already in flight
+    m_playerJsLoading = true;
+
+    // 1) iframe_api -> player hash -> base.js URL
+    get(QString("https://www.youtube.com/iframe_api"), job,
+        [this, job](const Reply &r1) {
+            QString hash;
+            if (r1.ok) hash = jsc::playerHashFromIframeApi(QString::fromUtf8(r1.body->data(), (int)r1.body->size()));
+            if (hash.isEmpty()) { m_playerJsTried = true; m_playerJsLoading = false; deliverPlayerJs(); return; }
+            const QString url = jsc::baseJsUrl(hash);
+            // 2) base.js -> PlayerJs
+            get(url, job, [this, url](const Reply &r2) {
+                if (r2.ok) {
+                    const QString body = QString::fromUtf8(r2.body->data(), (int)r2.body->size());
+                    jsc::PlayerJs *pj = jsc::buildPlayerJs(url, body);
+                    if (pj) m_playerJs.reset(pj);
+                }
+                m_playerJsTried = true; m_playerJsLoading = false;
+                deliverPlayerJs();
+            });
+        });
+}
+
+void Http::deliverPlayerJs()
+{
+    QList<std::function<void(jsc::PlayerJs*)> > w = m_playerJsWaiters;
+    m_playerJsWaiters.clear();
+    jsc::PlayerJs *pj = m_playerJs.get();
+    for (int i = 0; i < w.size(); ++i) w[i](pj);
 }
 
 void Http::clearCache()

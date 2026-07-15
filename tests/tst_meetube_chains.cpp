@@ -2,6 +2,7 @@
 #include "testutil.h"
 #include "core/chains.h"
 #include "innertube/catalog.h"
+#include "jsc/solver.h"
 
 using namespace yt;
 using namespace yt::core;
@@ -724,6 +725,22 @@ private slots:
         QCOMPARE(dislikes, (qint64)42);
         QCOMPARE(likes, (qint64)9);
         QVERIFY(http.lastGetUrl().contains("returnyoutubedislikeapi.com/votes?videoId=v"));
+    }
+
+    // ensurePlayerJs: from the base.js fixture the transport builds a cached PlayerJs
+    // (Solver ready + sts), delivered once, asynchronously.
+    void ensurePlayerJsBuildsFromBaseJs() {
+        FakeHttp t;
+        t.setIframeApi(loadFixtureRaw("iframe_api_sample.js"));
+        t.setBaseJs(loadFixtureRaw("base_js_sample.js"));
+        JobToken job = newJob();
+        yt::jsc::PlayerJs *got = 0; int calls = 0;
+        t.ensurePlayerJs(job, [&](yt::jsc::PlayerJs *pj){ got = pj; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(got != 0);
+        QCOMPARE(got->sts, 19834);
+        QVERIFY(got->solver.ready());
     }
 };
 QTEST_MAIN(TestChains)

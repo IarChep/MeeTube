@@ -143,6 +143,9 @@ public:
             done(r);
         });
     }
+    void ensurePlayerJs(const core::JobToken &job, std::function<void(yt::jsc::PlayerJs*)> done) {
+        m_inner->ensurePlayerJs(job, done);           // forward — async contract kept by the inner Http
+    }
     void abort(const core::JobToken &job) { m_inner->abort(job); }
     Session &session() { return m_inner->session(); }
     void clearCache() { m_inner->clearCache(); }

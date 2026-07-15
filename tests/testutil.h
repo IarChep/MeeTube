@@ -7,8 +7,10 @@
 #include <QQueue>
 #include <QList>
 #include <string>
+#include <memory>
 #include "core/http.h"
 #include "core/job.h"
+#include "jsc/solver.h"
 
 // Loads tests/fixtures/<name> as raw JSON bytes — what the Glaze-backed parsers
 // and the transport Reply carry (MT_TEST_DATA_DIR is set by CMake).
@@ -67,6 +69,18 @@ public:
         } else { r.ok = false; r.error = "no get fixture"; }
         m_pending << Waiter(job, done, r);
     }
+    // ensurePlayerJs(): builds a PlayerJs once from the setBaseJs() fixture, then defers
+    // it to every waiter via the same flush() pump as get() (async, token-gated).
+    void setIframeApi(const std::string &s) { m_iframeApi = s; m_haveIframe = true; }
+    void setBaseJs(const std::string &s)    { m_baseJs = s; m_haveBaseJs = true; }
+    void ensurePlayerJs(const yt::core::JobToken &job, std::function<void(yt::jsc::PlayerJs*)> done) {
+        if (!m_pjBuilt && m_haveBaseJs) {
+            const QString body = QString::fromUtf8(m_baseJs.data(), (int)m_baseJs.size());
+            m_playerJs.reset(yt::jsc::buildPlayerJs("http://fake/base.js", body));
+            m_pjBuilt = true;
+        }
+        m_pjPending << PjWaiter(job, done);
+    }
     void abort(const yt::core::JobToken &) {}         // no-op: flush() honors the token gate
     yt::Session &session() { return m_session; }
     void clearCache() {}
@@ -76,12 +90,18 @@ public:
     // Waiters whose token went dead between enqueue and delivery are dropped —
     // the same silent gate the real Http enforces.
     void flush() {
-        while (!m_pending.isEmpty()) {
+        while (!m_pending.isEmpty() || !m_pjPending.isEmpty()) {
             QList<Waiter> batch = m_pending;
             m_pending.clear();
             for (int i = 0; i < batch.size(); ++i) {
                 if (!yt::core::live(batch[i].job)) continue;   // skip dead-token waiters
                 batch[i].fn(batch[i].reply);
+            }
+            QList<PjWaiter> pj = m_pjPending;
+            m_pjPending.clear();
+            for (int i = 0; i < pj.size(); ++i) {
+                if (!yt::core::live(pj[i].job)) continue;
+                pj[i].fn(m_playerJs.get());
             }
         }
     }
@@ -102,8 +122,17 @@ private:
         } else { r.ok = false; r.error = "no fixture queued for " + key; }
         m_pending << Waiter(job, done, r);
     }
+    struct PjWaiter {
+        PjWaiter(const yt::core::JobToken &j, std::function<void(yt::jsc::PlayerJs*)> f) : job(j), fn(f) {}
+        yt::core::JobToken job;
+        std::function<void(yt::jsc::PlayerJs*)> fn;
+    };
     QMap<QString, QQueue<std::string> > m_q;
     QList<Waiter> m_pending;
+    QList<PjWaiter> m_pjPending;
+    std::string m_iframeApi, m_baseJs;
+    bool m_haveIframe = false, m_haveBaseJs = false, m_pjBuilt = false;
+    std::unique_ptr<yt::jsc::PlayerJs> m_playerJs;
     QMap<QString, int> m_lastClient;                  // endpoint -> last ClientId posted (as int)
     yt::Session m_session;
     std::string m_getBody;                            // canned get() body (setGetBody)
