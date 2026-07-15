@@ -22,6 +22,7 @@ struct Format {
     std::optional<FlexInt> width;
     std::optional<FlexInt> height;
     std::optional<FlexInt> bitrate;
+    std::optional<std::string> signatureCipher;   // ciphered formats (url XOR this)
 };
 struct StreamingData {
     std::optional<std::string> hlsManifestUrl;
@@ -130,6 +131,33 @@ static QList<CT::Stream> streamsOf(const pj::PlayerRoot &root, bool *sawCiphered
     return out;
 }
 
+// Task 4: capture a format RAW (undeciphered) — url XOR signatureCipher. No
+// filtering (unlike streamOf): ciphered formats are kept so Task 5 can solve them.
+static CT::RawFormat rawOf(const pj::Format &f, bool muxed)
+{
+    CT::RawFormat r;
+    r.itag = (int)toInt64(f.itag);
+    r.url = qstr(f.url);
+    r.cipher = qstr(f.signatureCipher);
+    r.mimeType = qstr(f.mimeType);
+    r.qualityLabel = qstr(f.qualityLabel);
+    r.audioQuality = qstr(f.audioQuality);
+    r.width = (int)toInt64(f.width);
+    r.height = (int)toInt64(f.height);
+    r.bitrate = (int)toInt64(f.bitrate);
+    r.muxed = muxed;
+    return r;
+}
+static QList<CT::RawFormat> rawFormatsOf(const pj::PlayerRoot &root)
+{
+    QList<CT::RawFormat> out;
+    if (!root.streamingData) return out;
+    const pj::StreamingData &sd = *root.streamingData;
+    if (sd.formats)         for (const pj::Format &f : *sd.formats)         out << rawOf(f, true);
+    if (sd.adaptiveFormats) for (const pj::Format &f : *sd.adaptiveFormats) out << rawOf(f, false);
+    return out;
+}
+
 static CT::Video detailsOf(const pj::PlayerRoot &root)
 {
     CT::Video v;
@@ -174,8 +202,10 @@ static PlayerResult parsePlayerRoot(const pj::PlayerRoot &root)
     PlayerResult r;
     r.playable = playableOf(root, &r.reason);
     r.streams  = streamsOf(root, &r.cipheredOnly);
+    r.rawFormats = rawFormatsOf(root);
     if (root.streamingData) {
         const pj::StreamingData &sd = *root.streamingData;
+        r.hlsManifestUrl = qstr(sd.hlsManifestUrl);
         r.sabr = sd.serverAbrStreamingUrl && !sd.serverAbrStreamingUrl->empty();
         r.formatsSeen  = sd.formats ? (int)sd.formats->size() : 0;
         r.adaptiveSeen = sd.adaptiveFormats ? (int)sd.adaptiveFormats->size() : 0;
@@ -229,6 +259,19 @@ QList<CT::Stream> parseStreams(const std::string &p, bool *sawCipheredOnly)
     pj::PlayerRoot root{};
     readJsonDoc(root, p);
     return streamsOf(root, sawCipheredOnly);
+}
+
+QList<CT::RawFormat> parseFormats(std::string_view p)
+{
+    pj::PlayerRoot root{};
+    (void)glz::read<kIn>(root, p);
+    return rawFormatsOf(root);
+}
+QList<CT::RawFormat> parseFormats(const std::string &p)
+{
+    pj::PlayerRoot root{};
+    readJsonDoc(root, p);
+    return rawFormatsOf(root);
 }
 
 CT::Video parseVideoDetails(std::string_view p)

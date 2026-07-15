@@ -143,6 +143,21 @@ inline const char *kNextTvLikeState = R"({"contents":{"singleColumnWatchNextResu
     {"payload": {"likeStatusEntity": {"key": "abc", "likeStatus": "LIKE"}}}
 ]}}})";
 
+// Task 4: streamingData with ciphered adaptiveFormats (no plain url — a
+// signatureCipher blob instead). parseFormats must surface these raw.
+inline const char *kPlayerCiphered = R"({"streamingData":{
+  "adaptiveFormats":[
+    {"itag":137,"mimeType":"video/mp4; codecs=\"avc1.640028\"","width":1920,"height":1080,"bitrate":4000000,
+     "signatureCipher":"url=https%3A%2F%2Fr1.googlevideo.com%2Fvideoplayback%3Fn%3DrawN123%26itag%3D137&s=abcdef&sp=sig"},
+    {"itag":140,"mimeType":"audio/mp4; codecs=\"mp4a.40.2\"","bitrate":128000,
+     "signatureCipher":"url=https%3A%2F%2Fr1.googlevideo.com%2Fvideoplayback%3Fn%3DrawN123%26itag%3D140&s=abcdef&sp=sig"}
+  ]}})";
+// Task 4: streamingData with a direct (url-ful) muxed format + hlsManifestUrl.
+inline const char *kPlayerDirect = R"({"streamingData":{
+  "formats":[{"itag":18,"mimeType":"video/mp4","width":640,"height":360,"bitrate":500000,
+              "url":"https://r1.googlevideo.com/videoplayback?itag=18"}],
+  "hlsManifestUrl":"https://m.example/hls.m3u8"}})";
+
 } // namespace payloads
 #endif // Q_MOC_RUN
 #endif

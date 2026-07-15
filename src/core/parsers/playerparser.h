@@ -17,6 +17,9 @@ namespace yt {
 // for the overload, so they take the sentinel path automatically.
 QList<CT::Stream> parseStreams(std::string_view playerResponse, bool *sawCipheredOnly = 0);
 QList<CT::Stream> parseStreams(const std::string &playerResponse, bool *sawCipheredOnly = 0);
+// All formats[] + adaptiveFormats[] as raw (url or cipher captured, not deciphered).
+QList<CT::RawFormat> parseFormats(std::string_view playerResponse);
+QList<CT::RawFormat> parseFormats(const std::string &playerResponse);
 CT::Video parseVideoDetails(std::string_view playerResponse);
 CT::Video parseVideoDetails(const std::string &playerResponse);
 QList<CT::Subtitle> parseCaptions(std::string_view playerResponse);
@@ -30,6 +33,8 @@ struct PlayerResult {
     QString reason;                     // "<STATUS>: <reason>" when !playable
     QList<CT::Stream> streams;          // hls first, then non-ciphered progressive
     bool cipheredOnly = false;          // formats present but every one ciphered
+    QList<CT::RawFormat> rawFormats;    // ALL formats+adaptiveFormats, undeciphered (Task 4)
+    QString hlsManifestUrl;             // raw hls url (Task 4)
     // Diagnostics (set by parsePlayer; used by the player trace — MEETUBE_PLAYER_DEBUG):
     bool sabr = false;                  // serverAbrStreamingUrl present → SABR-only session
     int  formatsSeen = 0;               // muxed streamingData.formats[] count

@@ -356,6 +356,29 @@ private slots:
         QVERIFY(!yt::isPlayable(std::string(payloads::kPlayableLogin), &reason));
         QVERIFY(reason.contains("LOGIN_REQUIRED"));
     }
+    // Task 4: parseFormats surfaces ciphered adaptiveFormats raw (no url; the
+    // signatureCipher blob captured verbatim for Task 5 to decipher).
+    void parseFormatsCapturesCipher() {
+        const QList<CT::RawFormat> f = parseFormats(std::string(payloads::kPlayerCiphered));
+        QCOMPARE(f.size(), 2);
+        QCOMPARE(f[0].itag, 137);
+        QVERIFY(f[0].url.isEmpty());
+        QVERIFY(f[0].cipher.contains("s=abcdef"));
+        QVERIFY(!f[0].muxed);
+        QCOMPARE(f[0].height, 1080);
+        QCOMPARE(f[1].itag, 140);
+        QVERIFY(f[1].mimeType.startsWith("audio/"));
+    }
+    // Task 4: parsePlayer also fills rawFormats (direct muxed → url + muxed=true)
+    // and hlsManifestUrl straight off streamingData.
+    void parseFormatsCapturesDirectAndHls() {
+        PlayerResult pr = parsePlayer(std::string(payloads::kPlayerDirect));
+        QCOMPARE(pr.hlsManifestUrl, QString("https://m.example/hls.m3u8"));
+        QCOMPARE(pr.rawFormats.size(), 1);
+        QCOMPARE(pr.rawFormats[0].itag, 18);
+        QVERIFY(pr.rawFormats[0].url.startsWith("https://r1.googlevideo.com"));
+        QVERIFY(pr.rawFormats[0].muxed);
+    }
 };
 QTEST_MAIN(TestParsers)
 #include "tst_meetube_parsers.moc"

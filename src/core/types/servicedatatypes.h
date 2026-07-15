@@ -50,6 +50,16 @@ struct Comment { QString id, body, date, userId, username, thumbnailUrl, videoId
 // hasAudio && width>0; a video-only adaptive has width>0 && !hasAudio; an
 // audio-only adaptive has width==0 && hasAudio. bitrate is bits/s (0 if unknown).
 struct Stream  { QString id, url, description, mimeType; int width = 0, height = 0, bitrate = 0; bool hasAudio = false; };
+// A format as it arrives in streamingData, BEFORE decipher/n-solve. url XOR
+// cipher is populated. streamurlbuilder turns a list of these into Stream[].
+struct RawFormat {
+    int itag = 0;
+    QString url;          // direct https (empty when ciphered)
+    QString cipher;       // raw signatureCipher value (empty when direct)
+    QString mimeType, qualityLabel, audioQuality;
+    int width = 0, height = 0, bitrate = 0;
+    bool muxed = false;   // true = streamingData.formats[] (video+audio in one)
+};
 struct Subtitle{ QString id, url, title, language; };
 struct Category{ QString id, title; };
 struct Account { QString id, username, thumbnailUrl, handle, channelId; };
