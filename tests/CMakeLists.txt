@@ -50,6 +50,10 @@ mt_test(tst_meetube_jsvm)
 # jsc::basejs: pure-text extractors (regex + brace-matching, no JS engine, no
 # network) that locate the sig/n functions + signatureTimestamp in base.js.
 mt_test(tst_meetube_basejs)
+# jsc::Solver + PlayerJs: runs the extracted sig/n functions in a JsVm (decipher
+# signature, solve throttling n), memoised by input value; buildPlayerJs stitches
+# extractSts+extractSigSetup+extractNSetup into a heap-owned PlayerJs.
+mt_test(tst_meetube_solver)
 
 find_package(CURL REQUIRED)
 mt_test(tst_meetube_curlnam tst_meetube_curlnam.cpp)
