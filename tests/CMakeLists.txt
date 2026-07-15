@@ -47,6 +47,9 @@ mt_test(tst_meetube_media)
 # Covers arithmetic eval, cross-call state persistence, syntax-error nullopt, and
 # the interrupt handler killing a runaway loop (trust boundary).
 mt_test(tst_meetube_jsvm)
+# jsc::basejs: pure-text extractors (regex + brace-matching, no JS engine, no
+# network) that locate the sig/n functions + signatureTimestamp in base.js.
+mt_test(tst_meetube_basejs)
 
 find_package(CURL REQUIRED)
 mt_test(tst_meetube_curlnam tst_meetube_curlnam.cpp)
