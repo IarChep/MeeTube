@@ -30,6 +30,7 @@ add_library(meetube-core STATIC
     innertube/channeldetails.cpp
     innertube/accountdetails.cpp
     innertube/searchsuggest.cpp
+    innertube/streamurlbuilder.cpp
     innertube/innertube.cpp
     models/servicelistmodel.cpp
     models/videomodel.cpp

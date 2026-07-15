@@ -54,6 +54,10 @@ mt_test(tst_meetube_basejs)
 # signature, solve throttling n), memoised by input value; buildPlayerJs stitches
 # extractSts+extractSigSetup+extractNSetup into a heap-owned PlayerJs.
 mt_test(tst_meetube_solver)
+# streamurlbuilder: buildStreams turns RawFormat[] into fetchable Stream[] (decipher
+# signature + solve n + textual URL assembly, preserving signed %-escapes) driven by
+# a REAL Solver from the base.js fixture; rankStreams picks best H.264/AAC for the N9.
+mt_test(tst_meetube_streamurl)
 
 find_package(CURL REQUIRED)
 mt_test(tst_meetube_curlnam tst_meetube_curlnam.cpp)
