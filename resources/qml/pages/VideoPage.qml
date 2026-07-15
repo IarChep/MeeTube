@@ -142,28 +142,12 @@ Page {
                     height: width
                     opacity: playMouse.pressed ? UI.OPACITY_ENABLED : 0.85
 
-                    MaskedItem {
-                        id: playSquircle
-                        anchors.fill: parent
-                        // The mask Image is assigned to the `mask` property (not a visual
-                        // child), so it has no `parent`; size it off the MaskedItem's id.
-                        mask: Image {
-                            width: playSquircle.width; height: playSquircle.height
-                            source: "../images/avatar-mask.png"
-                            fillMode: Image.Stretch
-                            smooth: true
-                        }
-                        Rectangle { anchors.fill: parent; color: UI.COLOR_SCRIM }
-                    }
                     Image {
+                        // The player's own playback badge (icon-l-common-video-playback);
+                        // the parent Item keeps it slightly translucent (full on press).
                         anchors.centerIn: parent
-                        // The play PNG has asymmetric transparent padding (opaque box +9+9
-                        // in its 40x40 canvas), which pushes the triangle down-right; nudge
-                        // it back to sit centered in the squircle.
-                        anchors.horizontalCenterOffset: -1
-                        anchors.verticalCenterOffset: -2
                         smooth: true
-                        source: "image://theme/icon-m-toolbar-mediacontrol-play-white"
+                        source: "image://theme/icon-l-common-video-playback"
                     }
                     MouseArea {
                         id: playMouse
