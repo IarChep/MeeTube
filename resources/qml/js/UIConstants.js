@@ -145,6 +145,7 @@ var ANIM_SLOW    = 400;
 // the theme cannot provide is defined here.
 var SIZE_PLAYER_BAR    = 56;        // bottom control bar height (measured)
 var SIZE_PLAYER_TOPBAR = 48;        // top panel — compact title/author strip
+var SIZE_PLAYER_TOPICON = 24;       // back/menu glyphs scaled into that strip
 var SIZE_PLAYER_SHADOW = 10;        // soft shadow the panels cast on the video
 var COLOR_TRANSPARENT  = "#00000000";
 var SIZE_PLAYER_SEEK   = 40;        // seekbar strip height (groove centres in it)
