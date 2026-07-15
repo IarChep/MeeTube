@@ -20,7 +20,7 @@ add_library(meetube-core STATIC
     core/chains.cpp
     core/debuglog.cpp
     requests/bodies.cpp
-    innertube/accountstore.cpp
+    innertube/settingsstore.cpp
     innertube/accountmanager.cpp
     innertube/videoapi.cpp
     innertube/channelapi.cpp

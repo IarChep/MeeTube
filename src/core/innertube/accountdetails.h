@@ -25,10 +25,10 @@
 
 namespace yt {
 
-class AccountStore;
+class SettingsStore;
 
 // The signed-in user's identity header — plain detail object (ChannelDetails idiom).
-// Seeds from the AccountStore cache at construction (instant header on relaunch),
+// Seeds from the SettingsStore cache at construction (instant header on relaunch),
 // then load() refreshes via accounts_list and writes the result back to the store.
 // On failure the cached identity is kept — the page falls back gracefully.
 class AccountDetails : public QObject {
@@ -40,7 +40,7 @@ class AccountDetails : public QObject {
     Q_PROPERTY(int     status      READ status      NOTIFY statusChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY statusChanged)
 public:
-    explicit AccountDetails(AccountStore *store = 0, QObject *parent = 0);
+    explicit AccountDetails(SettingsStore *store = 0, QObject *parent = 0);
     ~AccountDetails();
     Q_INVOKABLE void load();
 
@@ -64,7 +64,7 @@ protected:
 private:
     void cancelJob();
     yt::core::JobToken m_job;
-    AccountStore *m_store;
+    SettingsStore *m_store;
     CT::Account m_account;
     int m_status;
     QString m_error;

@@ -15,12 +15,12 @@
  */
 
 #include "accountdetails.h"
-#include "innertube/accountstore.h"
+#include "innertube/settingsstore.h"
 #include "innertube/innertube.h"
 
 namespace yt {
 
-AccountDetails::AccountDetails(AccountStore *store, QObject *parent)
+AccountDetails::AccountDetails(SettingsStore *store, QObject *parent)
     : QObject(parent), m_store(store), m_status(core::Null) {
     if (m_store) m_account = m_store->active();   // cached identity: instant header
 }

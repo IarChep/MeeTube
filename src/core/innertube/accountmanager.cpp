@@ -15,13 +15,13 @@
  */
 
 #include "accountmanager.h"
-#include "accountstore.h"
+#include "settingsstore.h"
 #include "core/chains.h"
 #include <QTimer>
 
 namespace yt {
 
-AccountManager::AccountManager(const ApiRef &api, AccountStore *store, QObject *parent)
+AccountManager::AccountManager(const ApiRef &api, SettingsStore *store, QObject *parent)
     : QObject(parent), m_api(api), m_store(store), m_interval(5) {}
 
 // Cancel the in-flight flow on teardown: drop the token so any still-queued

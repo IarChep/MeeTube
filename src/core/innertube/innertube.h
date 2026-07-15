@@ -22,7 +22,7 @@
 #include <QVariantMap>
 #include <QPointer>
 #include "innertube/session.h"
-#include "innertube/accountstore.h"
+#include "innertube/settingsstore.h"
 #include "innertube/accountmanager.h"
 #include "innertube/videoapi.h"
 #include "innertube/channelapi.h"
@@ -74,7 +74,7 @@ public:
     // Home is public; Subscriptions requires authentication.
     Q_INVOKABLE QVariantList feedSections() const;
 
-    AccountStore*   accountStore()   { return &m_store; }
+    SettingsStore*  settings()       { return &m_store; }
     AccountManager* accountManager() { return &m_manager; }
     // OAuth manager — QML: innertube.auth().signIn()/.signedIn.
     Q_INVOKABLE QObject* auth()      { return &m_manager; }
@@ -109,7 +109,7 @@ private:
     // the worker in the ctor body; a Qt parent would forbid the move.
     core::Http     *m_http;
     WorkerHost      m_host;
-    AccountStore    m_store;
+    SettingsStore   m_store;
     AccountManager  m_manager;
     // API-tree groups (lazy; parented to the engine).
     VideoApi    *m_video;

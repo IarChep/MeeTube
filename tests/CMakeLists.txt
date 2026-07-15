@@ -32,8 +32,9 @@ mt_test(tst_meetube_model)
 # response cache + per-client context cache + visitor sink. Drives the real m_nam
 # over a local QTcpServer loopback (QtNetwork).
 mt_test(tst_meetube_client)
-# Auth: AccountStore (QSettings round-trip) + AccountManager device-code flow +
-# AccountDetails identity, all over the FakeHttp seam.
+# Auth + settings: SettingsStore (Glaze-JSON round-trip, corrupt-file recovery, the
+# one-time QSettings import) + AccountManager device-code flow + AccountDetails
+# identity, all over the FakeHttp seam.
 mt_test(tst_meetube_account)
 # Threading foundation: WorkerHost (cross-thread posted-closure seam, inline when
 # not started), JobToken (cancellation flag), core::Status mirror. Drives a real

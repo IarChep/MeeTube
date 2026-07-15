@@ -16,12 +16,10 @@
 
 #include "searchsuggest.h"
 #include "innertube/innertube.h"
+#include "innertube/settingsstore.h"
 #include "core/chains.h"
-#include <QSettings>
 
 namespace yt {
-
-static const int kHistoryCap = 15;
 
 SearchSuggest::SearchSuggest(QObject *parent) : QObject(parent), m_live(false) {}
 
@@ -33,8 +31,7 @@ ApiRef SearchSuggest::apiRef() const {
 }
 
 QStringList SearchSuggest::history() const {
-    QSettings s;
-    return s.value("search/history").toStringList();
+    return Innertube::instance()->settings()->searchHistory();
 }
 
 void SearchSuggest::query(const QString &q) {
@@ -69,15 +66,7 @@ void SearchSuggest::applySuggestions(const QStringList &s) {
 }
 
 void SearchSuggest::record(const QString &q) {
-    const QString trimmed = q.trimmed();
-    if (trimmed.isEmpty()) return;
-    QSettings s;
-    QStringList h = s.value("search/history").toStringList();
-    h.removeAll(trimmed);
-    h.prepend(trimmed);
-    while (h.size() > kHistoryCap) h.removeLast();
-    s.setValue("search/history", h);
-    s.sync();
+    Innertube::instance()->settings()->recordSearch(q);   // trims, de-dupes, caps
 }
 
 void SearchSuggest::cancelJob() {
