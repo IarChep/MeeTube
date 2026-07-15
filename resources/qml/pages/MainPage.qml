@@ -89,26 +89,30 @@ Page {
     // not visibly scroll from Home to News), true afterwards so real taps/swipes animate.
     property bool ready: false
 
-    // Initial category: personalized Home when signed in, else the first topic (News) —
-    // the anonymous Home feed is empty (its page shows the login prompt instead).
-    // DEFERRED until the pager has real geometry: selecting while its width is still 0
-    // leaves the view on page 0 while currentIndex says News (the launch bug where the
-    // login gate showed under the News chip). With valid geometry the ListView itself
-    // keeps chip highlight, currentIndex and content in lockstep.
-    function initialSelect() {
-        if (page.ready || pager.width <= 0) return;
-        var startId = innertube.auth().signedIn
-                      ? "FEwhat_to_watch"
-                      : innertube.navEntries()[0].id;
-        pager.currentIndex = Math.max(0, page.indexOfId(startId));
-        page.syncCategoryFromPager();
-        page.ready = true;
+    // Launch settling: while the window/ListView geometry is still churning (width goes
+    // 0 → interim → final in QtQuick 1.1), pager.pin() re-glues contentX to the selected
+    // page on every width change — one-shot repositioning proved racy in BOTH directions
+    // (login gate under the News chip; Live chip over the News feed). The timer flips
+    // page.ready once the churn is over, which stops the pinning and unlocks the
+    // move/scroll animations for real user interaction.
+    Timer {
+        id: readyTimer
+        interval: UI.ANIM_SLOW
+        onTriggered: page.ready = true
     }
 
     Component.onCompleted: {
         page.feedCache = ({});
         page.allCategories = page.buildCategories();
-        page.initialSelect();   // if geometry is late, pager.onWidthChanged re-runs it
+        // Default page: personalized Home when signed in, else the first topic (News) —
+        // the anonymous Home feed is empty (its page shows the login prompt instead).
+        var startId = innertube.auth().signedIn
+                      ? "FEwhat_to_watch"
+                      : innertube.navEntries()[0].id;
+        pager.currentIndex = Math.max(0, page.indexOfId(startId));
+        page.syncCategoryFromPager();
+        pager.pin();
+        readyTimer.restart();
     }
 
     // NO global header on Home: the CategoryChips strip IS the category selector. Leaving
@@ -161,7 +165,10 @@ Page {
 
         onCurrentIndexChanged: page.syncCategoryFromPager()
 
-        onWidthChanged: page.initialSelect()
+        // Content exactly on the selected page for the CURRENT width — consistent at any
+        // interim size, so the range enforcement never reassigns currentIndex either.
+        function pin() { if (width > 0) contentX = currentIndex * width; }
+        onWidthChanged: if (!page.ready) pin()
 
         delegate: CategoryFeedView {
             width: pager.width
