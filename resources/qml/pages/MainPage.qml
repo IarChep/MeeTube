@@ -77,10 +77,12 @@ Page {
         appWindow.currentCategoryLabel = c.label;
     }
     // Move the pager to a category by id (chip tap, initial load, auth transitions). When the
-    // index is already current, still sync so currentCategoryId is seeded.
+    // index is already current, still sync so currentCategoryId is seeded. Keeps wantedIndex
+    // in step so the launch-settling guard never fights a real selection.
     function selectCategoryId(id) {
         var i = page.indexOfId(id);
         if (i < 0) return;
+        page.wantedIndex = i;
         if (pager.currentIndex === i) page.syncCategoryFromPager();
         else pager.currentIndex = i;
     }
@@ -89,12 +91,14 @@ Page {
     // not visibly scroll from Home to News), true afterwards so real taps/swipes animate.
     property bool ready: false
 
-    // Launch settling: while the window/ListView geometry is still churning (width goes
-    // 0 → interim → final in QtQuick 1.1), pager.pin() re-glues contentX to the selected
-    // page on every width change — one-shot repositioning proved racy in BOTH directions
-    // (login gate under the News chip; Live chip over the News feed). The timer flips
-    // page.ready once the churn is over, which stops the pinning and unlocks the
-    // move/scroll animations for real user interaction.
+    // Launch settling: while the window/ListView geometry is churning (width goes
+    // 0 → interim → final in QtQuick 1.1), the strict range enforcement recomputes
+    // currentIndex from stale contentX and vice versa — chip and content desync in
+    // either direction. Until the churn is over (readyTimer, restarted by every width
+    // change), the pager is held to wantedIndex as a fixed point: index flaps snap
+    // back, contentX is re-glued to the index on every width change. page.ready then
+    // unlocks normal interaction (animations, free enforcement).
+    property int wantedIndex: 0
     Timer {
         id: readyTimer
         interval: UI.ANIM_SLOW
@@ -109,7 +113,8 @@ Page {
         var startId = innertube.auth().signedIn
                       ? "FEwhat_to_watch"
                       : innertube.navEntries()[0].id;
-        pager.currentIndex = Math.max(0, page.indexOfId(startId));
+        page.wantedIndex = Math.max(0, page.indexOfId(startId));
+        pager.currentIndex = page.wantedIndex;
         page.syncCategoryFromPager();
         pager.pin();
         readyTimer.restart();
@@ -163,12 +168,19 @@ Page {
         cacheBuffer: 0
         model: page.allCategories
 
-        onCurrentIndexChanged: page.syncCategoryFromPager()
+        onCurrentIndexChanged: {
+            // Launch guard: enforcement-driven flaps snap back to the wanted page.
+            if (!page.ready && currentIndex !== page.wantedIndex) {
+                currentIndex = page.wantedIndex;
+                return;
+            }
+            page.syncCategoryFromPager();
+        }
 
-        // Content exactly on the selected page for the CURRENT width — consistent at any
-        // interim size, so the range enforcement never reassigns currentIndex either.
-        function pin() { if (width > 0) contentX = currentIndex * width; }
-        onWidthChanged: if (!page.ready) pin()
+        // Content exactly on the wanted page for the CURRENT width — consistent at any
+        // interim size, so the range enforcement has nothing to "correct".
+        function pin() { if (width > 0) contentX = page.wantedIndex * width; }
+        onWidthChanged: if (!page.ready) { pin(); readyTimer.restart(); }
 
         delegate: CategoryFeedView {
             width: pager.width
