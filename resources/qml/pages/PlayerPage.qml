@@ -209,10 +209,9 @@ Page {
             MouseArea { id: backTap; anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
                         onClicked: { player.stop(); pageStack.pop(); } }
         }
-        Image {       // quality / track picker — bare glyph; dims while pressed
+        Image {       // quality / track picker — bare glyph at its native 32px
+                      // (upscaling turns the thin lines to mush); dims while pressed
             id: qualityIcon
-            width: UI.SIZE_PLAYER_TOPICON; height: UI.SIZE_PLAYER_TOPICON
-            fillMode: Image.PreserveAspectFit
             anchors { right: parent.right; rightMargin: UI.PADDING_DOUBLE
                       verticalCenter: parent.verticalCenter }
             source: "image://theme/icon-m-toolbar-view-menu-white"
