@@ -41,6 +41,7 @@ add_library(meetube-core STATIC
     net/curlengine.cpp
     net/curlnetworkreply.cpp
     net/curlnetworkaccessmanager.cpp
+    jsc/jsvm.cpp
     media/ipolicy.cpp
     media/ipipeline.cpp
     media/bytesource.cpp
@@ -81,6 +82,14 @@ target_link_libraries(meetube-core PUBLIC
 # headers expose only std::string_view / std::string, so the link stays PRIVATE
 # and nothing else in the app pays the template-heavy include.
 target_link_libraries(meetube-core PRIVATE glaze)
+
+# quickjs-ng (static PIC, both targets). PRIVATE: only jsc/*.cpp include quickjs.h;
+# the public jsc headers are pimpl/opaque. add_dependencies orders the
+# ExternalProject before the link; the include dir is pre-created in deps/ so the
+# INTERFACE include is valid at generate time.
+add_dependencies(meetube-core quickjs_build)
+target_include_directories(meetube-core PRIVATE ${QJS_INCLUDE})
+target_link_libraries(meetube-core PRIVATE ${QJS_A})
 
 # libcurl.
 #   Host: the system libcurl (found via CMake's FindCURL / Conan).

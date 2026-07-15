@@ -43,6 +43,10 @@ mt_test(tst_meetube_threading)
 # Range server), StreamPlayer state machine (fake pipeline/policy). Host-only;
 # the GStreamer/resourceqt glue is device-only and lives in src/app/media/.
 mt_test(tst_meetube_media)
+# jsc::JsVm: the quickjs-ng RAII wrapper that runs base.js signature/n functions.
+# Covers arithmetic eval, cross-call state persistence, syntax-error nullopt, and
+# the interrupt handler killing a runaway loop (trust boundary).
+mt_test(tst_meetube_jsvm)
 
 find_package(CURL REQUIRED)
 mt_test(tst_meetube_curlnam tst_meetube_curlnam.cpp)
