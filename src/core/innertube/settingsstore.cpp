@@ -18,8 +18,6 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QSettings>
-#include <QStringList>
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -73,20 +71,13 @@ SettingsAccount *findAccount(SettingsData &d, const std::string &id) {
 
 } // namespace
 
-SettingsStore::SettingsStore(const QString &jsonPath, const QString &legacyIniPath,
-                             QObject *parent)
+SettingsStore::SettingsStore(const QString &jsonPath, QObject *parent)
     : QObject(parent),
       m_path(jsonPath.isEmpty()
                  ? QDir::homePath() + QLatin1String("/.config/MeeTube/settings.json")
                  : jsonPath),
       m_d(new SettingsData) {
-    if (QFile::exists(m_path)) { readFile(); return; }
-    // First run in the JSON era — import the pre-Glaze QSettings store once, so live
-    // sign-ins / the visitor id / history survive the format switch. The app default
-    // reads the native ~/.config/MeeTube/MeeTube.conf; tests inject an explicit ini.
-    // An explicit json path WITHOUT a legacy ini starts fresh (the store tests).
-    if (jsonPath.isEmpty() || !legacyIniPath.isEmpty())
-        importLegacy(legacyIniPath);
+    readFile();
 }
 
 // Out of line — ~QScopedPointer<SettingsData> needs the complete type from up top.
@@ -97,7 +88,7 @@ SettingsStore::~SettingsStore() {}
 // write) — settings must never crash-loop the app.
 void SettingsStore::readFile() {
     QFile f(m_path);
-    if (!f.open(QIODevice::ReadOnly)) return;
+    if (!f.open(QIODevice::ReadOnly)) return;   // missing/unreadable → fresh profile
     const QByteArray raw = f.readAll();
     const std::string buf(raw.constData(), (size_t) raw.size());
     const glz::error_ctx err = glz::read<kSettingsIn>(*m_d, buf);
@@ -106,34 +97,6 @@ void SettingsStore::readFile() {
         qWarning("SettingsStore: %s is unreadable (%s) — starting fresh",
                  qPrintable(m_path), glz::format_error(err, buf).c_str());
     }
-}
-
-void SettingsStore::importLegacy(const QString &iniPath) {
-    QScopedPointer<QSettings> s(iniPath.isEmpty()
-        ? new QSettings()                                  // the app's old native store
-        : new QSettings(iniPath, QSettings::IniFormat));   // test seam
-    s->beginGroup("accounts");
-    // Snapshot the child groups before value() reads (Qt-4.7.4: do not interleave
-    // group enumeration with reads — same hazard the project bans Q_FOREACH for).
-    const QStringList ids = s->childGroups();
-    s->endGroup();
-    for (int i = 0; i < ids.size(); ++i) {
-        SettingsAccount r;
-        r.id           = toStd(ids.at(i));
-        r.username     = toStd(s->value("accounts/" + ids.at(i) + "/username").toString());
-        r.thumbnailUrl = toStd(s->value("accounts/" + ids.at(i) + "/thumbnailUrl").toString());
-        r.handle       = toStd(s->value("accounts/" + ids.at(i) + "/handle").toString());
-        r.channelId    = toStd(s->value("accounts/" + ids.at(i) + "/channelId").toString());
-        r.refreshToken = toStd(s->value("accounts/" + ids.at(i) + "/refreshToken").toString());
-        m_d->accounts.push_back(r);
-    }
-    m_d->activeAccount = toStd(s->value("accounts/active").toString());
-    m_d->visitorData   = toStd(s->value("session/visitorData").toString());
-    const QStringList h = s->value("search/history").toStringList();
-    for (int i = 0; i < h.size(); ++i) m_d->searchHistory.push_back(toStd(h.at(i)));
-    if (!m_d->accounts.empty() || !m_d->visitorData.empty() || !m_d->searchHistory.empty())
-        write();   // materialize the JSON so the import runs exactly once
-    // The legacy .conf stays untouched (rollback safety); it is never written again.
 }
 
 // Whole-file atomic replace: temp sibling + POSIX rename. Readers (and a mid-write

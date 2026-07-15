@@ -22,7 +22,7 @@ namespace yt {
 Innertube *Innertube::self = 0;
 
 Innertube::Innertube(QObject *parent)
-    : QObject(parent), m_http(new core::Http), m_store(QString(), QString(), this),
+    : QObject(parent), m_http(new core::Http), m_store(QString(), this),
       m_manager(apiRef(), &m_store, this),
       m_video(0), m_channel(0), m_playlist(0) {
     // m_http is PARENTLESS (new core::Http, not new core::Http(this)) so it can be

@@ -2,7 +2,6 @@
 #include <QSignalSpy>
 #include <QFile>
 #include <QDir>
-#include <QSettings>
 #include "testutil.h"
 #include "innertube/settingsstore.h"
 #include "innertube/accountmanager.h"
@@ -273,33 +272,6 @@ private slots:
         QCOMPARE(reread.refreshToken("ch1"), QString("RT"));
     }
 
-    // First run in the JSON era imports the pre-Glaze QSettings store once (sign-in,
-    // visitorData and history survive the format switch), then reads only the JSON.
-    void legacyIniImportsOnce() {
-        const QString ini = QDir::tempPath() + "/meetube_test_legacy.ini";
-        QFile::remove(ini);
-        {   // the old QSettings layout
-            QSettings s(ini, QSettings::IniFormat);
-            s.setValue("accounts/default/username", "Ivan");
-            s.setValue("accounts/default/refreshToken", "RT_OLD");
-            s.setValue("accounts/active", "default");
-            s.setValue("session/visitorData", "VD_OLD");
-            s.setValue("search/history", QStringList() << "old query");
-            s.sync();
-        }
-        {
-            SettingsStore store(storePath(), ini);
-            QCOMPARE(store.refreshToken("default"), QString("RT_OLD"));
-            QCOMPARE(store.activeId(), QString("default"));
-            QCOMPARE(store.visitorData(), QString("VD_OLD"));
-            QCOMPARE(store.searchHistory(), QStringList() << "old query");
-        }
-        QVERIFY(QFile::exists(storePath()));   // the import materialized the JSON…
-        QFile::remove(ini);
-        SettingsStore reread(storePath());     // …so a relaunch reads it, not the ini
-        QCOMPARE(reread.refreshToken("default"), QString("RT_OLD"));
-        QCOMPARE(reread.visitorData(), QString("VD_OLD"));
-    }
 };
 QTEST_MAIN(TestAccount)
 #include "tst_meetube_account.moc"
