@@ -48,8 +48,9 @@ toolchain; no package requirements — JSON is the vendored `deps/glaze` submodu
 `project(MeeTubeTests)`, host-only via `if(NOT BUILD_N9)`). The `mt_test()` harness registers them:
 
 ```sh
-source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 9 tests
-# tst_meetube_{parsers,context,chains,model,client,account,threading,curlnam,media}
+source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 14 tests
+# tst_meetube_{parsers,context,chains,model,client,account,threading,curlnam,media,
+#              jsvm,basejs,solver,streamurl,streamset}
 ```
 
 ### deps/ — bundled third-party libraries ([deps/CMakeLists.txt](deps/CMakeLists.txt))
@@ -76,6 +77,15 @@ source simulator_env.sh && (cd build-sim && ctest --output-on-failure)   # 9 tes
   copies (see BUILD_N9 below).
 - **libwebp** — device only (host links the system libwebp); feeds the WebP image plugin.
 - **qrcodegen** — static PIC lib (for the eventual auth QR flow).
+- **quickjs-ng** (submodule, v0.15.1) — the embedded JS engine that runs YouTube's `base.js`
+  signature/`n` functions (see `src/core/jsc/`). **Static PIC, both targets, NOT bundled** — it folds
+  into `meetube-core.a` (nothing lands in `/opt/meetube/lib`). The block builds/installs **only** the
+  `qjs` static target: this tag ships no CLI-disable option and a full build tries to link the
+  `qjs`/`qjsc`/`run-test262`/`function_source` CLIs, which need `clock_gettime` from librt (`-lrt`) —
+  unlinked on the N9's older glibc, so the CLIs fail to link (the lib itself is fine). Scoping
+  `BUILD_COMMAND` to `--target qjs` + a plain copy-install of `libqjs.a`+`quickjs.h` sidesteps the
+  dead CLIs on host and device alike. Linked WITHOUT quickjs-libc (no file/net bindings — trust
+  boundary; `jsvm.cpp` caps memory + interrupts).
 
 **CA certificates:** each `./configure` downloads the **latest Mozilla CA bundle** from
 `https://curl.se/ca/cacert.pem` (TLS-verified + sha256-checked, offline-resilient), exported as
@@ -197,6 +207,26 @@ in dependency order, each with its own CMakeLists:
   `core::chain` through `apiRef().host->invoke(...)` and delivers back via `invokeGui`, guarded by
   the `JobToken` gate (dtor + `cancel()` cancel the token — the cross-thread safety protocol).
   Registered as `qmlRegisterType<VideoModel>("MeeTube",1,0,"VideoModel")`.
+- **`jsc/`** — the **signature-decipher** engine (2026-07-15; ports yt-dlp's stream-*resolution*
+  logic — the `sig` + `n` transforms — via an embedded JS VM; **poToken is EXCLUDED**, out of scope):
+  - `jsvm.{h,cpp}` — `JsVm`: a pimpl RAII wrapper over one **quickjs-ng** runtime+context (`<quickjs.h>`
+    hidden so the header is moc-safe). `evalToString` runs a snippet under a **sandbox** — a 64 MB
+    memory cap + an interrupt-budget op ceiling — since base.js is untrusted input. No libc bindings.
+  - `basejs.{h,cpp}` — pure text extraction (QRegExp + brace-matching, **no JS, no network**):
+    `playerHashFromIframeApi`/`baseJsUrl`, `extractSts`, and the `sig`/`n` setup-JS extractors that
+    emit `__descramble`/`__nsig` function definitions. **THIS FILE IS THE MAINTENANCE SURFACE** —
+    when YouTube reshapes base.js obfuscation, these patterns are what to update (a miss is a LOUD
+    empty return → ciphered formats skipped, never silent corruption).
+  - `solver.{h,cpp}` — `Solver`: inits `__descramble`/`__nsig` **once** in a `JsVm`, then answers per
+    call — `decipherSignature(s)` / `solveN(n)` — with input-keyed memoisation. `PlayerJs`
+    (`playerUrl`+`sts`+`Solver`) and `buildPlayerJs(url, baseJsBody)` bundle a resolved player.
+  - Consumed by `innertube/streamurlbuilder.{h,cpp}`: `buildStreams` deciphers each ciphered format
+    (parse `{url,s,sp}` → append `&<sp>=decipher(s)`, then solve `&n=`, **textual assembly — no QUrl
+    round-trip** so signed %-escapes survive) and `rankStreams` picks best-quality **H.264/AAC-first**
+    (N9 hardware decode). `chains::fetchPlayer` runs the ladder **ANDROID_VR → WEB → …** (WEB added as
+    the decipher client, its `sts` on the WEB `/player` body); `IHttp::ensurePlayerJs` fetches base.js
+    once (`iframe_api` hash → base.js → `Solver`, cached, single in-flight). Host-tested by
+    `tst_meetube_{jsvm,basejs,solver,streamurl}`.
 - **`media/`** — the playback backend. `bytesource` (`ByteSource`/`ProgressiveSource`: libcurl
   ranged-window fetch of the stream) + `streamplayer` (the `StreamPlayer` QObject state machine) +
   the `ipipeline`/`ipolicy` seams. Host-testable (`tst_meetube_media`); the GStreamer/resource-policy
@@ -284,6 +314,18 @@ libcurl + OpenSSL 3.x transport migration** (all HTTP(S) — including QML thumb
 OpenSSL 1.0.2 removed; fixes RYD) is complete on host (suite 8/8) — see
 `docs/superpowers/specs/2026-07-07-libcurl-transport-design.md` (Results). **On-device runtime
 verification (N9) is still pending** (the device was unreachable that session).
+
+The **2026-07-15 signature-decipher** work is complete on host (suite **14/14**): YouTube's `sig`
+decipher + `n`-throttling transform run in an embedded **quickjs-ng** VM (`src/core/jsc/` —
+`JsVm`/`basejs`/`Solver`), `playerparser` now surfaces raw ciphered formats (`CT::RawFormat` +
+`signatureCipher`), `chains::fetchPlayer` deciphers them (WEB added to the client ladder as the
+decipher client, its `sts` on the WEB `/player` body; base.js fetched once via `ensurePlayerJs`),
+and `streamurlbuilder` (`buildStreams`/`rankStreams`) assembles + ranks the fetchable URLs
+H.264/AAC-first. The armv7hf device cross-build links clean (quickjs-ng folds into `meetube-core.a`).
+**poToken is the deliberate boundary** (OUT OF SCOPE): the decipher machinery is present and correct,
+but an anonymous WEB *adaptive* fetch may still 403 (GVS poToken), so ANDROID_VR's progressive stays
+the guaranteed-fetchable lead. On-device + live-YouTube verification is pending (see
+`docs/superpowers/specs/2026-07-15-stream-decipher-design.md`).
 
 **UI placeholders pending backend** (marked `// TODO Phase 2/3` in the QML): author avatars (no
 `avatarUrl` role yet → bundled placeholder squircle), like/dislike/view counts, comments, suggested

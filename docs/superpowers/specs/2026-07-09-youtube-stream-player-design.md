@@ -39,8 +39,12 @@ plus its supporting pieces. Goals:
 
 ## 2. Non-goals / out of scope
 
-- **Signature deciphering.** `playerparser` already skips ciphered formats; obtaining ciphered
-  progressive URLs is a separate parser concern. This engine plays whatever URL it is handed.
+- **Signature deciphering.** ~~out of scope~~ **Implemented 2026-07-15** — see the decipher plan
+  (`docs/superpowers/plans/2026-07-15-ytdlp-stream-decipher.md`) + as-built note
+  (`docs/superpowers/specs/2026-07-15-stream-decipher-design.md`). `playerparser` now surfaces the
+  raw ciphered formats (`CT::RawFormat` + `signatureCipher`); `chains::fetchPlayer` deciphers them
+  via the embedded quickjs-ng `jsc::Solver` (base.js `sig` + `n`), so this engine still just plays
+  whatever URL it is handed — but a deciphered URL is now among them. (poToken remains out of scope.)
 - **DASH / VP9 / AV1 / Opus.** The N9 has no hardware decoder for these; they are not targeted.
 - **`adaptiveFormats` (true audio-only itags).** `playerparser` currently surfaces only progressive
   `formats` + `hlsManifestUrl`; it does not parse `adaptiveFormats`. Phase 1 audio mode therefore
@@ -367,8 +371,11 @@ on host; the GStreamer/policy/overlay glue is device-verified when the N9 is rea
 2. **Overlay compositing nuances** (§7) — colour-key vs MCompositor behaviour is device-verified; the
    fullscreen decision minimises exposure.
 3. **Progressive availability** — modern YouTube increasingly ciphers/omits progressive; if
-   `progressiveUrl` is frequently empty, Phase 3 (HLS) becomes load-bearing sooner, and/or signature
-   deciphering (out of scope here) becomes necessary.
+   `progressiveUrl` is frequently empty, Phase 3 (HLS) becomes load-bearing sooner. Signature
+   deciphering (the WEB decipher path, shipped 2026-07-15) now **recovers ciphered formats**, so a
+   ciphered-but-present progressive is fetchable again — subject to the **poToken ceiling**: an
+   anonymous WEB *adaptive* fetch may still 403 (GVS poToken, out of scope), while the ANDROID_VR
+   progressive stays the guaranteed-fetchable lead.
 4. **`appsrc` seek precision for HLS** — segment-granular only; acceptable for VOD.
 5. **Whole engine is device-unverifiable in this environment** (N9 down) — Phases 1–3 ship
    host-green with a clearly tracked on-device verification checklist, per project norm.

@@ -390,10 +390,16 @@ endif()
 #   - static target `qjs` -> libqjs.a (add_library(qjs …) + BUILD_SHARED_LIBS=OFF);
 #   - public header installs to include/quickjs.h (install(FILES quickjs.h
 #     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})), so QJS_INCLUDE = install/include
-#     and jsvm.cpp uses <quickjs.h>;
-#   - there is NO CLI-disable option in this tag (qjsc/qjs are always built), so
-#     the block sets none — building those CLIs is harmless here, just slower.
-#     QJS_ENABLE_INSTALL=ON (default) is what installs the lib + header we need.
+#     and jsvm.cpp uses <quickjs.h>.
+#
+# We build and install ONLY the `qjs` static target — never quickjs-ng's CLI
+# executables (qjs/qjsc/run-test262/function_source). Two reasons: (1) those CLIs
+# call clock_gettime, which on the N9's older glibc lives in librt (needs -lrt),
+# and quickjs-ng doesn't link it, so a full `cmake --build` FAILS to link them on
+# the device (the lib itself builds fine); (2) they're dead weight we never ship.
+# This tag has no CLI-disable option, so we scope BUILD_COMMAND to target `qjs`
+# and replace the default (CLI-referencing) `cmake --install` with a plain copy
+# of just the lib + public header into ${QJS_INSTALL} (host + device alike).
 # ---------------------------------------------------------------------------
 set(QJS_INSTALL ${CMAKE_BINARY_DIR}/quickjs-install CACHE INTERNAL "")
 set(QJS_A       ${QJS_INSTALL}/lib/libqjs.a CACHE INTERNAL "")
@@ -415,6 +421,10 @@ if(BUILD_N9)
                     -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
                     -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
                     -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+        BUILD_COMMAND    ${CMAKE_COMMAND} --build <BINARY_DIR> --target qjs
+        INSTALL_COMMAND  ${CMAKE_COMMAND} -E make_directory ${QJS_INSTALL}/lib ${QJS_INCLUDE}
+                 COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/libqjs.a ${QJS_A}
+                 COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/quickjs.h ${QJS_INCLUDE}/quickjs.h
         BUILD_BYPRODUCTS ${QJS_A}
     )
 else()
@@ -426,6 +436,10 @@ else()
                     -DCMAKE_BUILD_TYPE=Release
                     -DCMAKE_POSITION_INDEPENDENT_CODE=ON
                     -DBUILD_SHARED_LIBS=OFF
+        BUILD_COMMAND    ${CMAKE_COMMAND} --build <BINARY_DIR> --target qjs
+        INSTALL_COMMAND  ${CMAKE_COMMAND} -E make_directory ${QJS_INSTALL}/lib ${QJS_INCLUDE}
+                 COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/libqjs.a ${QJS_A}
+                 COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/quickjs.h ${QJS_INCLUDE}/quickjs.h
         BUILD_BYPRODUCTS ${QJS_A}
     )
 endif()
