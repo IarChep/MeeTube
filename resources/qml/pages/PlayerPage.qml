@@ -3,11 +3,11 @@ import com.nokia.meego 1.0
 import MeeTube 1.0
 import "../js/UIConstants.js" as UI
 
-// Audio now-playing screen. Phase-1 audio: plays the progressive stream in
-// AudioMode (mode 0) — the GStreamer pipeline decodes only the audio branch and
-// routes the video pad to fakesink, so nothing renders (video is dropped). The same
-// YouTube-style overlay controls (play/pause + scrubber) drive playback. Tap to
-// toggle the controls; they auto-hide after a few seconds.
+// Playback screen. Overlay styled after the N9 stock video player (video-suite):
+// one flat-black bottom bar — round back button, play/pause glyph, thin color11
+// scrubber with the times under its ends, view menu — plus the big centred
+// icon-l-common-video-playback while paused. Tap the video to toggle the bar;
+// it auto-hides after a few seconds.
 Page {
     id: root
     property string videoId: ""
@@ -75,11 +75,11 @@ Page {
         console.log("[player] switch to", qualLabels[i]);
         player.play(qualUrls[i], qualModes[i]);
     }
-    // ms -> "m:ss"
+    // ms -> "mm:ss" (zero-padded like the stock player's slider labels)
     function fmt(ms) {
-        if (ms <= 0) return "0:00";
+        if (ms <= 0) return "00:00";
         var s = Math.floor(ms / 1000); var m = Math.floor(s / 60); s = s % 60;
-        return m + ":" + (s < 10 ? "0" : "") + s;
+        return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
     }
     function poke() { controlsShown = true; hideTimer.restart(); }   // keep controls up
 
@@ -143,7 +143,22 @@ Page {
         visible: running
     }
 
-    // ---- YouTube-style controls: top back bar, centre play/pause, bottom scrubber ----
+    // Big centred pause indicator — the stock player's icon-l-common-video-playback.
+    // Lives OUTSIDE the fading controls layer: it marks the paused state even after
+    // the bar auto-hides, and tapping it resumes. StreamPlayer.State: Paused = 4.
+    Image {
+        id: pausedBadge
+        anchors.centerIn: parent
+        source: "image://theme/icon-l-common-video-playback"
+        smooth: true
+        visible: player.state == 4
+        MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_XLARGE
+                    onClicked: { player.resume(); root.poke(); } }
+    }
+
+    // ---- Stock video-suite overlay: ONE flat-black bottom bar ----
+    // Layout lifted from the built-in N9 player: round back button | play/pause
+    // glyph | thin color11 scrubber with the times UNDER its ends | view menu.
     Item {
         id: controls
         anchors.fill: parent
@@ -151,80 +166,120 @@ Page {
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 200 } }
 
-        Rectangle {   // top scrim bar
-            id: topBar
-            anchors { left: parent.left; right: parent.right; top: parent.top }
-            height: UI.SIZE_BUTTON; color: UI.COLOR_INVERTED_BACKGROUND; opacity: 0.55
-        }
-        Image {       // back (sibling of topBar so it draws at full opacity)
-            id: backIcon
-            anchors { left: parent.left; leftMargin: UI.PADDING_DOUBLE; verticalCenter: topBar.verticalCenter }
-            source: "image://theme/icon-m-toolbar-back-white"
-            smooth: true
-            MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
-                        onClicked: { player.stop(); pageStack.pop(); } }
-        }
-        Image {       // quality / track picker (right of the top bar)
-            id: qualityIcon
-            anchors { right: parent.right; rightMargin: UI.PADDING_DOUBLE; verticalCenter: topBar.verticalCenter }
-            source: "image://theme/icon-m-toolbar-view-menu-white"
-            smooth: true
-            visible: root.qualLabels.length > 1     // hide when there's nothing to choose
-            MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
-                        onClicked: { qualityDialog.open(); root.poke(); } }
-        }
+        Rectangle {
+            id: bar
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: UI.SIZE_PLAYER_BAR
+            color: UI.COLOR_INVERTED_BACKGROUND
 
-        Image {       // centre play/pause. StreamPlayer.State: Playing = 3, Paused = 4.
-            anchors.centerIn: parent
-            width: UI.SIZE_BUTTON; height: UI.SIZE_BUTTON
-            fillMode: Image.PreserveAspectFit; smooth: true
-            source: player.state == 3 ? "image://theme/icon-m-toolbar-mediacontrol-pause-white"
-                                      : "image://theme/icon-m-toolbar-mediacontrol-play-white"
-            MouseArea {
-                anchors.fill: parent
-                onClicked: {
-                    if (player.state == 3) player.pause();
-                    else if (player.state == 4) player.resume();
-                    root.poke();
+            Item {        // round back button (dark circle + white arrow, stock style)
+                id: backBtn
+                width: UI.SIZE_PLAYER_ROUNDBTN; height: UI.SIZE_PLAYER_ROUNDBTN
+                anchors { left: parent.left; leftMargin: UI.PADDING_XLARGE
+                          verticalCenter: parent.verticalCenter }
+                Rectangle {
+                    anchors.fill: parent
+                    radius: width / 2
+                    color: UI.COLOR_PLAYER_BUTTON
+                    border.color: UI.COLOR_PLAYER_BUTTON_RING
+                    border.width: 1
+                    smooth: true
+                }
+                Image {
+                    anchors.centerIn: parent
+                    width: UI.SIZE_PLAYER_GLYPH; height: UI.SIZE_PLAYER_GLYPH
+                    fillMode: Image.PreserveAspectFit; smooth: true
+                    source: "image://theme/icon-m-toolbar-back-white"
+                }
+                MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_LARGE
+                            onClicked: { player.stop(); pageStack.pop(); } }
+            }
+
+            Image {       // play/pause glyph — bare icon on the bar, like the stock player.
+                          // StreamPlayer.State: Playing = 3, Paused = 4.
+                id: ppGlyph
+                anchors { left: backBtn.right; leftMargin: UI.PADDING_XLARGE
+                          verticalCenter: parent.verticalCenter }
+                smooth: true
+                source: player.state == 3 ? "image://theme/icon-m-toolbar-mediacontrol-pause-white"
+                                          : "image://theme/icon-m-toolbar-mediacontrol-play-white"
+                MouseArea {
+                    anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
+                    onClicked: {
+                        if (player.state == 3) player.pause();
+                        else if (player.state == 4) player.resume();
+                        root.poke();
+                    }
+                }
+            }
+
+            Image {       // quality / track picker on the stock hamburger spot
+                id: menuGlyph
+                anchors { right: parent.right; rightMargin: UI.PADDING_XLARGE
+                          verticalCenter: parent.verticalCenter }
+                source: "image://theme/icon-m-toolbar-view-menu-white"
+                smooth: true
+                visible: root.qualLabels.length > 1     // hide when there's nothing to choose
+                MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
+                            onClicked: { qualityDialog.open(); root.poke(); } }
+            }
+
+            // Scrubber strip between the glyphs: thin track in the bar's upper half,
+            // color11 elapsed fill, small square handle, times under the ends.
+            Item {
+                id: seek
+                anchors { left: ppGlyph.right; leftMargin: UI.PADDING_XLARGE
+                          right: menuGlyph.visible ? menuGlyph.left : parent.right
+                          rightMargin: UI.PADDING_XLARGE
+                          top: parent.top; bottom: parent.bottom }
+                // Fraction shown: live playback position, or the finger while scrubbing.
+                property real frac: dragArea.pressed
+                        ? dragArea.dragFrac
+                        : (player.duration > 0 ? player.position / player.duration : 0)
+
+                Rectangle {   // track
+                    id: track
+                    anchors { left: parent.left; right: parent.right; top: parent.top
+                              topMargin: UI.PADDING_DOUBLE }
+                    height: UI.SIZE_SEEK_TRACK
+                    color: UI.COLOR_SEEK_TRACK
+                }
+                Rectangle {   // elapsed
+                    anchors { left: track.left; top: track.top; bottom: track.bottom }
+                    width: Math.round(track.width * Math.max(0, Math.min(1, seek.frac)))
+                    color: UI.COLOR_SEEK_ELAPSED
+                }
+                Rectangle {   // handle
+                    width: UI.SIZE_SEEK_HANDLE; height: UI.SIZE_SEEK_HANDLE
+                    anchors.verticalCenter: track.verticalCenter
+                    x: Math.round((track.width - width) * Math.max(0, Math.min(1, seek.frac)))
+                    color: UI.COLOR_SEEK_HANDLE
+                    smooth: true
+                }
+                Label {       // elapsed time under the slider start (live while scrubbing)
+                    anchors { left: parent.left; top: track.bottom; topMargin: UI.PADDING_LARGE }
+                    text: root.fmt(dragArea.pressed ? seek.frac * player.duration : player.position)
+                    color: UI.COLOR_TIME_LABEL
+                    font { family: UI.FONT_FAMILY_LIGHT; pixelSize: UI.FONT_LSMALL }
+                }
+                Label {       // total duration under the slider end
+                    anchors { right: parent.right; top: track.bottom; topMargin: UI.PADDING_LARGE }
+                    text: root.fmt(player.duration)
+                    color: UI.COLOR_TIME_LABEL
+                    font { family: UI.FONT_FAMILY_LIGHT; pixelSize: UI.FONT_LSMALL }
+                }
+                MouseArea {   // scrub anywhere on the strip; seek once on release
+                    id: dragArea
+                    property real dragFrac: 0
+                    anchors.fill: parent
+                    onPressed: { dragFrac = Math.max(0, Math.min(1, mouse.x / width)); root.poke(); }
+                    onPositionChanged: if (pressed) dragFrac = Math.max(0, Math.min(1, mouse.x / width))
+                    onReleased: {
+                        if (player.duration > 0) player.seek(Math.round(dragFrac * player.duration));
+                        root.poke();
+                    }
                 }
             }
         }
-
-        Rectangle {   // bottom scrim bar
-            id: botBar
-            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
-            height: UI.SIZE_BUTTON; color: UI.COLOR_INVERTED_BACKGROUND; opacity: 0.55
-        }
-        Item {        // scrubber row (sibling of botBar, full opacity)
-            anchors { left: parent.left; right: parent.right; leftMargin: UI.PADDING_DOUBLE
-                      rightMargin: UI.PADDING_DOUBLE; verticalCenter: botBar.verticalCenter }
-            height: botBar.height
-            Label {
-                id: posLbl
-                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                text: root.fmt(player.position)
-                color: UI.COLOR_INVERTED_FOREGROUND; font.pixelSize: UI.FONT_SMALL
-            }
-            Label {
-                id: durLbl
-                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                text: root.fmt(player.duration)
-                color: UI.COLOR_INVERTED_FOREGROUND; font.pixelSize: UI.FONT_SMALL
-            }
-            Slider {
-                id: scrub
-                anchors { left: posLbl.right; right: durLbl.left; leftMargin: UI.PADDING_LARGE
-                          rightMargin: UI.PADDING_LARGE; verticalCenter: parent.verticalCenter }
-                minimumValue: 0
-                maximumValue: player.duration > 0 ? player.duration : 1
-                onPressedChanged: { if (!pressed) player.seek(value); root.poke(); }
-            }
-        }
-    }
-
-    // Follow playback position on the scrubber unless the user is dragging it.
-    Connections {
-        target: player
-        onPositionChanged: if (!scrub.pressed) scrub.value = player.position
     }
 }

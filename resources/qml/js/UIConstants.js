@@ -138,4 +138,18 @@ var ANIM_FAST    = 150;
 var ANIM_DEFAULT = 250;
 var ANIM_SLOW    = 400;
 
+// Player overlay — metrics + colors lifted from the N9 stock video player
+// (video-suite / libvsvideowidget: screenshots + theme CSS, 2026-07-15).
+var SIZE_PLAYER_BAR       = 56;        // bottom control bar height
+var SIZE_PLAYER_ROUNDBTN  = 40;        // round back button diameter
+var SIZE_PLAYER_GLYPH     = 20;        // icon scaled into the round button
+var SIZE_SEEK_TRACK       = 8;         // scrubber line thickness
+var SIZE_SEEK_HANDLE      = 12;        // small square scrub handle
+var COLOR_SEEK_ELAPSED    = "#8314AC"; // color11 purple — stock elapsed fill
+var COLOR_SEEK_TRACK      = "#292829"; // stock track gray
+var COLOR_SEEK_HANDLE     = "#C7C7C7"; // handle light gray
+var COLOR_TIME_LABEL      = "#797979"; // MSliderMinMaxLabel (stock video.css)
+var COLOR_PLAYER_BUTTON   = "#1C1C1C"; // round button fill
+var COLOR_PLAYER_BUTTON_RING = "#3A3A3A"; // its thin border
+
 
