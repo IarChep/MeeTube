@@ -28,10 +28,10 @@ namespace yt {
 struct SettingsData;   // the file's Glaze/std mirror — defined in settingsstore.cpp
 
 // The app's ONE settings file: Glaze-written JSON at ~/.config/MeeTube/settings.json
-// (tests pass an explicit path). Replaces the QSettings backend. The whole file is
-// parsed once in the ctor into an in-memory std mirror; reads answer from memory and
-// every mutator rewrites the file atomically (tmp + rename, owner-only permissions —
-// it holds the OAuth refresh_token). GUI-thread affine, as the QSettings store was.
+// (tests pass an explicit path). The whole file is parsed once in the ctor into an
+// in-memory std mirror; reads answer from memory and every mutator rewrites the file
+// atomically (tmp + rename, owner-only permissions — it holds the OAuth
+// refresh_token). GUI-thread affine.
 //
 // Sections: signed-in accounts (only the refresh_token is stored; access tokens are
 // minted on demand), the anonymous session id (responseContext.visitorData, persisted
@@ -40,11 +40,8 @@ struct SettingsData;   // the file's Glaze/std mirror — defined in settingssto
 class SettingsStore : public QObject {
     Q_OBJECT
 public:
-    // jsonPath: the settings file (empty → the app default). legacyIniPath: test seam
-    // for the one-time QSettings import — see the ctor.
-    explicit SettingsStore(const QString &jsonPath = QString(),
-                           const QString &legacyIniPath = QString(),
-                           QObject *parent = 0);
+    // jsonPath: the settings file (empty → the app default).
+    explicit SettingsStore(const QString &jsonPath = QString(), QObject *parent = 0);
     ~SettingsStore();
 
     // -- accounts --
@@ -73,7 +70,6 @@ Q_SIGNALS:
 
 private:
     void readFile();                            // initial parse of m_path into m_d
-    void importLegacy(const QString &iniPath);  // one-time pre-Glaze QSettings import
     void write() const;                         // atomic whole-file rewrite (tmp + rename)
     QString m_path;
     QScopedPointer<SettingsData> m_d;           // in-memory state (std shapes for Glaze)
