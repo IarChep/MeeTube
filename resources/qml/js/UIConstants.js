@@ -146,9 +146,9 @@ var ANIM_SLOW    = 400;
 var SIZE_PLAYER_BAR    = 56;        // bottom control bar height (measured)
 var SIZE_PLAYER_BUTTON = 40;        // back button chrome, rendered square
 var SIZE_PLAYER_SEEK   = 40;        // seekbar strip height (groove centres in it)
-var SIZE_SEEK_THUMB_W  = 4;         // tiny thumb sliver INSIDE the groove…
-var SIZE_SEEK_THUMB_H  = 8;         // …at the elapsed edge (measured 3-4 × 6-8)
-var COLOR_SEEK_THUMB   = "#D0D0D0"; // its light gray (sampled)
+var SIZE_SEEK_THUMB    = 8;         // handle canvas: the DEFAULT slider handle
+                                    // graphic scaled way down — its visible
+                                    // bubble lands at ~5px, as measured in stock
 var COLOR_TIME_LABEL   = "#797979"; // MSliderMinMaxLabel (stock video.css)
 
 

@@ -222,10 +222,12 @@ Page {
         }
 
         // The system Slider wearing the stock seekbar's clothes: the theme's
-        // inverted groove pills + the color11 (purple) elapsed fill, the handle
-        // bubble suppressed — the stock seekbar shows no bubble, just the tiny
-        // thumb sliver at the elapsed edge, drawn below. Groove sits in the
-        // bar's upper half; drag/tap-to-seek behavior is the component's own.
+        // inverted groove pills + the color11 (purple) elapsed fill. The stock
+        // thumb IS the default handle graphic, just tiny — so the template's
+        // handle item is overridden with a scaled-down instance (the visible
+        // bubble lands at ~5px, riding the elapsed edge inside the groove).
+        // Groove sits in the bar's upper half; drag/tap-to-seek is the
+        // component's own behavior.
         Slider {
             id: scrub
             anchors { left: ppGlyph.right; leftMargin: UI.PADDING_XLARGE
@@ -239,15 +241,12 @@ Page {
                 inverted: true
                 grooveItemElapsedBackground:
                     "image://theme/color11-meegotouch-slider-elapsed-inverted-background-horizontal"
-                handleBackground: ""
-                handleBackgroundPressed: ""
             }
-            Rectangle {   // the stock thumb: a light sliver INSIDE the groove
-                width: UI.SIZE_SEEK_THUMB_W; height: UI.SIZE_SEEK_THUMB_H
-                anchors.verticalCenter: parent.verticalCenter
-                x: Math.max(0, Math.round(parent.width * (scrub.value / scrub.maximumValue)) - width - 2)
-                color: UI.COLOR_SEEK_THUMB
-                visible: player.duration > 0
+            __handleItem: Image {
+                width: UI.SIZE_SEEK_THUMB; height: UI.SIZE_SEEK_THUMB
+                smooth: true
+                source: scrub.pressed ? scrub.platformStyle.handleBackgroundPressed
+                                      : scrub.platformStyle.handleBackground
             }
         }
         Label {       // elapsed under the slider start (live while scrubbing)
