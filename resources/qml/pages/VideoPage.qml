@@ -172,7 +172,9 @@ Page {
                             // Open the fullscreen video player; it resolves the async
                             // stream URL itself and plays (mode 1 = video).
                             pageStack.push(Qt.resolvedUrl("PlayerPage.qml"),
-                                           { videoId: videoData.id ? videoData.id : "" });
+                                           { videoId: videoData.id ? videoData.id : "",
+                                             videoTitle: videoData.title ? videoData.title : "",
+                                             videoAuthor: videoData.username ? videoData.username : "" });
                         }
                     }
                 }

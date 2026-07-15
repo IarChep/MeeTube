@@ -3,16 +3,18 @@ import com.nokia.meego 1.0
 import MeeTube 1.0
 import "../js/UIConstants.js" as UI
 
-// Playback screen. Overlay styled after the N9 stock video player (video-suite):
-// one translucent bottom bar that slides in from the bottom edge — the MButton
-// inverted-background back button, play/pause glyph, the system Slider restyled
-// to the stock seekbar (inverted groove, color11 elapsed, tiny in-groove thumb)
-// with the times under its ends, view menu — plus the big centred
-// icon-l-common-video-playback while paused. Tap the video to toggle the bar;
-// it auto-hides after a few seconds.
+// Playback screen. Overlay styled after the N9 stock video player (video-suite),
+// two translucent panels sliding in from their screen edges: the top one carries
+// exit (ToolButton) | video title + author | quality menu (ToolButton), the
+// bottom one play/pause + the system Slider restyled to the stock seekbar
+// (inverted groove, color11 elapsed pill, tiny in-groove thumb, times under its
+// ends) — plus the big centred icon-l-common-video-playback while paused. Tap
+// the video to toggle the panels; they auto-hide after a few seconds.
 Page {
     id: root
     property string videoId: ""
+    property string videoTitle: ""
+    property string videoAuthor: ""
     property variant streams: null
     property bool controlsShown: true
 
@@ -158,12 +160,60 @@ Page {
                     onClicked: { player.resume(); root.poke(); } }
     }
 
-    // ---- Stock video-suite overlay: ONE translucent bottom bar ----
-    // Layout + chrome lifted from the built-in N9 player: MButton inverted-
-    // background back button | play/pause glyph | the SYSTEM Slider restyled to
-    // the stock seekbar (inverted groove + color11 elapsed, no handle bubble —
-    // the thumb is a tiny sliver inside the groove) with the times under its
-    // ends | view menu. Slides in/out of the bottom edge like the stock bar.
+    // ---- Top panel: exit | video title + author | quality menu ----
+    // Slides in from the top edge in step with the bottom bar. The buttons are
+    // stock ToolButtons shrunk to the panel — their BorderImage chrome (the
+    // inverted rounded square) scales down WITH the button.
+    Rectangle {
+        id: topBar
+        anchors { left: parent.left; right: parent.right; top: parent.top
+                  topMargin: root.controlsShown ? 0 : -height }
+        height: UI.SIZE_PLAYER_TOPBAR
+        color: UI.COLOR_SCRIM
+        Behavior on anchors.topMargin { NumberAnimation { duration: UI.ANIM_DEFAULT; easing.type: Easing.OutQuad } }
+
+        ToolButton {
+            id: exitBtn
+            width: UI.SIZE_PLAYER_BUTTON; height: UI.SIZE_PLAYER_BUTTON
+            anchors { left: parent.left; leftMargin: UI.PADDING_XLARGE
+                      verticalCenter: parent.verticalCenter }
+            iconSource: "image://theme/icon-m-toolbar-back-white"
+            onClicked: { player.stop(); pageStack.pop(); }
+        }
+        ToolButton {
+            id: menuBtn
+            width: UI.SIZE_PLAYER_BUTTON; height: UI.SIZE_PLAYER_BUTTON
+            anchors { right: parent.right; rightMargin: UI.PADDING_XLARGE
+                      verticalCenter: parent.verticalCenter }
+            iconSource: "image://theme/icon-m-toolbar-view-menu-white"
+            visible: root.qualLabels.length > 1     // hide when there's nothing to choose
+            onClicked: { qualityDialog.open(); root.poke(); }
+        }
+        Column {
+            anchors { left: exitBtn.right; leftMargin: UI.PADDING_XLARGE
+                      right: menuBtn.visible ? menuBtn.left : parent.right
+                      rightMargin: UI.PADDING_XLARGE
+                      verticalCenter: parent.verticalCenter }
+            spacing: UI.PADDING_SMALL
+            Label {   // title — a single elided line
+                width: parent.width
+                text: root.videoTitle
+                elide: Text.ElideRight
+                color: UI.COLOR_INVERTED_FOREGROUND
+                font { family: UI.FONT_FAMILY; pixelSize: UI.FONT_LSMALL }
+            }
+            Label {   // author under it
+                width: parent.width
+                text: root.videoAuthor
+                elide: Text.ElideRight
+                color: UI.COLOR_INVERTED_SECONDARY_FOREGROUND
+                font { family: UI.FONT_FAMILY_LIGHT; pixelSize: UI.FONT_XSMALL }
+            }
+        }
+    }
+
+    // ---- Bottom bar (stock video-suite style): play/pause + the seekbar ----
+    // Slides in/out of the bottom edge like the stock bar.
     Rectangle {
         id: bar
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom
@@ -172,30 +222,10 @@ Page {
         color: UI.COLOR_SCRIM
         Behavior on anchors.bottomMargin { NumberAnimation { duration: UI.ANIM_DEFAULT; easing.type: Easing.OutQuad } }
 
-        Item {        // back button — the stock MButton inverted chrome + full-size arrow
-            id: backBtn
-            width: UI.SIZE_PLAYER_BUTTON; height: UI.SIZE_PLAYER_BUTTON
-            anchors { left: parent.left; leftMargin: UI.PADDING_XLARGE
-                      verticalCenter: parent.verticalCenter }
-            Image {
-                anchors.fill: parent
-                smooth: true
-                source: backTap.pressed ? "image://theme/meegotouch-button-inverted-background-pressed"
-                                        : "image://theme/meegotouch-button-inverted-background"
-            }
-            Image {
-                anchors.centerIn: parent
-                smooth: true
-                source: "image://theme/icon-m-toolbar-back-white"
-            }
-            MouseArea { id: backTap; anchors.fill: parent; anchors.margins: -UI.PADDING_LARGE
-                        onClicked: { player.stop(); pageStack.pop(); } }
-        }
-
         Image {       // play/pause glyph — bare icon on the bar, like the stock player.
                       // StreamPlayer.State: Playing = 3, Paused = 4.
             id: ppGlyph
-            anchors { left: backBtn.right; leftMargin: UI.PADDING_XLARGE + UI.PADDING_LARGE
+            anchors { left: parent.left; leftMargin: UI.PADDING_XLARGE
                       verticalCenter: parent.verticalCenter }
             smooth: true
             source: player.state == 3 ? "image://theme/icon-m-toolbar-mediacontrol-pause-white"
@@ -210,17 +240,6 @@ Page {
             }
         }
 
-        Image {       // quality / track picker on the stock hamburger spot
-            id: menuGlyph
-            anchors { right: parent.right; rightMargin: UI.PADDING_XLARGE
-                      verticalCenter: parent.verticalCenter }
-            source: "image://theme/icon-m-toolbar-view-menu-white"
-            smooth: true
-            visible: root.qualLabels.length > 1     // hide when there's nothing to choose
-            MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
-                        onClicked: { qualityDialog.open(); root.poke(); } }
-        }
-
         // The system Slider wearing the stock seekbar's clothes. The template's
         // own value track ends AT the handle's left edge (its right cap gets
         // squeezed square), while the stock fill is a full pill — rounded on
@@ -232,7 +251,7 @@ Page {
         Slider {
             id: scrub
             anchors { left: ppGlyph.right; leftMargin: UI.PADDING_XLARGE
-                      right: menuGlyph.visible ? menuGlyph.left : parent.right
+                      right: parent.right
                       rightMargin: UI.PADDING_XLARGE; top: parent.top }
             height: UI.SIZE_PLAYER_SEEK
             minimumValue: 0
