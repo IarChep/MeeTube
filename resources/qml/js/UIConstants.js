@@ -139,17 +139,16 @@ var ANIM_DEFAULT = 250;
 var ANIM_SLOW    = 400;
 
 // Player overlay — metrics + colors lifted from the N9 stock video player
-// (video-suite / libvsvideowidget: screenshots + theme CSS, 2026-07-15).
-var SIZE_PLAYER_BAR       = 56;        // bottom control bar height
-var SIZE_PLAYER_ROUNDBTN  = 40;        // round back button diameter
-var SIZE_PLAYER_GLYPH     = 20;        // icon scaled into the round button
-var SIZE_SEEK_TRACK       = 8;         // scrubber line thickness
-var SIZE_SEEK_HANDLE      = 12;        // small square scrub handle
-var COLOR_SEEK_ELAPSED    = "#8314AC"; // color11 purple — stock elapsed fill
-var COLOR_SEEK_TRACK      = "#292829"; // stock track gray
-var COLOR_SEEK_HANDLE     = "#C7C7C7"; // handle light gray
-var COLOR_TIME_LABEL      = "#797979"; // MSliderMinMaxLabel (stock video.css)
-var COLOR_PLAYER_BUTTON   = "#1C1C1C"; // round button fill
-var COLOR_PLAYER_BUTTON_RING = "#3A3A3A"; // its thin border
+// (video-suite / libvsvideowidget: device screenshots + theme CSS, 2026-07-15).
+// The chrome itself comes from theme graphics (meegotouch-button-inverted-
+// background, the inverted slider groove + color11 elapsed pills); only what
+// the theme cannot provide is defined here.
+var SIZE_PLAYER_BAR    = 56;        // bottom control bar height (measured)
+var SIZE_PLAYER_BUTTON = 40;        // back button chrome, rendered square
+var SIZE_PLAYER_SEEK   = 40;        // seekbar strip height (groove centres in it)
+var SIZE_SEEK_THUMB_W  = 4;         // tiny thumb sliver INSIDE the groove…
+var SIZE_SEEK_THUMB_H  = 8;         // …at the elapsed edge (measured 3-4 × 6-8)
+var COLOR_SEEK_THUMB   = "#D0D0D0"; // its light gray (sampled)
+var COLOR_TIME_LABEL   = "#797979"; // MSliderMinMaxLabel (stock video.css)
 
 
