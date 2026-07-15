@@ -76,7 +76,6 @@ static CT::User channelFromRoot(const rj::ChannelRoot &root)
         if (u.thumbnailUrl.isEmpty() && m.avatar)
             u.thumbnailUrl = qstr(lastThumbUrl(*m.avatar));
     }
-    u.videosId = u.id; u.playlistsId = u.id;
     return u;
 }
 

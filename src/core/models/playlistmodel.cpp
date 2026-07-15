@@ -21,13 +21,13 @@ using namespace yt;
 
 static QList<QByteArray> playlistRoles() {
     QList<QByteArray> r;
-    r << "id" << "title" << "description" << "thumbnailUrl" << "videoCount" << "username" << "videosId";
+    r << "id" << "title" << "description" << "thumbnailUrl" << "videoCount" << "username";
     return r;
 }
 
 // Role indices — MUST stay in lockstep with playlistRoles() order above (the roleIdx
 // handed to roleData() is the 0-based position in that list).
-enum PRole { RId, RTitle, RDescription, RThumbnailUrl, RVideoCount, RUsername, RVideosId,
+enum PRole { RId, RTitle, RDescription, RThumbnailUrl, RVideoCount, RUsername,
              RPlaylistRoleCount };
 
 PlaylistModel::PlaylistModel(QObject *parent)
@@ -48,7 +48,6 @@ QVariant PlaylistModel::roleData(int row, int idx) const {
     case RThumbnailUrl: return p.thumbnailUrl;
     case RVideoCount: return p.videoCount;
     case RUsername: return p.username;
-    case RVideosId: return p.videosId;
     }
     return QVariant();
 }

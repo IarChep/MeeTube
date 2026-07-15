@@ -37,12 +37,12 @@ struct Video {
     bool downloadable = false;
 };
 struct Playlist {
-    QString id, title, description, thumbnailUrl, date, userId, username, videosId;
+    QString id, title, description, thumbnailUrl, date, userId, username;
     int videoCount = 0;
 };
 struct User {
-    QString id, username, description, thumbnailUrl, subscriberCount, videosId, playlistsId,
-            bannerUrl, handle, videoCount;
+    QString id, username, description, thumbnailUrl, subscriberCount, bannerUrl,
+            handle, videoCount;
     bool subscribed = false;
 };
 struct Comment { QString id, body, date, userId, username, thumbnailUrl, videoId; };

@@ -550,7 +550,6 @@ inline CT::User fromTileChannel(const rj::Tile &t)
         if (url.startsWith(QLatin1String("//"))) url.prepend(QLatin1String("https:"));   // protocol-relative
         u.thumbnailUrl = url;
     }
-    u.videosId = u.id; u.playlistsId = u.id;
     return u;
 }
 
@@ -585,7 +584,6 @@ inline CT::Playlist fromTilePlaylist(const rj::Tile &t)
                     if (n > 0) p.videoCount = (int) n;
                 }
     }
-    p.videosId = p.id;   // videos() prepends the VL feed prefix
     return p;
 }
 
@@ -609,7 +607,6 @@ inline CT::Playlist fromPlaylistRenderer(const rj::PlaylistR &r)
     if (vc.isEmpty() && r.videoCountText)      vc = qstr(textOf(*r.videoCountText));
     if (vc.isEmpty() && r.videoCountShortText) vc = qstr(textOf(*r.videoCountShortText));
     p.videoCount = (int)digitsOf(vc);
-    p.videosId = p.id;
     return p;
 }
 
@@ -642,7 +639,6 @@ inline CT::Playlist fromPlaylistLockup(const rj::Lockup &lm)
     if (lm.metadata && lm.metadata->lockupMetadataViewModel
         && lm.metadata->lockupMetadataViewModel->title)
         p.title = qstr(contentOf(lm.metadata->lockupMetadataViewModel->title));
-    p.videosId = p.id;
     return p;
 }
 
@@ -654,7 +650,6 @@ inline CT::User fromUserRenderer(const rj::UserR &r)
     if (r.thumbnail)           u.thumbnailUrl = qstr(lastThumbUrl(*r.thumbnail));
     if (r.subscriberCountText) u.subscriberCount = qstr(textOf(*r.subscriberCountText));
     if (r.descriptionSnippet)  u.description = qstr(textOf(*r.descriptionSnippet));
-    u.videosId = u.id; u.playlistsId = u.id;
     return u;
 }
 
