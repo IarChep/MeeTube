@@ -199,6 +199,8 @@ Page {
 
         Image {       // back — bare glyph; dims while pressed
             id: backIcon
+            width: UI.SIZE_PLAYER_TOPICON; height: UI.SIZE_PLAYER_TOPICON
+            fillMode: Image.PreserveAspectFit
             anchors { left: parent.left; leftMargin: UI.PADDING_DOUBLE
                       verticalCenter: parent.verticalCenter }
             source: "image://theme/icon-m-toolbar-back-white"
@@ -209,6 +211,8 @@ Page {
         }
         Image {       // quality / track picker — bare glyph; dims while pressed
             id: qualityIcon
+            width: UI.SIZE_PLAYER_TOPICON; height: UI.SIZE_PLAYER_TOPICON
+            fillMode: Image.PreserveAspectFit
             anchors { right: parent.right; rightMargin: UI.PADDING_DOUBLE
                       verticalCenter: parent.verticalCenter }
             source: "image://theme/icon-m-toolbar-view-menu-white"
