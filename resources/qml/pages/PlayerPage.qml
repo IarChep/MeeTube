@@ -221,13 +221,14 @@ Page {
                         onClicked: { qualityDialog.open(); root.poke(); } }
         }
 
-        // The system Slider wearing the stock seekbar's clothes: the theme's
-        // inverted groove pills + the color11 (purple) elapsed fill. The stock
-        // thumb IS the default handle graphic, just tiny — so the template's
-        // handle item is overridden with a scaled-down instance (the visible
-        // bubble lands at ~5px, riding the elapsed edge inside the groove).
-        // Groove sits in the bar's upper half; drag/tap-to-seek is the
-        // component's own behavior.
+        // The system Slider wearing the stock seekbar's clothes. The template's
+        // own value track ends AT the handle's left edge (its right cap gets
+        // squeezed square), while the stock fill is a full pill — rounded on
+        // BOTH ends — with the tiny thumb riding INSIDE its right cap. So the
+        // template keeps only the inverted groove + all drag/tap-to-seek input
+        // (its fill and handle items are blanked), and the stock-faithful fill
+        // pill + scaled-down default handle are drawn over it from the same
+        // theme assets. Groove sits in the bar's upper half.
         Slider {
             id: scrub
             anchors { left: ppGlyph.right; leftMargin: UI.PADDING_XLARGE
@@ -237,16 +238,29 @@ Page {
             minimumValue: 0
             maximumValue: player.duration > 0 ? player.duration : 1
             onPressedChanged: { if (!pressed) player.seek(value); root.poke(); }
-            platformStyle: SliderStyle {
-                inverted: true
-                grooveItemElapsedBackground:
-                    "image://theme/color11-meegotouch-slider-elapsed-inverted-background-horizontal"
+            platformStyle: SliderStyle { inverted: true }
+            __valueTrackItem: Item {}   // blanked — replaced by the pill below
+            __handleItem: Item {}       // blanked — zero-size keeps the drag math intact
+
+            BorderImage {   // elapsed — a pill with the SAME cap on both ends (stock)
+                id: fill
+                source: "image://theme/color11-meegotouch-slider-elapsed-inverted-background-horizontal"
+                // Asset-intrinsic geometry, mirrored from the component's own
+                // groove BorderImage (Slider.qml): 10px pill, 6/4px caps.
+                border { left: 6; top: 4; right: 6; bottom: 4 }
+                height: 10
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                width: Math.max(12, Math.round(parent.width * scrub.value / scrub.maximumValue))
+                visible: player.duration > 0
             }
-            __handleItem: Image {
+            Image {         // the default handle graphic, tiny, INSIDE the fill's cap
                 width: UI.SIZE_SEEK_THUMB; height: UI.SIZE_SEEK_THUMB
                 smooth: true
+                anchors.verticalCenter: parent.verticalCenter
+                x: Math.max(0, fill.width - width - 2)
                 source: scrub.pressed ? scrub.platformStyle.handleBackgroundPressed
                                       : scrub.platformStyle.handleBackground
+                visible: fill.visible
             }
         }
         Label {       // elapsed under the slider start (live while scrubbing)
