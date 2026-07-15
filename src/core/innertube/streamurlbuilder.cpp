@@ -1,5 +1,6 @@
 #include "innertube/streamurlbuilder.h"
 #include "jsc/solver.h"
+#include "core/debuglog.h"
 #include <QUrl>
 #include <QStringList>
 
@@ -32,6 +33,7 @@ static QString replaceN(const QString &url, jsc::Solver *solver) {
     const QString oldN = url.mid(vstart, vend - vstart);
     const QString newN = solver->solveN(oldN);
     if (newN == oldN) return url;
+    PLOG() << "  solveN" << qPrintable(oldN) << "->" << qPrintable(newN);
     return url.left(vstart) + newN + url.mid(vend);
 }
 
@@ -44,7 +46,12 @@ QList<CT::Stream> buildStreams(const QList<CT::RawFormat> &raws, jsc::Solver *so
             if (!solver) continue;                       // can't decipher -> skip
             QString base, s, sp; parseCipher(r.cipher, &base, &s, &sp);
             const QString sig = solver->decipherSignature(s);
-            if (base.isEmpty() || sig.isEmpty()) continue;
+            if (base.isEmpty() || sig.isEmpty()) {
+                PLOG() << "  decipher itag=" << r.itag << "FAILED (sig empty), s.len=" << s.length();
+                continue;
+            }
+            PLOG() << "  decipher itag=" << r.itag << "sig" << s.length() << "->" << sig.length()
+                   << "sp=" << qPrintable(sp);
             url = base + (base.contains('?') ? "&" : "?") + sp + "=" + sig;
         }
         if (url.isEmpty()) continue;

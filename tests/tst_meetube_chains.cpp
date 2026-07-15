@@ -184,6 +184,26 @@ private slots:
         for (int i = 0; i < t.sent.size(); ++i) if (t.sent[i].contains("19834")) sawSts = true;
         QVERIFY(sawSts);
     }
+    // MEETUBE_FORCE_WEB reorders the ladder WEB-first so the decipher path runs even on
+    // videos ANDROID_VR would serve directly. One queued reply -> WEB gets it and wins.
+    void forceWebTriesWebFirst() {
+        qputenv("MEETUBE_FORCE_WEB", "1");
+        FakeHttp t;
+        t.setBaseJs(loadFixtureRaw("base_js_sample.js"));
+        t.queue("player", loadFixtureRaw("player_web_ciphered.json"));   // WEB is tried FIRST now
+        JobToken job = newJob();
+        PlayerOutcome out; int calls = 0;
+        fetchPlayer(t, "vvvvvvvvvvvw", job, [&](const PlayerOutcome &r){ out = r; ++calls; });
+        t.flush();
+        const int firstClient = t.lastClientFor("player");
+        qputenv("MEETUBE_FORCE_WEB", QByteArray());   // restore BEFORE asserts (Qt4 has no qunsetenv)
+        QCOMPARE(calls, 1);
+        QVERIFY(out.streamsOk);
+        QCOMPARE(firstClient, (int)ClientId::WEB);     // WEB won on the first try
+        bool found137 = false;
+        for (int i = 0; i < out.streams.size(); ++i) if (out.streams[i].id == "137") found137 = true;
+        QVERIFY(found137);
+    }
 
     // ---- fetchVideoList (was VideoRequest browse/search) ----
     void videoBrowseFeed() {

@@ -16,6 +16,8 @@ public:
     Solver();
     bool init(const std::string &sigSetup, const std::string &nSetup);
     bool ready() const { return m_ready; }
+    bool hasSig() const { return m_haveSig; }      // sig function installed (for the player trace)
+    bool hasN() const { return m_haveN; }          // n function installed (for the player trace)
     QString decipherSignature(const QString &s);   // "" on failure
     QString solveN(const QString &n);              // returns `n` unchanged on failure
 private:

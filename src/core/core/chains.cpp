@@ -341,9 +341,27 @@ void fetchPlayer(IHttp &http, const QString &videoId, const JobToken &job,
     // (no visitorData — see ContextBuilder) or the HLS manifest is stripped.
     clients->push_back(ClientId::IOS);
 
+    // Debug toggle: MEETUBE_FORCE_WEB puts the decipher-capable WEB client FIRST, so the
+    // signature/n path is exercised even on videos ANDROID_VR would serve directly (ANDROID_VR
+    // + IOS stay as fallbacks). Lets you verify decipher on-device with MEETUBE_DEBUG=player.
+    if (!qgetenv("MEETUBE_FORCE_WEB").isEmpty()) {
+        clients->clear();
+        clients->push_back(ClientId::WEB);
+        clients->push_back(ClientId::ANDROID_VR);
+        clients->push_back(ClientId::IOS);
+        PLOG() << "MEETUBE_FORCE_WEB — WEB tried first (decipher path)";
+    }
+
     // Fetch the player-JS context once (sts + Solver), then run the ladder with it.
     http.ensurePlayerJs(job, [&http, videoId, clients, acc, job, done](jsc::PlayerJs *pj) {
         if (!live(job)) return;
+        if (logEnabled("player")) {
+            if (pj) PLOG() << "playerJs ready — url=" << qPrintable(pj->playerUrl)
+                           << "sts=" << pj->sts << "sig=" << pj->solver.hasSig()
+                           << "n=" << pj->solver.hasN();
+            else    PLOG() << "playerJs UNAVAILABLE — base.js fetch/extract failed;"
+                           << "ciphered formats skipped (regexes may have drifted from live base.js)";
+        }
         playerTry(http, videoId, clients, 0, acc, pj, job, done);
     });
 }
