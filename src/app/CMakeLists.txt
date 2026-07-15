@@ -133,10 +133,17 @@ if(BUILD_N9)
         EGL GLESv2 X11 Qt4::QtOpenGL
         ${CMAKE_SYSROOT}/usr/lib/libgstmeegointerfaces-0.10.so.0)
 
+    # -rpath-link: link-TIME resolution of libssl.so.3/libcrypto.so.3's transitive
+    # NEEDED libatomic.so.1. It lives in the cross toolchain (deps/ bundles it to
+    # /opt/meetube/lib only at install time), so without this dir on the linker's
+    # shared-lib search path ld warns "libatomic.so.1 … not found". Runtime is
+    # unaffected — the DT_RPATH above finds the bundled copy on device.
+    get_filename_component(LIBATOMIC_DIR "${TOOLCHAIN_LIBATOMIC}" DIRECTORY)
     target_link_options(meetube PRIVATE
         -static-libstdc++ -static-libgcc
         -Wl,--dynamic-linker,/lib/ld-linux.so.3
         -Wl,-rpath,/opt/meetube/lib -Wl,--disable-new-dtags
+        -Wl,-rpath-link,${LIBATOMIC_DIR}
         -pie -rdynamic -lmdeclarativecache)
     # The device app does not link png12, but it must wait for the bundled libs to be
     # built + installed (they package into /opt/meetube/lib via the deps/ install rules).
