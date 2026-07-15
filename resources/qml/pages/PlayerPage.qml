@@ -233,14 +233,14 @@ Page {
                 text: root.videoTitle
                 elide: Text.ElideRight
                 color: UI.COLOR_INVERTED_FOREGROUND
-                font { family: UI.FONT_FAMILY; pixelSize: UI.FONT_SMALL }
+                font { family: UI.FONT_FAMILY; pixelSize: UI.FONT_LSMALL }
             }
             Label {   // author under it
                 width: parent.width
                 text: root.videoAuthor
                 elide: Text.ElideRight
                 color: UI.COLOR_INVERTED_SECONDARY_FOREGROUND
-                font { family: UI.FONT_FAMILY_LIGHT; pixelSize: UI.FONT_XXSMALL }
+                font { family: UI.FONT_FAMILY_LIGHT; pixelSize: UI.FONT_XSMALL }
             }
         }
     }
