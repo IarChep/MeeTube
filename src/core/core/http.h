@@ -41,6 +41,8 @@
 #include "innertube/clientconfig.h"
 #include "innertube/session.h"
 
+namespace yt { namespace jsc { struct PlayerJs; } }   // fwd — quickjs stays out of this moc'ed header
+
 namespace yt { namespace core {
 
 // Same carrier as the old yt::Reply, same semantics: body is never null and stays
@@ -68,6 +70,11 @@ public:
     virtual void postForm(const QString &url, const QMap<QString, QString> &fields,
                           const JobToken &job, HttpFn done) = 0;
     virtual void get(const QString &url, const JobToken &job, HttpFn done) = 0;
+    // Fetch (once, cached) the player-JS context: iframe_api -> base.js -> Solver + sts.
+    // Delivers the cached PlayerJs* (or 0 on failure), always asynchronously.
+    // Ownership stays with the implementation; the pointer is valid for the process life
+    // of this transport. Excludes poToken by design.
+    virtual void ensurePlayerJs(const JobToken &job, std::function<void(jsc::PlayerJs*)> done) = 0;
     virtual void abort(const JobToken &job) = 0;    // abort in-flight replies whose waiters are all canceled
     virtual Session &session() = 0;
     virtual void clearCache() = 0;                  // response cache + context/header caches
@@ -79,6 +86,7 @@ class Http : public QObject, public IHttp {
     Q_OBJECT
 public:
     explicit Http(QObject *parent = 0);
+    ~Http();                                        // out-of-line: m_playerJs holds an incomplete type
 
     // Watchdog interval for in-flight requests (ms). Defaults to 20s; lowered by
     // tests to drive the timeout path without a 20s wait. Affects only requests
@@ -98,6 +106,7 @@ public:
     void postForm(const QString &url, const QMap<QString, QString> &fields,
                   const JobToken &job, HttpFn done);
     void get(const QString &url, const JobToken &job, HttpFn done);
+    void ensurePlayerJs(const JobToken &job, std::function<void(jsc::PlayerJs*)> done);
     void abort(const JobToken &job);
     // DIRECT writes to the returned Session (e.g. session().hl = ...) MUST be
     // followed by clearCache() (or the internal invalidateSessionCaches()), or the
@@ -112,6 +121,7 @@ private Q_SLOTS:
     void onFinished(QNetworkReply *reply);          // ONE manager-level connection for all requests
     void onDeadline();                              // single timer, re-armed to the nearest deadline
     void onDeliverCached();                         // zero-timer drain of pending cache-hit deliveries
+    void deliverPlayerJs();                         // drains player-JS waiters (queued, never re-entrant)
 
 private:
     struct Waiter { JobToken job; HttpFn fn; };
@@ -141,6 +151,13 @@ private:
     QList<QPair<Waiter, std::shared_ptr<const std::string> > > m_cachedDeliveries;
     QTimer m_deadlineTimer;
     std::function<void(const QString &)> m_visitorSink;
+
+    // Player-JS context (base.js signature/n functions + sts). Single in-flight fetch;
+    // late callers queue. ponytail: one loader, queue waiters — no need for per-URL locks.
+    std::unique_ptr<jsc::PlayerJs> m_playerJs;
+    bool m_playerJsLoading;
+    bool m_playerJsTried;                                 // a failed attempt won't be retried this session
+    QList<std::function<void(jsc::PlayerJs*)> > m_playerJsWaiters;
 
     // Session-derived per-client caches (Task 5 shape). Rebuilding the context is a
     // Glaze write + ~6 allocations; on a feed page it is identical for every request.

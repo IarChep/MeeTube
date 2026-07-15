@@ -575,9 +575,10 @@ private slots:
         s.m_fake.flush();
         QVERIFY(!s.hlsUrl().isEmpty());
         QCOMPARE((int)s.status(), (int)core::Ready);
-        // Selectable video = muxed only (18,22); default progressive = smallest (18).
+        // Selectable video = muxed only (18,22); default progressive = best-ranked
+        // muxed via rankStreams (H.264/AAC, highest res) = itag 22.
         QCOMPARE(s.videoStreams().size(), 2);
-        QVERIFY(s.progressiveUrl().contains("vid18") || s.progressiveUrl().contains("18"));
+        QVERIFY(s.progressiveUrl().contains("itag=22"));
         // Selectable audio = adaptive audio-only (140,251); default = itag 140.
         QCOMPARE(s.audioStreams().size(), 2);
         QCOMPARE(s.audioUrl(), QString("https://gv.example/aud140"));

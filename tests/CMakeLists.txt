@@ -43,6 +43,24 @@ mt_test(tst_meetube_threading)
 # Range server), StreamPlayer state machine (fake pipeline/policy). Host-only;
 # the GStreamer/resourceqt glue is device-only and lives in src/app/media/.
 mt_test(tst_meetube_media)
+# jsc::JsVm: the quickjs-ng RAII wrapper that runs base.js signature/n functions.
+# Covers arithmetic eval, cross-call state persistence, syntax-error nullopt, and
+# the interrupt handler killing a runaway loop (trust boundary).
+mt_test(tst_meetube_jsvm)
+# jsc::basejs: pure-text extractors (regex + brace-matching, no JS engine, no
+# network) that locate the sig/n functions + signatureTimestamp in base.js.
+mt_test(tst_meetube_basejs)
+# jsc::Solver + PlayerJs: runs the extracted sig/n functions in a JsVm (decipher
+# signature, solve throttling n), memoised by input value; buildPlayerJs stitches
+# extractSts+extractSigSetup+extractNSetup into a heap-owned PlayerJs.
+mt_test(tst_meetube_solver)
+# streamurlbuilder: buildStreams turns RawFormat[] into fetchable Stream[] (decipher
+# signature + solve n + textual URL assembly, preserving signed %-escapes) driven by
+# a REAL Solver from the base.js fixture; rankStreams picks best H.264/AAC for the N9.
+mt_test(tst_meetube_streamurl)
+# streamset: applyPlayer runs rankStreams to expose bestVideoUrl/bestAudioUrl
+# (H.264/AAC) and upgrade progressiveUrl to the best ranked muxed.
+mt_test(tst_meetube_streamset)
 
 find_package(CURL REQUIRED)
 mt_test(tst_meetube_curlnam tst_meetube_curlnam.cpp)

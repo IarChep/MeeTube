@@ -16,6 +16,7 @@
 
 #include "streamset.h"
 #include "innertube/innertube.h"
+#include "innertube/streamurlbuilder.h"
 #include "core/debuglog.h"
 
 namespace yt {
@@ -32,6 +33,7 @@ ApiRef StreamSet::apiRef() const {
 void StreamSet::load(const QString &videoId) {
     cancelJob();
     m_hls.clear(); m_progressive.clear(); m_audio.clear();
+    m_bestVideo.clear(); m_bestAudio.clear();
     m_catalog.clear(); m_videoStreams.clear(); m_audioStreams.clear();
     m_job = core::newJob();
     m_status = core::Loading;
@@ -91,13 +93,21 @@ void StreamSet::applyPlayer(const core::PlayerOutcome &r) {
         m_error = r.streamsError; m_status = core::Failed; emit statusChanged(); return;
     }
     m_catalog = r.streams;
+    // Best-quality (H.264/AAC-first) picks. bestProgressiveUrl OVERRIDES the
+    // smallest-muxed fallback below only when a ranked muxed exists.
+    const StreamPick pick = rankStreams(m_catalog);
+    m_bestVideo = pick.bestVideoUrl;
+    m_bestAudio = pick.bestAudioUrl;
+    const bool rankedMuxed = !pick.bestProgressiveUrl.isEmpty();
+    if (rankedMuxed) m_progressive = pick.bestProgressiveUrl;
     int bestMuxedH = -1;                 // default progressive = smallest muxed
     bool haveAudioDefault = false;
     for (const CT::Stream &s : m_catalog) {
         if (s.id == QLatin1String("hls")) { m_hls = s.url; continue; }
         if (s.width > 0 && s.hasAudio) {                 // muxed: selectable video
             m_videoStreams << streamMap(s);
-            if (bestMuxedH < 0 || s.height < bestMuxedH) { m_progressive = s.url; bestMuxedH = s.height; }
+            // Fallback smallest-muxed only when rankStreams found no muxed to prefer.
+            if (!rankedMuxed && (bestMuxedH < 0 || s.height < bestMuxedH)) { m_progressive = s.url; bestMuxedH = s.height; }
         } else if (s.width == 0) {                        // audio-only: selectable audio
             m_audioStreams << streamMap(s);
             if (!haveAudioDefault || s.id == QLatin1String("140")) { m_audio = s.url; }

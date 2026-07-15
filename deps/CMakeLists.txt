@@ -378,6 +378,74 @@ if(BUILD_N9)
 endif()
 
 # ---------------------------------------------------------------------------
+# quickjs-ng — embedded JS engine (both targets, STATIC PIC), submodule at v0.15.1.
+#
+# Runs YouTube base.js signature/n functions (see src/core/jsc/). Built by its
+# own CMake via ExternalProject (submodule; no network fetch). Static, so it
+# folds into meetube-core.a — nothing to bundle to /opt/meetube/lib. We link
+# WITHOUT quickjs-libc: the evaluated base.js snippets get no file/net/process
+# bindings (trust boundary — see src/core/jsc/jsvm.cpp resource limits).
+#
+# Confirmed by reading deps/quickjs-ng/CMakeLists.txt @ v0.15.1 (Task 1 Step 1):
+#   - static target `qjs` -> libqjs.a (add_library(qjs …) + BUILD_SHARED_LIBS=OFF);
+#   - public header installs to include/quickjs.h (install(FILES quickjs.h
+#     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})), so QJS_INCLUDE = install/include
+#     and jsvm.cpp uses <quickjs.h>.
+#
+# We build and install ONLY the `qjs` static target — never quickjs-ng's CLI
+# executables (qjs/qjsc/run-test262/function_source). Two reasons: (1) those CLIs
+# call clock_gettime, which on the N9's older glibc lives in librt (needs -lrt),
+# and quickjs-ng doesn't link it, so a full `cmake --build` FAILS to link them on
+# the device (the lib itself builds fine); (2) they're dead weight we never ship.
+# This tag has no CLI-disable option, so we scope BUILD_COMMAND to target `qjs`
+# and replace the default (CLI-referencing) `cmake --install` with a plain copy
+# of just the lib + public header into ${QJS_INSTALL} (host + device alike).
+# ---------------------------------------------------------------------------
+set(QJS_INSTALL ${CMAKE_BINARY_DIR}/quickjs-install CACHE INTERNAL "")
+set(QJS_A       ${QJS_INSTALL}/lib/libqjs.a CACHE INTERNAL "")
+set(QJS_INCLUDE ${QJS_INSTALL}/include CACHE INTERNAL "")
+if(BUILD_N9)
+    string(REGEX REPLACE "g\\+\\+$" "gcc" QJS_CC "${CMAKE_CXX_COMPILER}")
+    ExternalProject_Add(quickjs_build
+        SOURCE_DIR       ${CMAKE_SOURCE_DIR}/deps/quickjs-ng
+        DOWNLOAD_COMMAND ""
+        CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX=${QJS_INSTALL}
+                    -DCMAKE_INSTALL_LIBDIR=lib
+                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+                    -DBUILD_SHARED_LIBS=OFF
+                    -DCMAKE_SYSTEM_NAME=Linux
+                    -DCMAKE_SYSTEM_PROCESSOR=arm
+                    -DCMAKE_C_COMPILER=${QJS_CC}
+                    -DCMAKE_SYSROOT=${CMAKE_SYSROOT}
+                    -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
+                    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+                    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+        BUILD_COMMAND    ${CMAKE_COMMAND} --build <BINARY_DIR> --target qjs
+        INSTALL_COMMAND  ${CMAKE_COMMAND} -E make_directory ${QJS_INSTALL}/lib ${QJS_INCLUDE}
+                 COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/libqjs.a ${QJS_A}
+                 COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/quickjs.h ${QJS_INCLUDE}/quickjs.h
+        BUILD_BYPRODUCTS ${QJS_A}
+    )
+else()
+    ExternalProject_Add(quickjs_build
+        SOURCE_DIR       ${CMAKE_SOURCE_DIR}/deps/quickjs-ng
+        DOWNLOAD_COMMAND ""
+        CMAKE_ARGS  -DCMAKE_INSTALL_PREFIX=${QJS_INSTALL}
+                    -DCMAKE_INSTALL_LIBDIR=lib
+                    -DCMAKE_BUILD_TYPE=Release
+                    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+                    -DBUILD_SHARED_LIBS=OFF
+        BUILD_COMMAND    ${CMAKE_COMMAND} --build <BINARY_DIR> --target qjs
+        INSTALL_COMMAND  ${CMAKE_COMMAND} -E make_directory ${QJS_INSTALL}/lib ${QJS_INCLUDE}
+                 COMMAND ${CMAKE_COMMAND} -E copy <BINARY_DIR>/libqjs.a ${QJS_A}
+                 COMMAND ${CMAKE_COMMAND} -E copy <SOURCE_DIR>/quickjs.h ${QJS_INCLUDE}/quickjs.h
+        BUILD_BYPRODUCTS ${QJS_A}
+    )
+endif()
+file(MAKE_DIRECTORY ${QJS_INCLUDE})
+
+# ---------------------------------------------------------------------------
 # qrcodegen — C++ wrapper (static lib, both targets).
 # ---------------------------------------------------------------------------
 add_library(qrcodegen STATIC ${CMAKE_SOURCE_DIR}/deps/qrcodegen/cpp/qrcodegen.cpp)
