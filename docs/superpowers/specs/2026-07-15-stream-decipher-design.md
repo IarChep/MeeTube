@@ -39,13 +39,16 @@ New host tests: `tst_meetube_{jsvm,basejs,solver,streamurl,streamset}` → **sui
 
 ## Client-ladder change
 
-`fetchPlayer` ladder is **ANDROID_VR → WEB → TVHTML5 → IOS** (progressive → decipher → fallbacks):
-- **ANDROID_VR first** — anonymous default; returns a guaranteed-fetchable progressive (itag-18 ranged
-  GET → 206, the bot-gate exemption, no poToken). Stays the lead.
-- **WEB added as the decipher client** — returns rich adaptive **ciphered** formats; we now decipher
-  them via the cached base.js `Solver` and solve their `&n=`. Only the WEB `/player` body carries
-  `sts` (signatureTimestamp) — its base.js is the one we fetched and decipher against.
-- TVHTML5/IOS retained as fallbacks (unchanged).
+`fetchPlayer` ladder is **[TVHTML5 when signed-in] → ANDROID_VR → WEB → IOS** (authed-first →
+progressive → decipher → fallback):
+- **TVHTML5 prepended only when a bearer is set** — an authenticated `/player` clears the anonymous
+  bot gate; unchanged from before this feature.
+- **ANDROID_VR** — anonymous default; returns a guaranteed-fetchable progressive (itag-18 ranged
+  GET → 206, the bot-gate exemption, no poToken). Stays the anonymous lead.
+- **WEB added as the decipher client** (after ANDROID_VR) — returns rich adaptive **ciphered** formats;
+  we now decipher them via the cached base.js `Solver` and solve their `&n=`. Only the WEB `/player`
+  body carries `sts` (signatureTimestamp) — its base.js is the one we fetched and decipher against.
+- **IOS** — last fallback (HLS), unchanged.
 
 ## poToken boundary (out of scope)
 
