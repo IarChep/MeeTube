@@ -117,11 +117,15 @@ std::string nextContinuation(const QString &token)
     return dump(b);
 }
 
-std::string player(const QString &videoId, bool withPlaybackContext)
+std::string player(const QString &videoId, bool withPlaybackContext, std::optional<int> sts)
 {
     bj::Player b;
     b.videoId = videoId.toStdString();
-    if (withPlaybackContext) b.playbackContext = bj::PlaybackContext{};
+    if (withPlaybackContext) {
+        bj::PlaybackContext pc;
+        pc.contentPlaybackContext.signatureTimestamp = sts;   // omitted when nullopt (Glaze skip_null)
+        b.playbackContext = pc;
+    }
     return dump(b);
 }
 

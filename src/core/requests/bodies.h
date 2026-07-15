@@ -9,6 +9,7 @@
 // context splice relies on that.
 #include <QString>
 #include <string>
+#include <optional>
 namespace yt {
 namespace bodies {
 // {browseId[,params]} on a first page, {continuation} on the rest.
@@ -18,8 +19,10 @@ std::string nextVideo(const QString &videoId);
 std::string nextContinuation(const QString &token);
 // withPlaybackContext adds playbackContext.contentPlaybackContext (html5Preference).
 // TVHTML5 needs it — an authed TV /player without it returns "UNPLAYABLE: The page
-// needs to be reloaded". Off for the mobile player clients (IOS/ANDROID_VR).
-std::string player(const QString &videoId, bool withPlaybackContext = false);
+// needs to be reloaded". Off for the mobile player clients (IOS/ANDROID_VR). WEB adds
+// it too, carrying `sts` (the base.js signatureTimestamp) — nullopt omits the field.
+std::string player(const QString &videoId, bool withPlaybackContext = false,
+                   std::optional<int> sts = std::nullopt);
 std::string resolveUrl(const QString &url);
 std::string accountsList();                            // {accountReadMask:{returnOwner:true}}
 std::string subscribeChannels(const QString &channelId);

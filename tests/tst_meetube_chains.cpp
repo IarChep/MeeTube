@@ -32,10 +32,11 @@ private slots:
 
     void streamsFromAndroidFallback() {
         FakeHttp t;
-        // ANDROID_VR reply: playable but no streams → triggers fallback to IOS
+        // ANDROID_VR reply: playable but no streams → falls through to the next client
+        // (WEB, now second in the ladder), which carries real streams.
         t.queue("player",
                 "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{\"formats\":[]}}");
-        // IOS reply: good fixture with real streams
+        // WEB reply: good fixture with real streams
         t.queue("player", loadFixtureRaw("player_ios.json"));
         JobToken job = newJob();
         PlayerOutcome out; int calls = 0;
@@ -45,7 +46,7 @@ private slots:
         QVERIFY(out.streamsOk);
         QVERIFY(out.streams.size() >= 3);
         QCOMPARE(out.streams[0].id, QString("hls"));
-        QCOMPARE(t.sent.size(), 2);
+        QCOMPARE(t.sent.size(), 2);   // ANDROID_VR (empty) → WEB (streams); IOS not reached
     }
 
     // Signed in → TVHTML5 is tried FIRST for /player (the OAuth bearer rides only TV),
@@ -64,13 +65,15 @@ private slots:
         QCOMPARE(t.lastClientFor("player"), (int)ClientId::TVHTML5);
     }
 
-    // Both clients non-playable → streamsOk false with the playability reason.
+    // Every anonymous client non-playable → streamsOk false with the playability
+    // reason (from the LAST client, IOS). Ladder is [ANDROID_VR, WEB, IOS] = 3 tries.
     void bothClientsFail() {
         FakeHttp t;
         const std::string nonPlayable =
             "{\"playabilityStatus\":{\"status\":\"LOGIN_REQUIRED\",\"reason\":\"Sign in\"}}";
-        t.queue("player", nonPlayable);
-        t.queue("player", nonPlayable);
+        t.queue("player", nonPlayable);   // ANDROID_VR
+        t.queue("player", nonPlayable);   // WEB
+        t.queue("player", nonPlayable);   // IOS (last → its reason surfaces)
         JobToken job = newJob();
         PlayerOutcome out; int calls = 0;
         fetchPlayer(t, "vid", job, [&](const PlayerOutcome &r) { out = r; ++calls; });
@@ -78,25 +81,28 @@ private slots:
         QCOMPARE(calls, 1);
         QVERIFY(!out.streamsOk);
         QVERIFY(out.streamsError.contains("LOGIN_REQUIRED") || out.streamsError.contains("Sign in"));
-        QCOMPARE(t.sent.size(), 2);
+        QCOMPARE(t.sent.size(), 3);
     }
 
-    // Both clients playable-but-all-ciphered → a distinct "decipher" error.
+    // Every client playable-but-all-ciphered, and NO base.js set (solver==0) → the
+    // ciphered formats can't be deciphered, so a distinct "decipher" error. Ladder is
+    // [ANDROID_VR, WEB, IOS] = 3 tries.
     void streamsAllCiphered() {
         FakeHttp t;
         const std::string ciphered =
             "{\"playabilityStatus\":{\"status\":\"OK\"},"
             "\"streamingData\":{\"formats\":[{\"itag\":18,\"signatureCipher\":\"s=xx\"}]}}";
-        t.queue("player", ciphered);
-        t.queue("player", ciphered);
+        t.queue("player", ciphered);   // ANDROID_VR
+        t.queue("player", ciphered);   // WEB
+        t.queue("player", ciphered);   // IOS
         JobToken job = newJob();
         PlayerOutcome out; int calls = 0;
         fetchPlayer(t, "vid", job, [&](const PlayerOutcome &r) { out = r; ++calls; });
         t.flush();
         QCOMPARE(calls, 1);
         QVERIFY(!out.streamsOk);
-        QVERIFY(out.streamsError.contains("decipher"));
-        QCOMPARE(t.sent.size(), 2);   // tried ANDROID_VR, then IOS
+        QVERIFY(out.streamsError.contains("decipher"));   // player JS unavailable → cannot decipher
+        QCOMPARE(t.sent.size(), 3);
     }
 
     // Captions ride the FIRST transport-ok response and stay ok even when streams
@@ -110,6 +116,7 @@ private slots:
             "{\"baseUrl\":\"https://x/cap\",\"languageCode\":\"en\","
             "\"name\":{\"simpleText\":\"English\"}}]}}}";
         t.queue("player", capOnly);   // ANDROID_VR
+        t.queue("player", capOnly);   // WEB
         t.queue("player", capOnly);   // IOS
         JobToken job = newJob();
         PlayerOutcome out; int calls = 0;
@@ -122,9 +129,10 @@ private slots:
         QCOMPARE(out.captions[0].language, QString("en"));
     }
 
-    // Every attempt transport-failed → captionsOk false with the last error.
+    // Every attempt transport-failed → captionsOk false with the last error. Ladder is
+    // [ANDROID_VR, WEB, IOS] = 3 posts, all with no fixture queued.
     void captionsFailWhenTransportDown() {
-        FakeHttp t;   // nothing queued → both posts fail at the transport level
+        FakeHttp t;   // nothing queued → all three posts fail at the transport level
         JobToken job = newJob();
         PlayerOutcome out; int calls = 0;
         fetchPlayer(t, "vid", job, [&](const PlayerOutcome &r) { out = r; ++calls; });
@@ -132,7 +140,49 @@ private slots:
         QCOMPARE(calls, 1);
         QVERIFY(!out.streamsOk);
         QVERIFY(!out.captionsOk);
-        QCOMPARE(t.sent.size(), 2);
+        QCOMPARE(t.sent.size(), 3);
+    }
+
+    // WEB returns ciphered adaptive formats; with a base.js Solver in hand the chain
+    // deciphers the signature (s) + solves the throttling param (n), yielding a
+    // ready-to-fetch URL. ANDROID_VR + IOS miss (empty streamingData), WEB wins.
+    void decaptionsCipheredWebFormats() {
+        FakeHttp t;
+        t.setBaseJs(loadFixtureRaw("base_js_sample.js"));
+        // ANDROID_VR + IOS miss (no streams), WEB returns ciphered adaptive:
+        t.queue("player", "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{}}");     // ANDROID_VR
+        t.queue("player", loadFixtureRaw("player_web_ciphered.json"));                              // WEB
+        t.queue("player", "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{}}");     // IOS
+        JobToken job = newJob();
+        PlayerOutcome out; int calls = 0;
+        fetchPlayer(t, "vvvvvvvvvvvv", job, [&](const PlayerOutcome &r){ out = r; ++calls; });
+        t.flush();
+        QCOMPARE(calls, 1);
+        QVERIFY(out.streamsOk);
+        // itag 137 deciphered: n rawN123->321Nwar, s abcdef->bfcea
+        bool found137 = false;
+        for (int i = 0; i < out.streams.size(); ++i)
+            if (out.streams[i].id == "137") {
+                found137 = true;
+                QCOMPARE(out.streams[i].url, QString("https://r1.googlevideo.com/videoplayback?n=321Nwar&itag=137&sig=bfcea"));
+            }
+        QVERIFY(found137);
+    }
+    // sts (signatureTimestamp from base.js) must ride the WEB post body — its base.js
+    // is the one we fetched and decipher with; TVHTML5/ANDROID_VR/IOS carry no sts.
+    void stsAttachedToWebBody() {
+        FakeHttp t;
+        t.setBaseJs(loadFixtureRaw("base_js_sample.js"));
+        t.queue("player", "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{}}");
+        t.queue("player", loadFixtureRaw("player_web_ciphered.json"));
+        t.queue("player", "{\"playabilityStatus\":{\"status\":\"OK\"},\"streamingData\":{}}");
+        JobToken job = newJob();
+        fetchPlayer(t, "vvvvvvvvvvv2", job, [&](const PlayerOutcome &){});
+        t.flush();
+        // The WEB post body must carry signatureTimestamp:19834.
+        bool sawSts = false;
+        for (int i = 0; i < t.sent.size(); ++i) if (t.sent[i].contains("19834")) sawSts = true;
+        QVERIFY(sawSts);
     }
 
     // ---- fetchVideoList (was VideoRequest browse/search) ----

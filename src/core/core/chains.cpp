@@ -30,6 +30,8 @@
 #include "parsers/ytjson.h"
 #include "parsers/suggestparser.h"
 #include "innertube/clientconfig.h"
+#include "innertube/streamurlbuilder.h"
+#include "jsc/solver.h"
 #include "core/debuglog.h"
 #include <memory>
 #include <vector>
@@ -214,54 +216,67 @@ struct PlayerAccum {
 } // namespace
 
 // Walks the ordered /player client list (clients[idx]) until one yields streams; each
-// non-terminal miss recurses to idx+1. The list is built by fetchPlayer.
+// non-terminal miss recurses to idx+1. The list is built by fetchPlayer. `pj` is the
+// cached player-JS context (base.js Solver + sts) or 0 — it deciphers ciphered formats
+// and its sts rides the WEB request.
 static void playerTry(IHttp &http, const QString &videoId,
                       std::shared_ptr<std::vector<ClientId>> clients, int idx,
-                      std::shared_ptr<PlayerAccum> acc, const JobToken &job,
+                      std::shared_ptr<PlayerAccum> acc, jsc::PlayerJs *pj, const JobToken &job,
                       std::function<void(const PlayerOutcome &)> done)
 {
     const ClientId client = (*clients)[idx];
     // TVHTML5 needs playbackContext.contentPlaybackContext or YouTube answers "UNPLAYABLE:
-    // The page needs to be reloaded" (yt-dlp #16212 — the player-JS/sts path). Mobile
-    // player clients (IOS/ANDROID_VR) stay minimal.
-    const bool tvCtx = (client == ClientId::TVHTML5);
-    http.post("player", client, bodies::player(videoId, tvCtx), job,
-        [&http, videoId, clients, idx, client, acc, job, done](const Reply &r) {
+    // The page needs to be reloaded" (yt-dlp #16212 — the player-JS/sts path); WEB needs it
+    // too and additionally carries `sts`. Mobile player clients (IOS/ANDROID_VR) stay minimal.
+    const bool needsCtx = (client == ClientId::TVHTML5 || client == ClientId::WEB);
+    // sts only rides the WEB request (its base.js is the one we fetched + decipher with).
+    std::optional<int> sts = (client == ClientId::WEB && pj) ? std::optional<int>(pj->sts) : std::nullopt;
+    http.post("player", client, bodies::player(videoId, needsCtx, sts), job,
+        [&http, videoId, clients, idx, client, acc, pj, job, done](const Reply &r) {
             const bool isLast = (idx + 1 >= (int)clients->size());
 
             // ---- captions side (subtitlesrequest.cpp): first transport-ok wins ----
             if (r.ok) {
                 const PlayerResult pr = parsePlayer(*r.body);
-                if (logEnabled("player")) {
-                    int prog = 0; bool hls = false, aud = false;
-                    for (const CT::Stream &s : pr.streams) {
-                        if (s.id == QLatin1String("hls")) hls = true;
-                        else if (s.id == QLatin1String("audio")) aud = true;
-                        else if (s.width > 0) ++prog;
-                    }
-                    PLOG() << "player" << clientInfo(client).name
-                           << "playable=" << pr.playable << "streams=" << pr.streams.size()
-                           << "hls=" << hls << "prog=" << prog << "audio=" << aud
-                           << "formats=" << pr.formatsSeen << "adaptive=" << pr.adaptiveSeen
-                           << "ciphered=" << pr.cipheredOnly << "sabr=" << pr.sabr
-                           << "reason=" << qPrintable(pr.reason);
-                }
                 if (!acc->haveCaptions) { acc->haveCaptions = true; acc->captions = pr.captions; }
 
                 // ---- streams side (streamsrequest.cpp:44-54) ----
                 if (pr.playable) {
-                    if (!pr.streams.isEmpty()) {
+                    // Build streams from RAW formats through the solver (decipher + n).
+                    jsc::Solver *solver = pj ? &pj->solver : 0;
+                    QList<CT::Stream> streams = buildStreams(pr.rawFormats, solver);
+                    if (!pr.hlsManifestUrl.isEmpty()) {
+                        CT::Stream h; h.id = "hls"; h.description = "HLS (adaptive)";
+                        h.url = pr.hlsManifestUrl; h.hasAudio = true; streams.prepend(h);
+                    }
+                    if (logEnabled("player")) {
+                        int prog = 0; bool hls = false, aud = false;
+                        for (const CT::Stream &s : streams) {
+                            if (s.id == QLatin1String("hls")) hls = true;
+                            else if (s.id == QLatin1String("audio")) aud = true;
+                            else if (s.width > 0) ++prog;
+                        }
+                        PLOG() << "player" << clientInfo(client).name
+                               << "playable=" << pr.playable << "streams=" << streams.size()
+                               << "hls=" << hls << "prog=" << prog << "audio=" << aud
+                               << "formats=" << pr.formatsSeen << "adaptive=" << pr.adaptiveSeen
+                               << "ciphered=" << pr.cipheredOnly << "sabr=" << pr.sabr
+                               << "reason=" << qPrintable(pr.reason);
+                    }
+                    if (!streams.isEmpty()) {
                         PlayerOutcome out;
-                        out.streamsOk = true; out.streams = pr.streams;
+                        out.streamsOk = true; out.streams = streams;
                         out.captionsOk = true; out.captions = acc->captions;
                         done(out); return;
                     }
-                    // Distinguish "every format needs signature decipher (unsupported)"
-                    // from a plain empty response, so the UI can fall through to a
-                    // system-handoff.
-                    if (isLast && pr.cipheredOnly) {
+                    // Playable but yielded no fetchable streams. Distinguish "needed
+                    // signature decipher and we had no player JS" from "decipher ran but
+                    // produced nothing", so the UI can react (system-handoff / retry).
+                    if (isLast && !pr.rawFormats.isEmpty()) {
                         PlayerOutcome out;
-                        out.streamsError = QString::fromLatin1("streams require signature decipher (unsupported)");
+                        out.streamsError = QString::fromLatin1(
+                            solver ? "no fetchable streams (decipher yielded none)"
+                                   : "streams require signature decipher (player JS unavailable)");
                         out.captionsOk = true; out.captions = acc->captions;
                         done(out); return;
                     }
@@ -285,7 +300,7 @@ static void playerTry(IHttp &http, const QString &videoId,
                 done(out); return;
             }
             if (!live(job)) return;                  // canceled between attempts
-            playerTry(http, videoId, clients, idx + 1, acc, job, done);
+            playerTry(http, videoId, clients, idx + 1, acc, pj, job, done);
         });
 }
 
@@ -313,13 +328,24 @@ void fetchPlayer(IHttp &http, const QString &videoId, const JobToken &job,
     // requires a GVS PoToken (guaranteed 403).
     clients->push_back(ClientId::ANDROID_VR);
 
+    // WEB: decipher-capable. Returns rich adaptive (ciphered) formats; we now decipher
+    // them via the cached base.js Solver and solve their &n=. NOTE (poToken boundary):
+    // anonymous WEB *adaptive* fetch may still 403 (GVS poToken required, OUT OF SCOPE);
+    // this enriches the catalog and fully serves the authed/TV path. Placed AFTER
+    // ANDROID_VR so the guaranteed-fetchable progressive stays the first win.
+    clients->push_back(ClientId::WEB);
+
     // IOS last: its player response can carry an hlsManifestUrl (HLS delivery is a non-pot
     // path for a JS-less client), but by 2026-07-12 most videos get SABR-only from IOS
     // (hls 0/3 in live tests), so it's the fallback, not the lead. Must stay "clean"
     // (no visitorData — see ContextBuilder) or the HLS manifest is stripped.
     clients->push_back(ClientId::IOS);
 
-    playerTry(http, videoId, clients, 0, acc, job, done);
+    // Fetch the player-JS context once (sts + Solver), then run the ladder with it.
+    http.ensurePlayerJs(job, [&http, videoId, clients, acc, job, done](jsc::PlayerJs *pj) {
+        if (!live(job)) return;
+        playerTry(http, videoId, clients, 0, acc, pj, job, done);
+    });
 }
 
 // ---- fetchChannelById — userrequest.cpp:28-32, 66-69 ------------------------
