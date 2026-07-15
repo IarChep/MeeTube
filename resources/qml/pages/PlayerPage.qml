@@ -141,10 +141,21 @@ Page {
 
     Timer { id: hideTimer; interval: 3500; running: root.controlsShown; onTriggered: root.controlsShown = false }
 
-    BusyIndicator {
+    Rectangle {   // spinner on a translucent round plate — echoes the paused badge,
+                  // so mid-playback buffering doesn't float bare over the video
         anchors.centerIn: parent
-        running: player.state == 1 || player.state == 2   // Loading | Buffering
-        visible: running
+        width: busy.width + UI.PADDING_XLARGE * 2
+        height: width
+        radius: width / 2
+        color: UI.COLOR_SCRIM
+        smooth: true
+        visible: busy.running
+        BusyIndicator {
+            id: busy
+            anchors.centerIn: parent
+            platformStyle: BusyIndicatorStyle { size: "large" }
+            running: player.state == 1 || player.state == 2   // Loading | Buffering
+        }
     }
 
     // Big centred pause indicator — the stock player's icon-l-common-video-playback.
@@ -167,10 +178,24 @@ Page {
     Rectangle {
         id: topBar
         anchors { left: parent.left; right: parent.right; top: parent.top
-                  topMargin: root.controlsShown ? 0 : -height }
-        height: UI.SIZE_PLAYER_TOPBAR
+                  topMargin: root.controlsShown ? 0 : -(height + UI.SIZE_PLAYER_SHADOW) }
+        height: UI.SIZE_PLAYER_BAR
         color: UI.COLOR_SCRIM
-        Behavior on anchors.topMargin { NumberAnimation { duration: UI.ANIM_DEFAULT; easing.type: Easing.OutQuad } }
+        Behavior on anchors.topMargin { NumberAnimation { duration: UI.ANIM_DEFAULT; easing.type: Easing.OutCubic } }
+
+        Rectangle {   // unobtrusive hairline marking the panel's edge
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: 1
+            color: UI.COLOR_DIVIDER
+        }
+        Rectangle {   // soft shadow cast onto the video below
+            anchors { left: parent.left; right: parent.right; top: parent.bottom }
+            height: UI.SIZE_PLAYER_SHADOW
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: UI.COLOR_SCRIM_LIGHT }
+                GradientStop { position: 1.0; color: UI.COLOR_TRANSPARENT }
+            }
+        }
 
         ToolButton {
             id: exitBtn
@@ -178,10 +203,17 @@ Page {
             anchors { left: parent.left; leftMargin: UI.PADDING_XLARGE
                       verticalCenter: parent.verticalCenter }
             iconSource: "image://theme/icon-m-toolbar-back-white"
+            // The chrome png's 22px style margins overlap on a 40px button and
+            // the outline renders fat — shrink them along with the button.
+            platformStyle: ToolButtonStyle {
+                backgroundMarginLeft: 13; backgroundMarginTop: 13
+                backgroundMarginRight: 13; backgroundMarginBottom: 13
+            }
             onClicked: { player.stop(); pageStack.pop(); }
         }
         ToolButton {
             id: menuBtn
+            flat: true    // bare menu glyph, no chrome
             width: UI.SIZE_PLAYER_BUTTON; height: UI.SIZE_PLAYER_BUTTON
             anchors { right: parent.right; rightMargin: UI.PADDING_XLARGE
                       verticalCenter: parent.verticalCenter }
@@ -217,10 +249,24 @@ Page {
     Rectangle {
         id: bar
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom
-                  bottomMargin: root.controlsShown ? 0 : -height }
+                  bottomMargin: root.controlsShown ? 0 : -(height + UI.SIZE_PLAYER_SHADOW) }
         height: UI.SIZE_PLAYER_BAR
         color: UI.COLOR_SCRIM
-        Behavior on anchors.bottomMargin { NumberAnimation { duration: UI.ANIM_DEFAULT; easing.type: Easing.OutQuad } }
+        Behavior on anchors.bottomMargin { NumberAnimation { duration: UI.ANIM_DEFAULT; easing.type: Easing.OutCubic } }
+
+        Rectangle {   // unobtrusive hairline marking the panel's edge
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: 1
+            color: UI.COLOR_DIVIDER
+        }
+        Rectangle {   // soft shadow cast onto the video above
+            anchors { left: parent.left; right: parent.right; bottom: parent.top }
+            height: UI.SIZE_PLAYER_SHADOW
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: UI.COLOR_TRANSPARENT }
+                GradientStop { position: 1.0; color: UI.COLOR_SCRIM_LIGHT }
+            }
+        }
 
         Image {       // play/pause glyph — bare icon on the bar, like the stock player.
                       // StreamPlayer.State: Playing = 3, Paused = 4.

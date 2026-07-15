@@ -143,9 +143,10 @@ var ANIM_SLOW    = 400;
 // The chrome itself comes from theme graphics (meegotouch-button-inverted-
 // background, the inverted slider groove + color11 elapsed pills); only what
 // the theme cannot provide is defined here.
-var SIZE_PLAYER_BAR    = 56;        // bottom control bar height (measured)
-var SIZE_PLAYER_TOPBAR = 72;        // top panel: title + author + exit/menu
+var SIZE_PLAYER_BAR    = 56;        // both overlay panels' height (measured)
 var SIZE_PLAYER_BUTTON = 40;        // ToolButton side — chrome scales with it
+var SIZE_PLAYER_SHADOW = 10;        // soft shadow the panels cast on the video
+var COLOR_TRANSPARENT  = "#00000000";
 var SIZE_PLAYER_SEEK   = 40;        // seekbar strip height (groove centres in it)
 var SIZE_SEEK_THUMB    = 8;         // handle canvas: the DEFAULT slider handle
                                     // graphic scaled way down — its visible
