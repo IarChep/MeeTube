@@ -182,7 +182,10 @@ in dependency order, each with its own CMakeLists:
     (`{host, http}`); `session()`, `applySettings(region,language)`, `navEntries()`/`searchTypes()`,
     `auth()`. `shutdown()` (called from `main` after `exec()`) joins the worker. Exposed to QML as
     the **`innertube` context property**.
-  - `apiref.h`, `accountmanager` (OAuth device-code login on `core::oauth*` chains), `accountstore`,
+  - `apiref.h`, `accountmanager` (OAuth device-code login on `core::oauth*` chains), `settingsstore`
+    (the ONE settings file — Glaze-written JSON at `~/.config/MeeTube/settings.json`: accounts +
+    refresh token, visitorData, search history; parsed once at startup, atomic tmp+rename writes,
+    one-time import of the legacy QSettings `.conf` — QSettings is otherwise gone),
     the API-tree (`videoapi`/`channelapi`/`playlistapi`/`accountapi`) + detail objects
     (`videodetails`/`channeldetails`/`accountdetails`/`streamset`/`subtitleset`).
 - **`requests/bodies.{h,cpp}`** — the only survivor of the old `requests/`: the Glaze POST-body

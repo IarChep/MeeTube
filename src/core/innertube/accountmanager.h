@@ -24,7 +24,7 @@
 
 namespace yt {
 
-class AccountStore;
+class SettingsStore;
 namespace core {
     template <class T> struct Outcome;   // core/chains.h (consumed by the result handlers)
     struct DeviceCode;
@@ -41,7 +41,7 @@ class AccountManager : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool signedIn READ isSignedIn NOTIFY signedInChanged)
 public:
-    explicit AccountManager(const ApiRef &api, AccountStore *store, QObject *parent = 0);
+    explicit AccountManager(const ApiRef &api, SettingsStore *store, QObject *parent = 0);
     ~AccountManager();
 
     Q_INVOKABLE void signIn();
@@ -81,7 +81,7 @@ private:
     void requestRefresh();
     ApiRef m_api;
     core::JobToken m_job;                   // canceled by cancel()/dtor; live()-gates every delivery
-    AccountStore *m_store;
+    SettingsStore *m_store;
     QString m_deviceCode;                   // flow-done sentinel (distinct from the cancel token)
     int m_interval;
     QString m_bearer;

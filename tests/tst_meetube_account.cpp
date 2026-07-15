@@ -2,8 +2,9 @@
 #include <QSignalSpy>
 #include <QFile>
 #include <QDir>
+#include <QSettings>
 #include "testutil.h"
-#include "innertube/accountstore.h"
+#include "innertube/settingsstore.h"
 #include "innertube/accountmanager.h"
 #include "innertube/catalog.h"
 #include "innertube/accountdetails.h"
@@ -22,7 +23,7 @@ using namespace yt;
 // real core::Http async contract).
 class TestAccountManager : public AccountManager {
 public:
-    TestAccountManager(WorkerHost *host, FakeHttp *fake, AccountStore *s)
+    TestAccountManager(WorkerHost *host, FakeHttp *fake, SettingsStore *s)
         : AccountManager(ApiRef(host, fake), s) {}
 protected:
     void schedulePoll() { poll(); }
@@ -34,7 +35,7 @@ protected:
 // is covered directly in tst_meetube_chains::accountFetchesIdentity.)
 class TestAccountDetails : public AccountDetails {
 public:
-    TestAccountDetails(AccountStore *s) : AccountDetails(s) {}
+    TestAccountDetails(SettingsStore *s) : AccountDetails(s) {}
     WorkerHost m_host; FakeHttp m_fake;
 protected:
     ApiRef apiRef() const { return ApiRef(const_cast<WorkerHost *>(&m_host),
@@ -42,15 +43,15 @@ protected:
 };
 
 class TestAccount : public QObject { Q_OBJECT
-    QString iniPath() const { return QDir::tempPath() + "/meetube_test_accounts.ini"; }
+    QString storePath() const { return QDir::tempPath() + "/meetube_test_settings.json"; }
 private slots:
     void initTestCase() { qRegisterMetaType<CT::Account>("CT::Account"); }
-    void init() { QFile::remove(iniPath()); }
-    void cleanup() { QFile::remove(iniPath()); }
+    void init() { QFile::remove(storePath()); }
+    void cleanup() { QFile::remove(storePath()); }
 
-    // ---- AccountStore round-trip ----
+    // ---- SettingsStore round-trip ----
     void storeRoundTrip() {
-        AccountStore store(iniPath());
+        SettingsStore store(storePath());
         QVERIFY(store.isEmpty());
         CT::Account a; a.id = "ch1"; a.username = "Alice";
         store.save(a, "REFRESH1");
@@ -64,7 +65,7 @@ private slots:
     }
 
     void storeUpdateActiveKeepsToken() {
-        AccountStore store(iniPath());
+        SettingsStore store(storePath());
         CT::Account a; a.id = "default"; a.username = "YouTube";
         store.save(a, "RT");
         CT::Account real;
@@ -83,20 +84,20 @@ private slots:
     // The anonymous session id must survive restarts — a fresh visitorData on every
     // launch is the cheapest "new bot" signal YouTube sees.
     void storeVisitorDataPersists() {
-        { AccountStore s1(iniPath()); QVERIFY(s1.visitorData().isEmpty()); s1.setVisitorData("VD_PERSISTED"); }
-        AccountStore s2(iniPath());           // fresh instance, same file
+        { SettingsStore s1(storePath()); QVERIFY(s1.visitorData().isEmpty()); s1.setVisitorData("VD_PERSISTED"); }
+        SettingsStore s2(storePath());           // fresh instance, same file
         QCOMPARE(s2.visitorData(), QString("VD_PERSISTED"));
     }
 
     void storePersistsAcrossInstances() {
-        { AccountStore s1(iniPath()); CT::Account a; a.id = "x"; a.username = "U"; s1.save(a, "RT"); }
-        AccountStore s2(iniPath());           // fresh instance, same file
+        { SettingsStore s1(storePath()); CT::Account a; a.id = "x"; a.username = "U"; s1.save(a, "RT"); }
+        SettingsStore s2(storePath());           // fresh instance, same file
         QCOMPARE(s2.refreshToken("x"), QString("RT"));
     }
 
     // ---- AccountDetails (identity detail object, now on the fetchAccount chain) ----
     void detailsLoadsAndWritesThrough() {
-        AccountStore store(iniPath());
+        SettingsStore store(storePath());
         CT::Account placeholder; placeholder.id = "default"; placeholder.username = "YouTube";
         store.save(placeholder, "RT");
         TestAccountDetails d(&store);
@@ -114,7 +115,7 @@ private slots:
     }
 
     void detailsKeepsCacheOnFailure() {
-        AccountStore store(iniPath());
+        SettingsStore store(storePath());
         CT::Account cached; cached.id = "default"; cached.username = "Ivan";
         store.save(cached, "RT");
         TestAccountDetails d(&store);   // nothing queued -> the post fails
@@ -127,7 +128,7 @@ private slots:
     // ---- AccountManager device-code flow ----
     void deviceCodeFlowSucceeds() {
         WorkerHost host; FakeHttp t;
-        AccountStore store(iniPath());
+        SettingsStore store(storePath());
         t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
                 "{\"device_code\":\"DC\",\"user_code\":\"ABCD-EFGH\","
                 "\"verification_url\":\"https://youtube.com/activate\",\"interval\":5}");
@@ -165,7 +166,7 @@ private slots:
 
     void deviceCodePollsWhilePending() {
         WorkerHost host; FakeHttp t;
-        AccountStore store(iniPath());
+        SettingsStore store(storePath());
         t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
                 "{\"device_code\":\"DC\",\"user_code\":\"WXYZ\",\"interval\":5}");
         t.queue(QString::fromLatin1(Catalog::kTokenUrl), "{\"error\":\"authorization_pending\"}");
@@ -186,7 +187,7 @@ private slots:
 
     void signedInPropertyNotifies() {
         WorkerHost host; FakeHttp t;
-        AccountStore store(iniPath());
+        SettingsStore store(storePath());
         t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
                 "{\"device_code\":\"DC\",\"user_code\":\"ABCD\",\"interval\":5}");
         t.queue(QString::fromLatin1(Catalog::kTokenUrl),
@@ -205,7 +206,7 @@ private slots:
 
     void deviceCodeDenied() {
         WorkerHost host; FakeHttp t;
-        AccountStore store(iniPath());
+        SettingsStore store(storePath());
         t.queue(QString::fromLatin1(Catalog::kDeviceCodeUrl),
                 "{\"device_code\":\"DC\",\"user_code\":\"WXYZ\",\"interval\":5}");
         t.queue(QString::fromLatin1(Catalog::kTokenUrl), "{\"error\":\"access_denied\"}");
@@ -224,7 +225,7 @@ private slots:
     // in-memory bearer).
     void restoreRefreshesBearer() {
         WorkerHost host; FakeHttp t;
-        AccountStore store(iniPath());
+        SettingsStore store(storePath());
         CT::Account acc; acc.id = "default"; acc.username = "YouTube";
         store.save(acc, "RT_STORED");
         t.queue(QString::fromLatin1(Catalog::kTokenUrl), "{\"access_token\":\"AT_FRESH\"}");
@@ -239,6 +240,65 @@ private slots:
         QCOMPARE(t.sentForm.at(0).first, QString::fromLatin1(Catalog::kTokenUrl));
         QCOMPARE(t.sentForm.at(0).second.value("refresh_token"), QString("RT_STORED"));
         QCOMPARE(t.sentForm.at(0).second.value("grant_type"), QString("refresh_token"));
+    }
+
+    // ---- SettingsStore: the Glaze-JSON backend itself ----
+    void searchHistoryDedupsAndCaps() {
+        {
+            SettingsStore store(storePath());
+            store.recordSearch("  cats  ");                 // trimmed
+            store.recordSearch("dogs");
+            store.recordSearch("cats");                     // dupe → moves to front
+            QStringList h = store.searchHistory();
+            QCOMPARE(h.size(), 2);
+            QCOMPARE(h.at(0), QString("cats"));
+            QCOMPARE(h.at(1), QString("dogs"));
+            for (int i = 0; i < 20; ++i) store.recordSearch(QString("q%1").arg(i));
+            QCOMPARE(store.searchHistory().size(), 15);     // capped
+        }
+        SettingsStore reread(storePath());                  // persisted across instances
+        QCOMPARE(reread.searchHistory().size(), 15);
+        QCOMPARE(reread.searchHistory().at(0), QString("q19"));
+    }
+
+    // A corrupt settings file must never crash-loop the app: start fresh, and the
+    // next write replaces the file with valid JSON.
+    void corruptFileStartsFresh() {
+        { QFile f(storePath()); QVERIFY(f.open(QIODevice::WriteOnly)); f.write("{not json"); }
+        SettingsStore store(storePath());
+        QVERIFY(store.isEmpty());
+        CT::Account a; a.id = "ch1"; a.username = "Alice";
+        store.save(a, "RT");
+        SettingsStore reread(storePath());
+        QCOMPARE(reread.refreshToken("ch1"), QString("RT"));
+    }
+
+    // First run in the JSON era imports the pre-Glaze QSettings store once (sign-in,
+    // visitorData and history survive the format switch), then reads only the JSON.
+    void legacyIniImportsOnce() {
+        const QString ini = QDir::tempPath() + "/meetube_test_legacy.ini";
+        QFile::remove(ini);
+        {   // the old QSettings layout
+            QSettings s(ini, QSettings::IniFormat);
+            s.setValue("accounts/default/username", "Ivan");
+            s.setValue("accounts/default/refreshToken", "RT_OLD");
+            s.setValue("accounts/active", "default");
+            s.setValue("session/visitorData", "VD_OLD");
+            s.setValue("search/history", QStringList() << "old query");
+            s.sync();
+        }
+        {
+            SettingsStore store(storePath(), ini);
+            QCOMPARE(store.refreshToken("default"), QString("RT_OLD"));
+            QCOMPARE(store.activeId(), QString("default"));
+            QCOMPARE(store.visitorData(), QString("VD_OLD"));
+            QCOMPARE(store.searchHistory(), QStringList() << "old query");
+        }
+        QVERIFY(QFile::exists(storePath()));   // the import materialized the JSON…
+        QFile::remove(ini);
+        SettingsStore reread(storePath());     // …so a relaunch reads it, not the ini
+        QCOMPARE(reread.refreshToken("default"), QString("RT_OLD"));
+        QCOMPARE(reread.visitorData(), QString("VD_OLD"));
     }
 };
 QTEST_MAIN(TestAccount)
