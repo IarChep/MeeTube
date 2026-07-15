@@ -211,15 +211,15 @@ Page {
             }
             onClicked: { player.stop(); pageStack.pop(); }
         }
-        ToolButton {
+        Image {       // quality menu — a bare clickable glyph, no chrome
             id: menuBtn
-            flat: true    // bare menu glyph, no chrome
-            width: UI.SIZE_PLAYER_BUTTON; height: UI.SIZE_PLAYER_BUTTON
             anchors { right: parent.right; rightMargin: UI.PADDING_XLARGE
                       verticalCenter: parent.verticalCenter }
-            iconSource: "image://theme/icon-m-toolbar-view-menu-white"
+            smooth: true
+            source: "image://theme/icon-m-toolbar-view-menu-white"
             visible: root.qualLabels.length > 1     // hide when there's nothing to choose
-            onClicked: { qualityDialog.open(); root.poke(); }
+            MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
+                        onClicked: { qualityDialog.open(); root.poke(); } }
         }
         Column {
             anchors { left: exitBtn.right; leftMargin: UI.PADDING_XLARGE
