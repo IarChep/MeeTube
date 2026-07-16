@@ -19,7 +19,7 @@
 #if !defined(BUILD_N9)   // ---- host stub: keeps the QML loading unchanged ----
 
 EglVideoItem::EglVideoItem(QDeclarativeItem *parent)
-    : QDeclarativeItem(parent), m_pipeline(0), m_program(0), m_ctxGiven(false),
+    : QDeclarativeItem(parent), m_pipeline(0), m_program(0), m_givenCtx(0),
       m_paintCount(0) {}
 EglVideoItem::~EglVideoItem() {}
 void EglVideoItem::setPipeline(QObject *pipeline)
@@ -83,7 +83,7 @@ static const char *kFragmentShader =
     "}";
 
 EglVideoItem::EglVideoItem(QDeclarativeItem *parent)
-    : QDeclarativeItem(parent), m_pipeline(0), m_program(0), m_ctxGiven(false),
+    : QDeclarativeItem(parent), m_pipeline(0), m_program(0), m_givenCtx(0),
       m_paintCount(0)
 {
     setFlag(QGraphicsItem::ItemHasNoContents, false);   // we paint
@@ -125,10 +125,15 @@ void EglVideoItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QW
     if (!pipe) return;
 
     // canon (qgraphicsvideoitem_maemo6): hand the renderer the GL context only
-    // once the item actually painted — the context is current right here.
-    if (!m_ctxGiven && QGLContext::currentContext()) {
-        pipe->setGlContext(const_cast<QGLContext *>(QGLContext::currentContext()));
-        m_ctxGiven = true;
+    // once the item actually painted — the context is current right here. Re-hand
+    // it whenever it CHANGES: the meego graphicssystem destroys and recreates the
+    // scene context on visibility switches (device-observed mid-playback: "Meego
+    // graphics system destroyed"), and the next pipeline build must get the live
+    // context, not the dead one.
+    const QGLContext *cur = QGLContext::currentContext();
+    if (cur && m_givenCtx != cur) {
+        pipe->setGlContext(const_cast<QGLContext *>(cur));
+        m_givenCtx = cur;
     }
 
     void *sinkVoid = pipe->glSink();
@@ -198,31 +203,43 @@ void EglVideoItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QW
     m_program->setUniformValue("texRgb", 0);
 
     // canon map(): acquire + bind (the sink binds its EGLImage-backed external
-    // texture itself — the client creates NO texture object).
-    if (!meego_gst_video_texture_acquire_frame(sink, frame))
-        PLOG() << "eglitem: acquire-frame failed" << frame;
-    if (!meego_gst_video_texture_bind_frame(sink, GL_TEXTURE_EXTERNAL_OES, frame))
-        PLOG() << "eglitem: bind-frame failed" << frame;
+    // texture itself — the client creates NO texture object). ONLY draw a frame we
+    // actually acquired AND bound: on a source switch the rebuilt sink emits a
+    // preroll frame-ready before it can serve that frame, so acquire fails — and a
+    // naive glDrawArrays then samples the stale/unbound external texture and paints
+    // garbage (the "шакально" flicker on switch). On failure, skip the draw and
+    // fall through to the black idle-fill below.
+    const bool acquired = meego_gst_video_texture_acquire_frame(sink, frame);
+    const bool bound = acquired
+        && meego_gst_video_texture_bind_frame(sink, GL_TEXTURE_EXTERNAL_OES, frame);
+    if (bound)
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    else
+        PLOG() << "eglitem: frame" << frame << "not ready (acquired=" << acquired << ") — skip draw";
 
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-    // canon unmap(): unbind, then hand the sink an EGL fence with the release so
-    // it recycles the buffer only after the GPU finished sampling it.
-    meego_gst_video_texture_bind_frame(sink, GL_TEXTURE_EXTERNAL_OES, -1);
-    if (!s_eglSyncResolved) {
-        s_eglCreateSyncKHR = (PfnEglCreateSyncKHR) eglGetProcAddress("eglCreateSyncKHR");
-        s_eglDestroySyncKHR = (PfnEglDestroySyncKHR) eglGetProcAddress("eglDestroySyncKHR");
-        s_eglSyncResolved = true;
-        PLOG() << "eglitem: eglCreateSyncKHR" << (s_eglCreateSyncKHR ? "resolved" : "MISSING");
+    // canon unmap(): unbind, then hand the sink an EGL fence with the release so it
+    // recycles the buffer only after the GPU finished sampling it — but only for a
+    // frame we actually acquired (nothing to release/unbind otherwise).
+    if (acquired) {
+        meego_gst_video_texture_bind_frame(sink, GL_TEXTURE_EXTERNAL_OES, -1);
+        if (!s_eglSyncResolved) {
+            s_eglCreateSyncKHR = (PfnEglCreateSyncKHR) eglGetProcAddress("eglCreateSyncKHR");
+            s_eglDestroySyncKHR = (PfnEglDestroySyncKHR) eglGetProcAddress("eglDestroySyncKHR");
+            s_eglSyncResolved = true;
+            PLOG() << "eglitem: eglCreateSyncKHR" << (s_eglCreateSyncKHR ? "resolved" : "MISSING");
+        }
+        void *sync = s_eglCreateSyncKHR
+            ? s_eglCreateSyncKHR(eglGetDisplay((EGLNativeDisplayType) QX11Info::display()),
+                                 EGL_SYNC_FENCE_KHR, 0)
+            : 0;
+        meego_gst_video_texture_release_frame(sink, frame, sync);
     }
-    void *sync = s_eglCreateSyncKHR
-        ? s_eglCreateSyncKHR(eglGetDisplay((EGLNativeDisplayType) QX11Info::display()),
-                             EGL_SYNC_FENCE_KHR, 0)
-        : 0;
-    meego_gst_video_texture_release_frame(sink, frame, sync);
 
     m_program->release();
     painter->endNativePainting();
+
+    if (!bound)   // no valid frame this paint -> idle black instead of garbage
+        painter->fillRect(boundingRect(), QBrush(Qt::black));
 
     const GLenum err = glGetError();
     if (m_paintCount == 0 || (m_paintCount & 63) == 0 || err != GL_NO_ERROR)

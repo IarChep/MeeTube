@@ -19,6 +19,7 @@
 #include <QDeclarativeItem>
 
 class QGLShaderProgram;
+class QGLContext;
 
 // In-scene video output for the in-house GStreamer pipeline (GstAppPipeline in
 // texture mode): draws the gltexturesink's current frame — an EGLImage the sink
@@ -47,7 +48,7 @@ private:
     void ensureProgram();
     QObject          *m_pipeline;    // the GstAppPipeline (or 0)
     QGLShaderProgram *m_program;     // canon shader pair (device; 0 on host)
-    bool              m_ctxGiven;    // scene QGLContext handed to the pipeline
+    const QGLContext *m_givenCtx;    // scene QGLContext handed to the pipeline
     int               m_paintCount;
 };
 #endif
