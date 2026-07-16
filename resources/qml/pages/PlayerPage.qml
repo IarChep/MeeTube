@@ -34,7 +34,7 @@ Page {
     // Quality/track picker state, filled from streams.videoStreams/audioStreams.
     property variant qualLabels: []   // display strings for the SelectionDialog
     property variant qualUrls: []     // parallel: stream url per row
-    property variant qualModes: []    // parallel: 0 = audio, 1 = video per row
+    property variant qualModes: []    // parallel: 0 = audio, 1 = muxed video, 2 = dual per row
 
     // Pick in device-verified order: progressive muxed (ANDROID_VR itag-18) plays
     // as VIDEO (mode 1 — H.264 360p + AAC, overlay into the app window); HLS (IOS)
@@ -55,16 +55,20 @@ Page {
         }
     }
 
-    // Build the flat quality menu from the catalog: muxed video first (playable
-    // with sound), then audio-only tracks. Kept as parallel arrays so the
+    // Build the flat quality menu from the catalog: muxed + dual-stream video
+    // (sorted best-first), then audio-only tracks. Kept as parallel arrays so the
     // SelectionDialog's selectedIndex maps straight to a url + mode.
     function buildQualityMenu() {
         var labels = []; var urls = []; var modes = [];
         var vs = streams ? streams.videoStreams : [];
         var i;
         for (i = 0; i < vs.length; i++) {
+            // Video-only rows play dual (paired with the default audio track);
+            // without an audio track to pair they are unplayable — skip them.
+            if (!vs[i].hasAudio && streams.audioUrl == "") continue;
             labels.push("Video " + vs[i].label);
-            urls.push(vs[i].url); modes.push(1);
+            urls.push(vs[i].url);
+            modes.push(vs[i].hasAudio ? 1 : 2);
         }
         var auds = streams ? streams.audioStreams : [];
         for (i = 0; i < auds.length; i++) {
@@ -77,7 +81,8 @@ Page {
     function playRow(i) {
         if (i < 0 || i >= qualUrls.length) return;
         console.log("[player] switch to", qualLabels[i]);
-        player.play(qualUrls[i], qualModes[i]);
+        if (qualModes[i] === 2) player.playDual(qualUrls[i], streams.audioUrl);
+        else player.play(qualUrls[i], qualModes[i]);
     }
     // ms -> "mm:ss" (zero-padded like the stock player's slider labels)
     function fmt(ms) {
