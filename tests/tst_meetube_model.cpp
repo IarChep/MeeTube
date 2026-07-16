@@ -595,23 +595,27 @@ private slots:
         QVERIFY(!sub0["url"].toString().isEmpty());
     }
 
-    // Dual-stream slicing: video-only mp4 tracks the N9 can decode (<=720p, above
-    // the best muxed height) join the selectable video list marked hasAudio=false;
-    // webm/opus never appear; the list is height-desc sorted and height-deduped
-    // (same-height keeps the lower bitrate — 30fps over 60fps).
+    // Dual-stream slicing: video-only H.264 (avc1) tracks the N9 can decode
+    // (<=720p, above the best muxed height) join the selectable video list marked
+    // hasAudio=false; webm/vp9 AND av1-in-mp4 never appear; the list is height-desc
+    // sorted and height-deduped (same-height keeps the lower bitrate — 30fps over 60fps).
     void streamSetOffersDualCandidates() {
         TestStreamSet s;
         s.m_fake.queue("player", loadFixtureRaw("player_streams.json"));
         s.load("aaa11111111");
         s.m_fake.flush();
         QCOMPARE((int)s.status(), (int)core::Ready);
-        // Selectable video: 136 (720p video-only, beat 298 on bitrate), 135 (480p
-        // video-only), 18 (360p muxed). 137 excluded (>720), 244 excluded (webm).
+        // Selectable video: 136 (720p avc1, beat 298 on bitrate), 135 (480p avc1),
+        // 18 (360p muxed). 137 excluded (>720), 244 excluded (vp9/webm), and 398
+        // excluded (av01 — codec, NOT container: it is video/mp4 with the LOWEST
+        // 720p bitrate, so a container-only filter would have let it win the dedup
+        // and hand the device an undecodable stream — the itag-398 device failure).
         QCOMPARE(s.videoStreams().size(), 3);
         QVariantMap v0 = s.videoStreams().at(0).toMap();
         QVariantMap v1 = s.videoStreams().at(1).toMap();
         QVariantMap v2 = s.videoStreams().at(2).toMap();
-        QCOMPARE(v0["itag"].toString(), QString("136"));
+        QCOMPARE(v0["itag"].toString(), QString("136"));   // avc1, not av01/398
+        QVERIFY(v0["mime"].toString().contains("avc1"));
         QVERIFY(!v0["hasAudio"].toBool());
         QCOMPARE(v1["itag"].toString(), QString("135"));
         QVERIFY(!v1["hasAudio"].toBool());   // every non-muxed row = dual candidate (mode 2)

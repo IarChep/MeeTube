@@ -120,11 +120,16 @@ void StreamSet::applyPlayer(const core::PlayerOutcome &r) {
         }
     }
     // Video-only tracks: dual-stream candidates (played via playDual with the
-    // default audio track). Only what the N9 can decode (H.264 mp4, <=720p) and
-    // only where dual actually buys quality over the best muxed format.
+    // default audio track). Filter by CODEC, not container: the N9's IVA2 decodes
+    // H.264 (avc1) only — VP9 (video/webm) AND AV1 (video/mp4; codecs="av01…")
+    // have no device plugin and hard-fail decodebin. avc1 also matters for the
+    // dedup below: AV1 is lower-bitrate than H.264 at the same height, so a
+    // container-only filter would let AV1 win the tie and hand the pipeline an
+    // undecodable stream (device-observed: itag 398/397 selected → "missing
+    // plug-in"). <=720p and only above the best muxed height.
     for (const CT::Stream &s : m_catalog) {
         if (s.width <= 0 || s.hasAudio) continue;
-        if (!s.mimeType.startsWith(QLatin1String("video/mp4"))) continue;
+        if (!s.mimeType.contains(QLatin1String("avc1"))) continue;
         if (s.height > 720 || s.height <= maxMuxedH) continue;
         vids << s;
     }

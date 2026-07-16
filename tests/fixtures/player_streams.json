@@ -69,6 +69,15 @@
     "bitrate": 800000
    },
    {
+    "itag": 398,
+    "url": "https://gv.example/vid398",
+    "mimeType": "video/mp4; codecs=\"av01.0.08M.08\"",
+    "qualityLabel": "720p",
+    "width": 1280,
+    "height": 720,
+    "bitrate": 700000
+   },
+   {
     "itag": 135,
     "url": "https://gv.example/vid135",
     "mimeType": "video/mp4; codecs=\"avc1.4d401e\"",
