@@ -15,8 +15,17 @@ public:
     explicit IPipeline(QObject *parent = 0) : QObject(parent) {}
     virtual ~IPipeline() {}
     virtual void configure(PlaybackMode mode, bool seekable, qint64 totalSize) = 0;
+    // Dual-stream mode (video-only + audio-only files through two appsrc branches
+    // of the same pipeline). Default impls: a pipeline that never grew dual
+    // support reports it instead of playing silence.
+    virtual void configureDual(qint64 videoTotal, qint64 audioTotal) {
+        Q_UNUSED(videoTotal); Q_UNUSED(audioTotal);
+        emit error(QString::fromLatin1("dual playback not supported by this pipeline"));
+    }
     virtual void pushData(const QByteArray &chunk) = 0;
+    virtual void pushAudioData(const QByteArray &chunk) { Q_UNUSED(chunk); }
     virtual void endOfStream() = 0;
+    virtual void audioEndOfStream() {}
     virtual void play() = 0;
     virtual void pause() = 0;
     virtual void resume() = 0;
@@ -24,6 +33,7 @@ public:
     virtual void seek(qint64 ms) = 0;
 Q_SIGNALS:
     void needData(qint64 maxBytes);
+    void needAudioData(qint64 maxBytes);    // the dual audio appsrc is hungry
     void seekByte(qint64 byteOffset);
     void started();                 // first decoded frames -> Playing
     void buffering(int percent);    // 0..100

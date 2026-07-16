@@ -23,7 +23,8 @@ class StreamPlayer : public QObject {
     Q_PROPERTY(QString errorString    READ errorString    NOTIFY stateChanged)
 public:
     enum State { Idle, Loading, Buffering, Playing, Paused, Stopped, Error };
-    StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *policy, QObject *parent = 0);
+    StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *policy,
+                 ByteSource *audioSource = 0, QObject *parent = 0);
     ~StreamPlayer();
 
     int     state()          const { return m_state; }
@@ -36,6 +37,10 @@ public:
     QString errorString()    const { return m_error; }
 
     Q_INVOKABLE void play(const QString &url, int mode);   // mode: 0=audio,1=video
+    // Dual-stream: a video-only URL + an audio-only URL through two appsrc
+    // branches of one pipeline (shared clock = A/V sync). Video mode, never
+    // seekable (appsrc STREAM push mode has no seek-data handler).
+    Q_INVOKABLE void playDual(const QString &videoUrl, const QString &audioUrl);
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void stop();
@@ -48,6 +53,10 @@ private slots:
     void onGranted(); void onLost(); void onDenied(); void onReleasedByManager();
     void onOpened(qint64 total, bool seekable); void onData(const QByteArray &chunk);
     void onSourceFinished(); void onSourceFailed(const QString &e);
+    void onAudioOpened(qint64 total, bool seekable);
+    void onAudioData(const QByteArray &chunk);
+    void onAudioFinished(); void onAudioFailed(const QString &e);
+    void onNeedAudioData(qint64 n);
     void onNeedData(qint64 n); void onSeekByte(qint64 off);
     void onStarted(); void onBuffering(int pct);
     void onPosition(qint64 ms); void onDuration(qint64 ms);
@@ -55,11 +64,16 @@ private slots:
 private:
     void setState(State s);
     void fail(const QString &e);
+    void maybeStartDual();      // configure+play once BOTH sources reported open
     ByteSource *m_source; IPipeline *m_pipeline; IPolicy *m_policy;
     State m_state; PlaybackMode m_mode;
     QString m_url, m_error;
     qint64 m_position, m_duration; int m_buffer; bool m_seekable;
     bool m_granted;   // first grant seen (distinguish initial grant from re-grant)
+    ByteSource *m_audioSource;  // dual lane; 0 = dual unsupported (playDual fails)
+    QString m_audioUrl;
+    bool m_dual, m_videoOpen, m_audioOpen;
+    qint64 m_videoTotal, m_audioTotal;
 };
 }}
 #endif

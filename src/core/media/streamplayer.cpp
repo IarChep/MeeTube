@@ -40,10 +40,13 @@ static const char *stateName(int s)
     }
 }
 
-StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *policy, QObject *parent)
+StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *policy,
+                           ByteSource *audioSource, QObject *parent)
     : QObject(parent), m_source(source), m_pipeline(pipeline), m_policy(policy),
       m_state(Idle), m_mode(AudioMode), m_position(0), m_duration(0), m_buffer(0),
-      m_seekable(false), m_granted(false)
+      m_seekable(false), m_granted(false),
+      m_audioSource(audioSource), m_dual(false), m_videoOpen(false), m_audioOpen(false),
+      m_videoTotal(-1), m_audioTotal(-1)
 {
     if (m_source) m_source->setParent(this);
     if (m_pipeline) m_pipeline->setParent(this);
@@ -59,7 +62,16 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
     connect(m_source, SIGNAL(finished()),           this, SLOT(onSourceFinished()));
     connect(m_source, SIGNAL(failed(QString)),      this, SLOT(onSourceFailed(QString)));
 
+    if (m_audioSource) {
+        m_audioSource->setParent(this);
+        connect(m_audioSource, SIGNAL(opened(qint64,bool)), this, SLOT(onAudioOpened(qint64,bool)));
+        connect(m_audioSource, SIGNAL(data(QByteArray)),    this, SLOT(onAudioData(QByteArray)));
+        connect(m_audioSource, SIGNAL(finished()),          this, SLOT(onAudioFinished()));
+        connect(m_audioSource, SIGNAL(failed(QString)),     this, SLOT(onAudioFailed(QString)));
+    }
+
     connect(m_pipeline, SIGNAL(needData(qint64)),   this, SLOT(onNeedData(qint64)));
+    connect(m_pipeline, SIGNAL(needAudioData(qint64)), this, SLOT(onNeedAudioData(qint64)));
     connect(m_pipeline, SIGNAL(seekByte(qint64)),   this, SLOT(onSeekByte(qint64)));
     connect(m_pipeline, SIGNAL(started()),          this, SLOT(onStarted()));
     connect(m_pipeline, SIGNAL(buffering(int)),     this, SLOT(onBuffering(int)));
@@ -84,6 +96,8 @@ void StreamPlayer::fail(const QString &e)
     PLOG() << "FAIL:" << qPrintable(e);
     m_error = e;
     if (m_pipeline) m_pipeline->stop();
+    if (m_source) m_source->close();
+    if (m_audioSource) m_audioSource->close();
     if (m_policy) m_policy->release();
     setState(Error);
 }
@@ -92,6 +106,7 @@ void StreamPlayer::play(const QString &url, int mode)
 {
     PLOG() << "play mode=" << (mode == (int)VideoMode ? "video" : "audio") << "url=" << qPrintable(url);
     if (m_state != Idle && m_state != Stopped && m_state != Error) stop();
+    m_dual = false;
     m_url = url; m_mode = (mode == (int)VideoMode) ? VideoMode : AudioMode;
     emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
@@ -105,6 +120,7 @@ void StreamPlayer::onGranted()
         PLOG() << "policy granted (initial) — opening source";
         m_granted = true;
         m_source->open(m_url);
+        if (m_dual) m_audioSource->open(m_audioUrl);
     } else if (m_state == Paused) {   // re-grant after preemption: resume
         PLOG() << "policy re-granted — resuming";
         m_pipeline->resume();
@@ -115,6 +131,7 @@ void StreamPlayer::onGranted()
 void StreamPlayer::onOpened(qint64 total, bool seekable)
 {
     PLOG() << "source opened total=" << total << "seekable=" << seekable;
+    if (m_dual) { m_videoOpen = true; m_videoTotal = total; maybeStartDual(); return; }
     m_seekable = seekable; emit seekableChanged();
     m_pipeline->configure(m_mode, seekable, total);
     m_pipeline->play();
@@ -151,8 +168,45 @@ void StreamPlayer::stop()
 {
     if (m_pipeline) m_pipeline->stop();
     if (m_source) m_source->close();
+    if (m_audioSource) m_audioSource->close();
     if (m_policy) m_policy->release();
     setState(Stopped);
 }
+
+void StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl)
+{
+    PLOG() << "playDual video=" << qPrintable(videoUrl.left(90))
+           << "audio=" << qPrintable(audioUrl.left(90));
+    if (!m_audioSource) { fail(QString::fromLatin1("dual playback needs an audio source")); return; }
+    if (m_state != Idle && m_state != Stopped && m_state != Error) stop();
+    m_dual = true; m_videoOpen = m_audioOpen = false; m_videoTotal = m_audioTotal = -1;
+    m_url = videoUrl; m_audioUrl = audioUrl;
+    m_mode = VideoMode; emit modeChanged();
+    m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
+    setState(Loading);
+    m_policy->acquire(m_mode);
+}
+
+void StreamPlayer::maybeStartDual()
+{
+    if (!m_videoOpen || !m_audioOpen) return;
+    m_seekable = false; emit seekableChanged();   // push mode: no in-stream seek
+    m_pipeline->configureDual(m_videoTotal, m_audioTotal);
+    m_pipeline->play();
+    setState(Buffering);
+}
+
+void StreamPlayer::onAudioOpened(qint64 total, bool)
+{
+    if (!m_dual) return;
+    PLOG() << "audio source opened total=" << total;
+    m_audioOpen = true; m_audioTotal = total;
+    maybeStartDual();
+}
+
+void StreamPlayer::onAudioData(const QByteArray &c) { if (m_pipeline) m_pipeline->pushAudioData(c); }
+void StreamPlayer::onAudioFinished()                { PLOG() << "audio source EOS"; if (m_pipeline) m_pipeline->audioEndOfStream(); }
+void StreamPlayer::onAudioFailed(const QString &e)  { fail(e); }
+void StreamPlayer::onNeedAudioData(qint64 n)        { if (m_audioSource) m_audioSource->requestData(n); }
 
 }} // namespace yt::media

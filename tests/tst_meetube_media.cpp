@@ -113,6 +113,12 @@ public:
     void emitStarted() { emit started(); }
     void emitFinished() { emit finished(); }
     void emitError(const QString &m) { emit error(m); }
+    int dualConfigured = 0; qint64 dualVideoTotal = -2, dualAudioTotal = -2;
+    QByteArray audioPushed; bool audioEos = false;
+    void configureDual(qint64 v, qint64 a) { ++dualConfigured; dualVideoTotal = v; dualAudioTotal = a; }
+    void pushAudioData(const QByteArray &c) { audioPushed += c; }
+    void audioEndOfStream() { audioEos = true; }
+    void emitNeedAudioData(qint64 n) { emit needAudioData(n); }
 };
 
 // Fake source: delivers a fixed payload on requestData(), then finished().
@@ -137,6 +143,21 @@ public:
     void requestData(qint64) {}
     bool seek(qint64) { return false; }
     void close() {}
+};
+
+// Hand-cranked source for the dual tests: the test decides when open/data/EOS land.
+class ManualSource : public yt::media::ByteSource {
+public:
+    ManualSource() : ByteSource(0) {}
+    QString openedUrl; int dataRequests = 0; bool closed = false;
+    void open(const QString &u) { openedUrl = u; }
+    void requestData(qint64) { ++dataRequests; }
+    bool seek(qint64) { return true; }
+    void close() { closed = true; }
+    void emitOpened(qint64 t) { emit opened(t, false); }
+    void emitData(const QByteArray &c) { emit data(c); }
+    void emitFinished() { emit finished(); }
+    void emitFailed(const QString &e) { emit failed(e); }
 };
 
 // Compile-only anchor for Task 1: proves the media/ seams compile and moc.
@@ -309,6 +330,92 @@ private slots:
         player.play(QString("http://y/v"), yt::media::AudioMode);   // second play while Playing
         QCOMPARE(pipe->stopped, 1);          // pre-fix: 0 (no teardown) -> stacked
         QCOMPARE(pol->acquired, 2);          // re-acquired after the stop
+    }
+
+    // playDual: grant opens BOTH sources; the pipeline is configured exactly once,
+    // only after both report their totals; dual is never seekable.
+    void dualWaitsForBothOpens() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/136", "http://a/140");
+        QCOMPARE(pol->acquired, 1);
+        pol->emitGranted();
+        QCOMPARE(vsrc->openedUrl, QString("http://v/136"));
+        QCOMPARE(asrc->openedUrl, QString("http://a/140"));
+        QCOMPARE(pipe->dualConfigured, 0);
+        vsrc->emitOpened(1000);
+        QCOMPARE(pipe->dualConfigured, 0);      // still waiting for audio
+        asrc->emitOpened(200);
+        QCOMPARE(pipe->dualConfigured, 1);
+        QCOMPARE(pipe->dualVideoTotal, (qint64)1000);
+        QCOMPARE(pipe->dualAudioTotal, (qint64)200);
+        QCOMPARE(pipe->played, 1);
+        QCOMPARE(pipe->configured, 0);          // single-mode configure untouched
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Buffering);
+        QVERIFY(!p.seekable());
+        QCOMPARE((int)p.mode(), 1);             // dual plays as video
+    }
+
+    // Data/need-data/EOS route per lane: video source feeds pushData, audio source
+    // feeds pushAudioData; each appsrc's hunger reaches only its own source.
+    void dualPumpsBothLanes() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v", "http://a");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        pipe->emitNeedData(100);
+        QCOMPARE(vsrc->dataRequests, 1); QCOMPARE(asrc->dataRequests, 0);
+        pipe->emitNeedAudioData(100);
+        QCOMPARE(asrc->dataRequests, 1);
+        vsrc->emitData(QByteArray("VVV"));
+        QCOMPARE(pipe->pushed, QByteArray("VVV")); QVERIFY(pipe->audioPushed.isEmpty());
+        asrc->emitData(QByteArray("AA"));
+        QCOMPARE(pipe->audioPushed, QByteArray("AA"));
+        vsrc->emitFinished();
+        QVERIFY(pipe->eos); QVERIFY(!pipe->audioEos);
+        asrc->emitFinished();
+        QVERIFY(pipe->audioEos);
+    }
+
+    // Either lane failing kills the whole playback and closes BOTH sources.
+    void dualAudioFailureIsTerminal() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v", "http://a");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        asrc->emitFailed("boom");
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Error);
+        QCOMPARE(pipe->stopped, 1);
+        QCOMPARE(pol->released, 1);
+        QVERIFY(vsrc->closed);
+        QVERIFY(asrc->closed);
+    }
+
+    // Single-source play() with an audio lane present: the lane stays idle and the
+    // single-mode path is byte-for-byte what it was.
+    void singlePlayLeavesAudioLaneIdle() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.play("http://v/18", 1);
+        pol->emitGranted();
+        QCOMPARE(vsrc->openedUrl, QString("http://v/18"));
+        QVERIFY(asrc->openedUrl.isEmpty());
+        vsrc->emitOpened(1000);
+        QCOMPARE(pipe->configured, 1);
+        QCOMPARE(pipe->dualConfigured, 0);
+    }
+
+    // playDual on a player wired without an audio source = immediate error.
+    void dualWithoutAudioSourceFails() {
+        ManualSource *vsrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol);
+        p.playDual("http://v", "http://a");
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Error);
     }
 
     // RoutingSource: manifest URLs go to the HLS child, direct media URLs to the
