@@ -31,10 +31,13 @@ Page {
         }
     }
 
-    // Quality/track picker state, filled from streams.videoStreams/audioStreams.
-    property variant qualLabels: []   // display strings for the SelectionDialog
-    property variant qualUrls: []     // parallel: stream url per row
-    property variant qualModes: []    // parallel: 0 = audio, 1 = muxed video, 2 = dual per row
+    // Video and audio picker state, filled from streams.videoStreams/audioStreams.
+    // Each list is index-parallel to its dialog's rows.
+    property variant vidUrls: []      // video dialog: stream url per row
+    property variant vidModes: []     // video dialog: 1 = muxed video, 2 = dual per row
+    property variant audUrls: []      // audio dialog: stream url per row (always mode 0)
+    property variant subUrls: []      // subtitles dialog: timedtext url per row (row 0 = "Off" = "")
+    property string  activeSubtitle: ""   // selected timedtext url ("" = off)
 
     // Pick in device-verified order: progressive muxed (ANDROID_VR itag-18) plays
     // as VIDEO (mode 1 — H.264 360p + AAC, overlay into the app window); HLS (IOS)
@@ -55,50 +58,76 @@ Page {
         }
     }
 
-    // Build the flat quality menu from the catalog: muxed + dual-stream video
-    // (sorted best-first), then audio-only tracks. Kept as parallel arrays so the
-    // SelectionDialog's selectedIndex maps straight to a url + mode.
-    function buildQualityMenu() {
-        var labels = []; var urls = []; var modes = []; var rows = [];
+    // Fill the Video and Audio pickers from the resolved stream catalog. The video
+    // dialog lists muxed + dual-stream tracks (best-first); the audio dialog lists
+    // the adaptive audio tracks labelled by bitrate. Each list stays index-parallel
+    // to its dialog's rows so selectedIndex maps straight to a url (+ mode).
+    function buildMenus() {
+        var vUrls = []; var vModes = []; var vRows = [];
         var vs = streams ? streams.videoStreams : [];
-        var i; var lbl;
+        var i;
         for (i = 0; i < vs.length; i++) {
             // Video-only rows play dual (paired with the default audio track);
             // without an audio track to pair they are unplayable — skip them.
             if (!vs[i].hasAudio && streams.audioUrl == "") continue;
-            lbl = "Video " + vs[i].label;
-            labels.push(lbl); urls.push(vs[i].url);
-            modes.push(vs[i].hasAudio ? 1 : 2);
-            rows.push({ name: lbl });
+            vUrls.push(vs[i].url);
+            vModes.push(vs[i].hasAudio ? 1 : 2);
+            vRows.push({ name: vs[i].label });
         }
+        var aUrls = []; var aRows = [];
         var auds = streams ? streams.audioStreams : [];
         for (i = 0; i < auds.length; i++) {
-            lbl = "Audio " + auds[i].label;
-            labels.push(lbl); urls.push(auds[i].url); modes.push(0);
-            rows.push({ name: lbl });
+            // "Audio <kbps>" (fall back to the quality tier when bitrate is absent).
+            var kbps = Math.round(auds[i].bitrate / 1000);
+            aUrls.push(auds[i].url);
+            aRows.push({ name: kbps > 0 ? "Audio " + kbps + " kbps" : "Audio " + auds[i].label });
         }
-        qualLabels = labels; qualUrls = urls; qualModes = modes;
-        // SelectionDialog sizes its list as model.count * itemHeight, so the model
-        // MUST expose .count — a JS array (only .length) collapses the list to
-        // zero height and nothing shows. Build a fresh, fully-populated ListModel
-        // and assign it whole: onModelChanged then fires once with the final count,
-        // so every delegate is laid out up front (appending into the live model
-        // instead grows it row-by-row and leaves leading rows uncreated until a
-        // flick). The delegate reads the `name` role.
+        var sUrls = [""]; var sRows = [{ name: "Off" }];   // row 0 = subtitles off
+        var subs = streams ? streams.subtitleStreams : [];
+        for (i = 0; i < subs.length; i++) {
+            sRows.push({ name: subs[i].title != "" ? subs[i].title : subs[i].language });
+            sUrls.push(subs[i].url);
+        }
+        vidUrls = vUrls; vidModes = vModes; audUrls = aUrls; subUrls = sUrls;
+        assignModel(videoDialog, vRows);
+        assignModel(audioDialog, aRows);
+        assignModel(subtitlesDialog, sRows);
+    }
+    // SelectionDialog sizes its list as model.count * itemHeight, so the model MUST
+    // be a ListModel — a JS array (only .length) yields a NaN height and nothing
+    // shows. Assign a fresh, fully-populated model whole so onModelChanged fires once
+    // with the final count and every delegate lays out up front (appending into the
+    // live model grows it row-by-row and leaves leading rows uncreated until a flick).
+    // The delegate reads the `name` role.
+    function assignModel(dialog, rows) {
         var lm = qualityModelComponent.createObject(root);
+        var i;
         for (i = 0; i < rows.length; i++) lm.append(rows[i]);
-        var old = qualityDialog.model;
-        qualityDialog.selectedIndex = -1;
-        qualityDialog.model = lm;
+        var old = dialog.model;
+        dialog.selectedIndex = -1;
+        dialog.model = lm;
         if (old) old.destroy();
     }
     Component { id: qualityModelComponent; ListModel {} }
 
-    function playRow(i) {
-        if (i < 0 || i >= qualUrls.length) return;
-        console.log("[player] switch to", qualLabels[i]);
-        if (qualModes[i] === 2) player.playDual(qualUrls[i], streams.audioUrl);
-        else player.play(qualUrls[i], qualModes[i]);
+    function playVideo(i) {
+        if (i < 0 || i >= vidUrls.length) return;
+        console.log("[player] video row", i, "mode", vidModes[i]);
+        if (vidModes[i] === 2) player.playDual(vidUrls[i], streams.audioUrl);
+        else player.play(vidUrls[i], vidModes[i]);
+    }
+    function playAudio(i) {
+        if (i < 0 || i >= audUrls.length) return;
+        console.log("[player] audio row", i);
+        player.play(audUrls[i], 0);
+    }
+    // Select a subtitle track (row 0 = Off). Stores the timedtext url; on-screen
+    // rendering is a follow-up (Qt does no TLS, so the https timedtext has to be
+    // fetched + cue-parsed through the libcurl backend, not QML XMLHttpRequest).
+    function selectSubtitle(i) {
+        if (i < 0 || i >= subUrls.length) return;
+        activeSubtitle = subUrls[i];
+        console.log("[player] subtitle", i, activeSubtitle == "" ? "(off)" : activeSubtitle.substring(0, 80));
     }
     // ms -> "mm:ss" (zero-padded like the stock player's slider labels)
     function fmt(ms) {
@@ -111,17 +140,39 @@ Page {
     Component.onCompleted: {
         streams = innertube.video().streams(videoId);   // async: fetches /player
         streams.loaded.connect(tryPlay);                 // play once the URL resolves
-        streams.loaded.connect(buildQualityMenu);        // populate the picker too
+        streams.loaded.connect(buildMenus);              // fill the video/audio/subtitle pickers
         tryPlay();                                       // in case it resolved synchronously
     }
 
-    // Quality / audio-track picker (video qualities first, then audio tracks).
+    // The menu glyph opens this: Video / Audio / Subtitles (each shown only when it
+    // has tracks), routing to its own SelectionDialog.
+    Menu {
+        id: playerMenu
+        MenuLayout {
+            MenuItem { text: "Video";     visible: root.vidUrls.length > 0; onClicked: videoDialog.open() }
+            MenuItem { text: "Audio";     visible: root.audUrls.length > 0; onClicked: audioDialog.open() }
+            MenuItem { text: "Subtitles"; visible: root.subUrls.length > 1; onClicked: subtitlesDialog.open() }
+        }
+    }
+
+    // Video-quality picker (muxed + dual-stream tracks). Model assigned imperatively
+    // in buildMenus (fresh ListModel per build — see assignModel).
     SelectionDialog {
-        id: qualityDialog
-        titleText: "Quality / track"
-        // Model is assigned imperatively in buildQualityMenu (array of { name }
-        // maps, with a reset to force the ListView to rebuild all delegates).
-        onAccepted: root.playRow(selectedIndex)
+        id: videoDialog
+        titleText: "Video"
+        onAccepted: root.playVideo(selectedIndex)
+    }
+    // Audio-track picker (adaptive audio, labelled by bitrate).
+    SelectionDialog {
+        id: audioDialog
+        titleText: "Audio"
+        onAccepted: root.playAudio(selectedIndex)
+    }
+    // Subtitle-track picker ("Off" + each caption track). Model assigned in buildMenus.
+    SelectionDialog {
+        id: subtitlesDialog
+        titleText: "Subtitles"
+        onAccepted: root.selectSubtitle(selectedIndex)
     }
 
     // Chroma-key hole for the hardware video overlay. In video mode the GStreamer
@@ -239,9 +290,8 @@ Page {
             source: "image://theme/icon-m-toolbar-view-menu-white"
             opacity: menuTap.pressed ? UI.OPACITY_DISABLED : UI.OPACITY_ENABLED
             smooth: true
-            visible: root.qualLabels.length > 1     // hide when there's nothing to choose
             MouseArea { id: menuTap; anchors.fill: parent; anchors.margins: -UI.PADDING_DOUBLE
-                        onClicked: { qualityDialog.open(); root.poke(); } }
+                        onClicked: { playerMenu.open(); root.poke(); } }
         }
         Column {
             anchors { left: backIcon.right; leftMargin: UI.PADDING_XLARGE

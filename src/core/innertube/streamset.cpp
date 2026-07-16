@@ -33,7 +33,7 @@ ApiRef StreamSet::apiRef() const {
 void StreamSet::load(const QString &videoId) {
     cancelJob();
     m_hls.clear(); m_progressive.clear(); m_audio.clear();
-    m_catalog.clear(); m_videoStreams.clear(); m_audioStreams.clear();
+    m_catalog.clear(); m_videoStreams.clear(); m_audioStreams.clear(); m_subtitleStreams.clear();
     m_job = core::newJob();
     m_status = core::Loading;
     emit statusChanged();
@@ -133,6 +133,14 @@ void StreamSet::applyPlayer(const core::PlayerOutcome &r) {
         if (m_videoStreams.isEmpty()
             || m_videoStreams.last().toMap().value("height").toInt() != s.height)
             m_videoStreams << streamMap(s);
+    // Subtitle tracks (from the captions side of the merged player outcome): each
+    // is {id,url,title,language} — the timedtext URL is fetched/rendered later.
+    for (const CT::Subtitle &c : r.captions) {
+        QVariantMap m;
+        m["id"] = c.id; m["url"] = c.url;
+        m["title"] = c.title; m["language"] = c.language;
+        m_subtitleStreams << m;
+    }
     PLOG() << "StreamSet: ready — hls=" << (m_hls.isEmpty() ? "no" : "yes")
            << "progressive=" << (m_progressive.isEmpty() ? "no" : "yes")
            << "audio=" << (m_audio.isEmpty() ? "no" : "yes")

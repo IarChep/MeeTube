@@ -38,6 +38,7 @@ class StreamSet : public QObject {
     Q_PROPERTY(QString audioUrl       READ audioUrl       NOTIFY loaded)
     Q_PROPERTY(QVariantList videoStreams READ videoStreams NOTIFY loaded)
     Q_PROPERTY(QVariantList audioStreams READ audioStreams NOTIFY loaded)
+    Q_PROPERTY(QVariantList subtitleStreams READ subtitleStreams NOTIFY loaded)
     Q_PROPERTY(int     status         READ status         NOTIFY statusChanged)
     Q_PROPERTY(QString errorString    READ errorString    NOTIFY statusChanged)
 public:
@@ -53,6 +54,7 @@ public:
     QString audioUrl()       const { return m_audio; }
     QVariantList videoStreams() const { return m_videoStreams; }
     QVariantList audioStreams() const { return m_audioStreams; }
+    QVariantList subtitleStreams() const { return m_subtitleStreams; }
     // The stream url for an itag ("18","140",…) — empty if not in the catalog.
     Q_INVOKABLE QString urlForItag(const QString &itag) const;
     int     status()         const { return m_status; }
@@ -69,7 +71,7 @@ private:
     yt::core::JobToken m_job;
     QString m_hls, m_progressive, m_audio, m_error;
     QList<CT::Stream> m_catalog;
-    QVariantList m_videoStreams, m_audioStreams;
+    QVariantList m_videoStreams, m_audioStreams, m_subtitleStreams;
     int m_status;
 };
 

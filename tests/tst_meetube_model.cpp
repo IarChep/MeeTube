@@ -587,6 +587,12 @@ private slots:
         QVariantMap v0 = s.videoStreams().at(0).toMap();
         QCOMPARE(v0["itag"].toString(), QString("22"));
         QVERIFY(v0["hasAudio"].toBool());
+        // Subtitle tracks surfaced from the captions side (English, Spanish).
+        QCOMPARE(s.subtitleStreams().size(), 2);
+        QVariantMap sub0 = s.subtitleStreams().at(0).toMap();
+        QCOMPARE(sub0["title"].toString(), QString("English"));
+        QCOMPARE(sub0["language"].toString(), QString("en"));
+        QVERIFY(!sub0["url"].toString().isEmpty());
     }
 
     // Dual-stream slicing: video-only mp4 tracks the N9 can decode (<=720p, above
