@@ -201,18 +201,25 @@ void GstAppPipeline::buildPipeline()
     if (m_dual) {
         m_audiosrc = gst_element_factory_make("appsrc", "asrc");
         m_adecode  = gst_element_factory_make("decodebin2", "adec");
-        if (!m_audiosrc || !m_adecode)
+        if (!m_audiosrc || !m_adecode) {
+            // Degrade to silent video rather than crash: pushAudioData/
+            // audioEndOfStream no-op while m_audiosrc is 0.
             PLOG() << "gst: MISSING dual element(s) — asrc=" << (m_audiosrc != 0)
                    << "adec=" << (m_adecode != 0);
-        g_object_set(G_OBJECT(m_audiosrc),
-                     "stream-type", GST_APP_STREAM_TYPE_STREAM,
-                     "format", GST_FORMAT_BYTES,
-                     "is-live", FALSE,
-                     "block", TRUE, NULL);
-        if (m_audioTotal >= 0) gst_app_src_set_size(GST_APP_SRC(m_audiosrc), (gint64)m_audioTotal);
-        g_signal_connect(m_audiosrc, "need-data", G_CALLBACK(&GstAppPipeline::onNeedDataCb), this);
-        // Same pad router as the main decodebin: the audio file's one pad -> aconv.
-        g_signal_connect(m_adecode, "pad-added", G_CALLBACK(&GstAppPipeline::onPadAddedCb), this);
+            if (m_audiosrc) gst_object_unref(m_audiosrc);
+            if (m_adecode)  gst_object_unref(m_adecode);
+            m_audiosrc = m_adecode = 0;
+        } else {
+            g_object_set(G_OBJECT(m_audiosrc),
+                         "stream-type", GST_APP_STREAM_TYPE_STREAM,
+                         "format", GST_FORMAT_BYTES,
+                         "is-live", FALSE,
+                         "block", TRUE, NULL);
+            if (m_audioTotal >= 0) gst_app_src_set_size(GST_APP_SRC(m_audiosrc), (gint64)m_audioTotal);
+            g_signal_connect(m_audiosrc, "need-data", G_CALLBACK(&GstAppPipeline::onAudioNeedDataCb), this);
+            // Same pad router as the main decodebin: the audio file's one pad -> aconv.
+            g_signal_connect(m_adecode, "pad-added", G_CALLBACK(&GstAppPipeline::onPadAddedCb), this);
+        }
     }
 
     gst_bin_add_many(GST_BIN(m_pipeline), m_appsrc, m_decode,
@@ -233,7 +240,7 @@ void GstAppPipeline::buildPipeline()
         emit videoSizeChanged();
     }
     gst_element_link(m_appsrc, m_decode);
-    if (m_dual) {
+    if (m_dual && m_audiosrc) {
         gst_bin_add_many(GST_BIN(m_pipeline), m_audiosrc, m_adecode, NULL);
         gst_element_link(m_audiosrc, m_adecode);
     }
@@ -264,12 +271,19 @@ void GstAppPipeline::buildPipeline()
 }
 
 // static — appsrc wants more; marshal to the Qt thread (this object's thread).
-void GstAppPipeline::onNeedDataCb(GstAppSrc *src, guint length, gpointer user)
+void GstAppPipeline::onNeedDataCb(GstAppSrc *, guint length, gpointer user)
 {
     GstAppPipeline *self = static_cast<GstAppPipeline *>(user);
-    const bool audio = self->m_audiosrc && GST_ELEMENT(src) == self->m_audiosrc;
-    QMetaObject::invokeMethod(self, audio ? "emitNeedAudioData" : "emitNeedData",
-                              Qt::QueuedConnection, Q_ARG(qint64, (qint64)length));
+    QMetaObject::invokeMethod(self, "emitNeedData", Qt::QueuedConnection,
+                              Q_ARG(qint64, (qint64)length));
+}
+// static — the audio appsrc wants more (dual mode); its own trampoline so no
+// cross-thread member read is needed to tell the lanes apart.
+void GstAppPipeline::onAudioNeedDataCb(GstAppSrc *, guint length, gpointer user)
+{
+    GstAppPipeline *self = static_cast<GstAppPipeline *>(user);
+    QMetaObject::invokeMethod(self, "emitNeedAudioData", Qt::QueuedConnection,
+                              Q_ARG(qint64, (qint64)length));
 }
 void GstAppPipeline::emitNeedData(qint64 n) { emit needData(n); }
 void GstAppPipeline::emitNeedAudioData(qint64 n) { emit needAudioData(n); }

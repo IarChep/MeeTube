@@ -53,6 +53,7 @@ private:
 private:
     // GStreamer callbacks trampoline back into Qt-thread-safe emits via queued signals.
     static void onNeedDataCb(GstAppSrc *src, guint length, gpointer user);
+    static void onAudioNeedDataCb(GstAppSrc *src, guint length, gpointer user);  // dual mode's audio appsrc
     static void onPadAddedCb(GstElement *dec, GstPad *pad, gpointer user);
     static gboolean onBusCb(GstBus *bus, GstMessage *msg, gpointer user);
     static GstBusSyncReply onSyncMsg(GstBus *bus, GstMessage *msg, gpointer user);  // prepare-xwindow-id -> overlay
