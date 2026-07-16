@@ -8,6 +8,7 @@
 #include "media/ipolicy.h"
 #include "net/curlnetworkaccessmanager.h"
 #include "media/bytesource.h"
+#include "media/subtitletrack.h"
 #include "core/debuglog.h"
 
 // Qt 4.7.4's QtTest ships no QTRY_COMPARE (added in 4.8) — same gap the loopback
@@ -433,6 +434,31 @@ private slots:
         QVERIFY(hls->openedUrl.isEmpty());
         r.open("https://x.example/path/index.m3u8");
         QVERIFY(!hls->openedUrl.isEmpty());
+    }
+
+    // SubtitleTrack: parse srv1 timedtext, pick the cue for the current position,
+    // decode HTML entities, and clear on demand. applyData is the network-free seam.
+    void subtitleTrackParsesAndTracksPosition() {
+        yt::media::SubtitleTrack st(0);
+        QSignalSpy textSpy(&st, SIGNAL(textChanged()));
+        st.applyData(QByteArray(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><transcript>"
+            "<text start=\"1.0\" dur=\"2.0\">Hello there</text>"
+            "<text start=\"3.5\" dur=\"1.5\">it&amp;#39;s me</text>"
+            "</transcript>"));
+        // Before any position: no cue is active (t=0 is before the first cue).
+        QCOMPARE(st.text(), QString());
+        st.setPosition(1500);                 // inside cue 1 [1000,3000)
+        QCOMPARE(st.text(), QString("Hello there"));
+        st.setPosition(3200);                 // gap between cues -> nothing
+        QCOMPARE(st.text(), QString());
+        st.setPosition(4000);                 // inside cue 2 [3500,5000)
+        QCOMPARE(st.text(), QString("it's me"));   // &amp;#39; -> &#39; -> '
+        QVERIFY(textSpy.count() >= 3);        // emitted on each real change
+        st.clear();
+        QCOMPARE(st.text(), QString());
+        st.setPosition(1500);                 // cues gone -> stays empty
+        QCOMPARE(st.text(), QString());
     }
 };
 

@@ -29,6 +29,7 @@
 #endif
 #include "curlnamfactory.h"
 #include "media/streamplayer.h"
+#include "media/subtitletrack.h"
 #include "media/bytesource.h"
 #include "media/hlssource.h"
 #include "media/gstpipeline.h"
@@ -168,6 +169,16 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
         // pointing at a dead manager.
         playerNam->setParent(player);
         viewer.rootContext()->setContextProperty("player", player);
+        // Subtitles: fetches the selected timedtext track over its own libcurl NAM
+        // (Qt does no TLS) and exposes the caption line for the current position.
+        // Exposed to QML as `subtitles`; PlayerPage binds a text overlay to it.
+        yt::net::CurlNetworkAccessManager *subNam = new yt::net::CurlNetworkAccessManager;
+#ifdef MEETUBE_CA_BUNDLE
+        subNam->setCaBundle(QByteArray(MEETUBE_CA_BUNDLE));
+#endif
+        yt::media::SubtitleTrack *subtitles = new yt::media::SubtitleTrack(subNam);
+        subNam->setParent(subtitles);
+        viewer.rootContext()->setContextProperty("subtitles", subtitles);
         viewer.rootContext()->setContextProperty("gstPipeObj",
             static_cast<QObject *>(gstPipe));
         viewer.rootContext()->setContextProperty("gstTexture",

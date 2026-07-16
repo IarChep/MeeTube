@@ -121,12 +121,14 @@ Page {
         console.log("[player] audio row", i);
         player.play(audUrls[i], 0);
     }
-    // Select a subtitle track (row 0 = Off). Stores the timedtext url; on-screen
-    // rendering is a follow-up (Qt does no TLS, so the https timedtext has to be
-    // fetched + cue-parsed through the libcurl backend, not QML XMLHttpRequest).
+    // Select a subtitle track (row 0 = Off). The `subtitles` backend fetches the
+    // timedtext over libcurl (Qt does no TLS) and exposes the current caption via
+    // subtitles.text; the overlay below renders it.
     function selectSubtitle(i) {
         if (i < 0 || i >= subUrls.length) return;
         activeSubtitle = subUrls[i];
+        if (activeSubtitle == "") subtitles.clear();
+        else { subtitles.load(activeSubtitle); subtitles.position = player.position; }
         console.log("[player] subtitle", i, activeSubtitle == "" ? "(off)" : activeSubtitle.substring(0, 80));
     }
     // ms -> "mm:ss" (zero-padded like the stock player's slider labels)
@@ -138,10 +140,19 @@ Page {
     function poke() { controlsShown = true; hideTimer.restart(); }   // keep controls up
 
     Component.onCompleted: {
+        subtitles.clear();                               // start with subtitles off
         streams = innertube.video().streams(videoId);   // async: fetches /player
         streams.loaded.connect(tryPlay);                 // play once the URL resolves
         streams.loaded.connect(buildMenus);              // fill the video/audio/subtitle pickers
         tryPlay();                                       // in case it resolved synchronously
+    }
+    // Stop the caption fetch/render when leaving the player.
+    Component.onDestruction: subtitles.clear()
+
+    // Feed the subtitle track the playback clock so it can pick the current cue.
+    Connections {
+        target: player
+        onPositionChanged: if (root.activeSubtitle != "") subtitles.position = player.position
     }
 
     // The menu glyph opens this: Video / Audio / Subtitles (each shown only when it
@@ -242,6 +253,33 @@ Page {
         visible: player.state == 4
         MouseArea { anchors.fill: parent; anchors.margins: -UI.PADDING_XLARGE
                     onClicked: { player.resume(); root.poke(); } }
+    }
+
+    // Subtitle overlay: the current caption line on a translucent black plate
+    // (YouTube-style), centred near the bottom and lifted above the controls when
+    // they're shown. The box hugs the text; the plate is translucent while the text
+    // stays opaque (ARGB fill, not opacity, so the letters aren't dimmed). Video
+    // mode only. subtitles.text is fed by the SubtitleTrack backend.
+    Rectangle {
+        id: subtitleBox
+        visible: player.mode === 1 && subLabel.text != ""
+        color: "#c8000000"
+        radius: UI.PADDING_SMALL
+        width: subLabel.paintedWidth + UI.PADDING_LARGE * 2
+        height: subLabel.paintedHeight + UI.PADDING_SMALL * 2
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: root.controlsShown ? bar.height + UI.PADDING_XLARGE : UI.PADDING_XLARGE * 2
+        Text {
+            id: subLabel
+            anchors.centerIn: parent
+            text: subtitles.text
+            color: "white"
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+            width: Math.min(implicitWidth, root.width - UI.PADDING_XLARGE * 4)
+            font { family: UI.FONT_FAMILY; pixelSize: UI.FONT_LARGE }
+        }
     }
 
     // ---- Top panel: exit | video title + author | quality menu ----
