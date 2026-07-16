@@ -11,6 +11,9 @@ void GstAppPipeline::setVideoWindow(WId) {}
 void GstAppPipeline::configure(PlaybackMode, bool, qint64) {}
 void GstAppPipeline::pushData(const QByteArray &) {}
 void GstAppPipeline::endOfStream() {}
+void GstAppPipeline::configureDual(qint64, qint64) {}
+void GstAppPipeline::pushAudioData(const QByteArray &) {}
+void GstAppPipeline::audioEndOfStream() {}
 void GstAppPipeline::play()  { emit error(QString::fromLatin1("media playback is device-only (N9)")); }
 void GstAppPipeline::pause() {}
 void GstAppPipeline::resume(){}
@@ -33,8 +36,10 @@ namespace yt { namespace media {
 
 GstAppPipeline::GstAppPipeline(QObject *parent)
     : IPipeline(parent), m_pipeline(0), m_appsrc(0), m_decode(0),
+      m_audiosrc(0), m_adecode(0),
       m_aconv(0), m_ares(0), m_asink(0), m_vconv(0), m_vsink(0), m_busWatchId(0),
       m_winId(0), m_mode(AudioMode), m_seekable(false), m_total(-1),
+      m_dual(false), m_audioTotal(-1),
       m_glCtx(0), m_glSink(0), m_glFrame(-1), m_sizeProbeId(0)
 {
     m_videoW = m_videoH = 0;
@@ -62,13 +67,23 @@ void GstAppPipeline::teardown()
         if (m_busWatchId) { g_source_remove(m_busWatchId); m_busWatchId = 0; }
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         gst_object_unref(m_pipeline);   // unrefs the whole bin
-        m_pipeline = 0; m_appsrc = m_decode = m_aconv = m_ares = m_asink = m_vconv = m_vsink = 0;
+        m_pipeline = 0; m_appsrc = m_decode = m_audiosrc = m_adecode = m_aconv = m_ares = m_asink = m_vconv = m_vsink = 0;
     }
 }
 
 void GstAppPipeline::configure(PlaybackMode mode, bool seekable, qint64 totalSize)
 {
-    m_mode = mode; m_seekable = seekable; m_total = totalSize;
+    m_dual = false; m_mode = mode; m_seekable = seekable; m_total = totalSize;
+    buildPipeline();
+}
+
+// Dual mode: video-only file through the main appsrc, audio-only file through a
+// second appsrc branch of the SAME pipeline — one clock, so the sinks sync and
+// PLAYING waits for both branches to preroll. Always video, never seekable.
+void GstAppPipeline::configureDual(qint64 videoTotal, qint64 audioTotal)
+{
+    m_dual = true; m_mode = VideoMode; m_seekable = false;
+    m_total = videoTotal; m_audioTotal = audioTotal;
     buildPipeline();
 }
 
@@ -182,6 +197,24 @@ void GstAppPipeline::buildPipeline()
     if (m_total >= 0) gst_app_src_set_size(GST_APP_SRC(m_appsrc), (gint64)m_total);
     g_signal_connect(m_appsrc, "need-data", G_CALLBACK(&GstAppPipeline::onNeedDataCb), this);
 
+    m_audiosrc = m_adecode = 0;
+    if (m_dual) {
+        m_audiosrc = gst_element_factory_make("appsrc", "asrc");
+        m_adecode  = gst_element_factory_make("decodebin2", "adec");
+        if (!m_audiosrc || !m_adecode)
+            PLOG() << "gst: MISSING dual element(s) — asrc=" << (m_audiosrc != 0)
+                   << "adec=" << (m_adecode != 0);
+        g_object_set(G_OBJECT(m_audiosrc),
+                     "stream-type", GST_APP_STREAM_TYPE_STREAM,
+                     "format", GST_FORMAT_BYTES,
+                     "is-live", FALSE,
+                     "block", TRUE, NULL);
+        if (m_audioTotal >= 0) gst_app_src_set_size(GST_APP_SRC(m_audiosrc), (gint64)m_audioTotal);
+        g_signal_connect(m_audiosrc, "need-data", G_CALLBACK(&GstAppPipeline::onNeedDataCb), this);
+        // Same pad router as the main decodebin: the audio file's one pad -> aconv.
+        g_signal_connect(m_adecode, "pad-added", G_CALLBACK(&GstAppPipeline::onPadAddedCb), this);
+    }
+
     gst_bin_add_many(GST_BIN(m_pipeline), m_appsrc, m_decode,
                      m_aconv, m_ares, m_asink, m_vsink, NULL);
     if (m_vconv) { gst_bin_add(GST_BIN(m_pipeline), m_vconv); gst_element_link(m_vconv, m_vsink); }
@@ -200,6 +233,10 @@ void GstAppPipeline::buildPipeline()
         emit videoSizeChanged();
     }
     gst_element_link(m_appsrc, m_decode);
+    if (m_dual) {
+        gst_bin_add_many(GST_BIN(m_pipeline), m_audiosrc, m_adecode, NULL);
+        gst_element_link(m_audiosrc, m_adecode);
+    }
     gst_element_link_many(m_aconv, m_ares, m_asink, NULL);
     // decodebin2 pads appear at runtime -> link audio to aconv, video to the video branch.
     g_signal_connect(m_decode, "pad-added", G_CALLBACK(&GstAppPipeline::onPadAddedCb), this);
@@ -227,13 +264,15 @@ void GstAppPipeline::buildPipeline()
 }
 
 // static — appsrc wants more; marshal to the Qt thread (this object's thread).
-void GstAppPipeline::onNeedDataCb(GstAppSrc *, guint length, gpointer user)
+void GstAppPipeline::onNeedDataCb(GstAppSrc *src, guint length, gpointer user)
 {
     GstAppPipeline *self = static_cast<GstAppPipeline *>(user);
-    QMetaObject::invokeMethod(self, "emitNeedData", Qt::QueuedConnection,
-                              Q_ARG(qint64, (qint64)length));
+    const bool audio = self->m_audiosrc && GST_ELEMENT(src) == self->m_audiosrc;
+    QMetaObject::invokeMethod(self, audio ? "emitNeedAudioData" : "emitNeedData",
+                              Qt::QueuedConnection, Q_ARG(qint64, (qint64)length));
 }
 void GstAppPipeline::emitNeedData(qint64 n) { emit needData(n); }
+void GstAppPipeline::emitNeedAudioData(qint64 n) { emit needAudioData(n); }
 
 // static — link decodebin2 output pads: audio -> aconv, anything else -> fakesink.
 void GstAppPipeline::onPadAddedCb(GstElement *, GstPad *pad, gpointer user)
@@ -414,6 +453,15 @@ void GstAppPipeline::pushData(const QByteArray &chunk)
 }
 
 void GstAppPipeline::endOfStream() { if (m_appsrc) gst_app_src_end_of_stream(GST_APP_SRC(m_appsrc)); }
+
+void GstAppPipeline::pushAudioData(const QByteArray &chunk)
+{
+    if (!m_audiosrc) return;
+    GstBuffer *buf = gst_buffer_new_and_alloc(chunk.size());
+    memcpy(GST_BUFFER_DATA(buf), chunk.constData(), chunk.size());
+    gst_app_src_push_buffer(GST_APP_SRC(m_audiosrc), buf);   // takes ownership
+}
+void GstAppPipeline::audioEndOfStream() { if (m_audiosrc) gst_app_src_end_of_stream(GST_APP_SRC(m_audiosrc)); }
 
 void GstAppPipeline::play()   { if (m_pipeline) { gst_element_set_state(m_pipeline, GST_STATE_PLAYING); m_posTimer.start(); } }
 void GstAppPipeline::pause()  { if (m_pipeline) gst_element_set_state(m_pipeline, GST_STATE_PAUSED); m_posTimer.stop(); }

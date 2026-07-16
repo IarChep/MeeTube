@@ -157,15 +157,16 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
         yt::media::RoutingSource *src = new yt::media::RoutingSource(
             new yt::media::HlsSource(playerNam),
             new yt::media::ProgressiveSource(playerNam));
-        playerNam->setParent(src);      // NAM lifetime follows the source
-        // The ONE playback pipeline: appsrc ! decodebin2 with the in-scene texture
-        // renderer (gltexturesink -> EglVideoItem, canon QtMultimediaKit
-        // protocol). MEETUBE_GST_TEXTURE=0 falls back to the omapxvsink colorkey
-        // overlay renderer inside the same pipeline (rescue hatch for GL
-        // regressions). Device-verified 2026-07-15.
+        // Dual-stream audio lane: its own progressive fetcher on the same NAM
+        // (audio-only URLs are always direct googlevideo files, never HLS).
+        yt::media::ProgressiveSource *audioSrc = new yt::media::ProgressiveSource(playerNam);
         yt::media::GstAppPipeline *gstPipe = new yt::media::GstAppPipeline;
         yt::media::StreamPlayer *player =
-            new yt::media::StreamPlayer(src, gstPipe, new yt::media::PolicyGuard);
+            new yt::media::StreamPlayer(src, gstPipe, new yt::media::PolicyGuard, audioSrc);
+        // NAM lifetime: parented to the player AFTER the sources, so child
+        // destruction order (sources first, NAM last) never leaves a live reply
+        // pointing at a dead manager.
+        playerNam->setParent(player);
         viewer.rootContext()->setContextProperty("player", player);
         viewer.rootContext()->setContextProperty("gstPipeObj",
             static_cast<QObject *>(gstPipe));

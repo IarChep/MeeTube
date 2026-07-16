@@ -31,6 +31,9 @@ public:
     void pushData(const QByteArray &chunk);
     void endOfStream();
     void play(); void pause(); void resume(); void stop(); void seek(qint64 ms);
+    void configureDual(qint64 videoTotal, qint64 audioTotal);
+    void pushAudioData(const QByteArray &chunk);
+    void audioEndOfStream();
     // Texture-streaming renderer seam (EglVideoItem): the item's first paint
     // hands over the QML scene's GL context; VideoMode then builds gltexturesink
     // against it (canon QtMultimediaKit flow). glSink()/currentGlFrame() feed the
@@ -60,12 +63,14 @@ private:
     void buildPipeline();
     void teardown();
     GstElement *m_pipeline; GstElement *m_appsrc; GstElement *m_decode;
+    GstElement *m_audiosrc; GstElement *m_adecode;   // dual mode's second branch (else 0)
     GstElement *m_aconv; GstElement *m_ares; GstElement *m_asink;
     GstElement *m_vconv; GstElement *m_vsink;   // vconv non-null only in video mode
     guint m_busWatchId;
     WId m_winId;
     QTimer m_posTimer;   // polls position/duration while playing
     PlaybackMode m_mode; bool m_seekable; qint64 m_total;
+    bool m_dual; qint64 m_audioTotal;
     // Texture-streaming state (canon QGstreamerGLTextureRenderer): the scene GL
     // context, the gltexturesink element, and the frame handshake gate.
     QGLContext    *m_glCtx;
@@ -76,6 +81,7 @@ private:
     guint          m_sizeProbeId;  // canon m_bufferProbeId (one-shot native size)
 private slots:
     void emitNeedData(qint64 n);   // marshalled from the streaming thread
+    void emitNeedAudioData(qint64 n);   // marshalled from the audio appsrc's streaming thread
     void onPosTick();              // query + emit position/duration
     void onGlFrame(int frame);     // GUI side of frame-ready: stash + notify item
     void updateNativeVideoSize();  // canon: negotiated sink caps -> videoWidth/Height
