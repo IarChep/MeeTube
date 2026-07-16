@@ -225,20 +225,53 @@ Page {
 
     Timer { id: hideTimer; interval: 3500; running: root.controlsShown; onTriggered: root.controlsShown = false }
 
-    Rectangle {   // spinner on a translucent round plate — echoes the paused badge,
-                  // so mid-playback buffering doesn't float bare over the video
+    // Buffering pod: the spinner on a translucent SQUIRCLE plate (MaskedItem over
+    // the avatar mask — the same Nokia silhouette as the paused badge's plate) so
+    // mid-playback buffering doesn't float bare over the video.
+    MaskedItem {
+        id: bufferPod
         anchors.centerIn: parent
         width: busy.width + UI.PADDING_XLARGE * 2
         height: width
-        radius: width / 2
-        color: UI.COLOR_SCRIM
-        smooth: true
         visible: busy.running
+        mask: Image {
+            width: bufferPod.width
+            height: bufferPod.height
+            source: "../images/avatar-mask.png"
+            fillMode: Image.Stretch
+            smooth: true
+        }
+        Rectangle { anchors.fill: parent; color: UI.COLOR_SCRIM }
         BusyIndicator {
             id: busy
             anchors.centerIn: parent
             platformStyle: BusyIndicatorStyle { size: "large" }
             running: player.state == 1 || player.state == 2   // Loading | Buffering
+        }
+    }
+
+    // Buffering readout pinned to the bottom edge (subtitle-box idiom): the
+    // startup-gate fill percentage (player.bufferProgress — % of the lag-free
+    // start target downloaded) on a translucent plate, lifted above the controls
+    // bar while it's shown.
+    Rectangle {
+        visible: busy.running
+        color: UI.COLOR_SCRIM
+        radius: UI.PADDING_SMALL
+        width: bufferLabel.paintedWidth + UI.PADDING_LARGE * 2
+        height: bufferLabel.paintedHeight + UI.PADDING_SMALL * 2
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: root.controlsShown ? bar.height + UI.PADDING_XLARGE
+                                                 : UI.PADDING_XLARGE * 2
+        Label {
+            id: bufferLabel
+            anchors.centerIn: parent
+            text: player.bufferProgress > 0 && player.bufferProgress < 100
+                  ? "Buffering " + player.bufferProgress + "%"
+                  : "Buffering"
+            color: UI.COLOR_INVERTED_FOREGROUND
+            font { family: UI.FONT_FAMILY; pixelSize: UI.FONT_LSMALL }
         }
     }
 

@@ -50,7 +50,6 @@ public:
 Q_SIGNALS:
     void needData(qint64 maxBytes);
     void needAudioData(qint64 maxBytes);    // the dual audio appsrc is hungry
-    void seekByte(qint64 byteOffset);
     void started();                 // first decoded frames -> Playing
     void buffering(int percent);    // 0..100
     void positionChanged(qint64 ms);

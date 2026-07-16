@@ -241,12 +241,15 @@ class ManualSource : public yt::media::ByteSource {
 public:
     ManualSource() : ByteSource(0) {}
     QString openedUrl; int dataRequests = 0; bool closed = false;
+    qint64 target = 0;                    // startup gate opt-in for tests
     void open(const QString &u) { openedUrl = u; }
     void requestData(qint64) { ++dataRequests; }
     bool seek(qint64) { return true; }
     void close() { closed = true; }
+    qint64 startupTarget() const { return target; }
     void emitOpened(qint64 t) { emit opened(t, false); }
     void emitData(const QByteArray &c) { emit data(c); }
+    void emitProgress(qint64 h) { emit progress(h); }
     void emitFinished() { emit finished(); }
     void emitFailed(const QString &e) { emit failed(e); }
 };
@@ -462,6 +465,30 @@ private slots:
         QVERIFY(pipe->eos); QVERIFY(!pipe->audioEos);
         asrc->emitFinished();
         QVERIFY(pipe->audioEos);
+    }
+
+    // Startup gate: a source that resolved a startup buffer holds the pipeline
+    // in PAUSED preroll (Buffering + progress %) and starts the clock only once
+    // the buffer is downloaded. Ungated sources (target 0) start immediately.
+    void startupGateHoldsPlaybackUntilBuffered() {
+        ManualSource *vsrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol);
+        vsrc->target = 1000;
+        p.play("http://v/18", 1);
+        pol->emitGranted();
+        vsrc->emitOpened(5000);
+        QCOMPARE(pipe->configured, 1);
+        QCOMPARE(pipe->played, 0);                 // gated: PAUSED preroll only
+        QCOMPARE(pipe->paused, 1);
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Buffering);
+        vsrc->emitProgress(400);
+        QCOMPARE(p.bufferProgress(), 40);
+        QCOMPARE(pipe->resumed, 0);
+        vsrc->emitProgress(1200);
+        QCOMPARE(pipe->resumed, 1);                // buffer in — clock started
+        pipe->emitStarted();
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Playing);
     }
 
     // Bytes delivered before the lane's open() completes belong to a PREVIOUS

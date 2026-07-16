@@ -111,13 +111,7 @@ void GstAppPipeline::buildPipeline()
     m_decode   = gst_element_factory_make("decodebin2", "dec");
     m_aconv    = gst_element_factory_make("audioconvert", "aconv");
     m_ares     = gst_element_factory_make("audioresample", "ares");
-    // MEETUBE_NO_AUDIO=1 (diagnostic): swallow audio into a non-blocking fakesink
-    // so a video-only stream (no audio pad) can't stall preroll on a starved real
-    // audio sink — isolates whether the video track alone renders.
-    const bool noAudio = qgetenv("MEETUBE_NO_AUDIO") == "1";
-    m_asink    = gst_element_factory_make(noAudio ? "fakesink" : "autoaudiosink", "asink");
-    if (noAudio && m_asink)
-        g_object_set(G_OBJECT(m_asink), "async", FALSE, "sync", FALSE, (char *) NULL);
+    m_asink    = gst_element_factory_make("autoaudiosink", "asink");
     if (m_mode == VideoMode) {                          // video pad -> colorspace ! sink
         m_vconv = gst_element_factory_make("ffmpegcolorspace", "vconv");
         m_glSink = 0;

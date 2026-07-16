@@ -46,6 +46,7 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
       m_state(Idle), m_mode(AudioMode), m_position(0), m_duration(0), m_buffer(0),
       m_seekable(false), m_granted(false),
       m_audioSource(audioSource), m_dual(false), m_videoOpen(false), m_audioOpen(false),
+      m_gateVideoNeed(0), m_gateVideoHave(0), m_gateAudioNeed(0), m_gateAudioHave(0),
       m_pendingSwitch(false), m_pendingDual(false), m_pendingMode(0)
 {
     if (m_source) m_source->setParent(this);
@@ -59,6 +60,7 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
 
     connect(m_source, SIGNAL(opened(qint64,bool)),  this, SLOT(onOpened(qint64,bool)));
     connect(m_source, SIGNAL(data(QByteArray)),     this, SLOT(onData(QByteArray)));
+    connect(m_source, SIGNAL(progress(qint64)),     this, SLOT(onProgress(qint64)));
     connect(m_source, SIGNAL(finished()),           this, SLOT(onSourceFinished()));
     connect(m_source, SIGNAL(failed(QString)),      this, SLOT(onSourceFailed(QString)));
 
@@ -66,13 +68,13 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
         m_audioSource->setParent(this);
         connect(m_audioSource, SIGNAL(opened(qint64,bool)), this, SLOT(onAudioOpened(qint64,bool)));
         connect(m_audioSource, SIGNAL(data(QByteArray)),    this, SLOT(onAudioData(QByteArray)));
+        connect(m_audioSource, SIGNAL(progress(qint64)),    this, SLOT(onAudioProgress(qint64)));
         connect(m_audioSource, SIGNAL(finished()),          this, SLOT(onAudioFinished()));
         connect(m_audioSource, SIGNAL(failed(QString)),     this, SLOT(onAudioFailed(QString)));
     }
 
     connect(m_pipeline, SIGNAL(needData(qint64)),   this, SLOT(onNeedData(qint64)));
     connect(m_pipeline, SIGNAL(needAudioData(qint64)), this, SLOT(onNeedAudioData(qint64)));
-    connect(m_pipeline, SIGNAL(seekByte(qint64)),   this, SLOT(onSeekByte(qint64)));
     connect(m_pipeline, SIGNAL(started()),          this, SLOT(onStarted()));
     connect(m_pipeline, SIGNAL(buffering(int)),     this, SLOT(onBuffering(int)));
     connect(m_pipeline, SIGNAL(positionChanged(qint64)), this, SLOT(onPosition(qint64)));
@@ -103,6 +105,7 @@ void StreamPlayer::fail(const QString &e)
 {
     PLOG() << "FAIL:" << qPrintable(e);
     m_error = e;
+    m_gateVideoNeed = m_gateAudioNeed = 0;
     if (m_pipeline) m_pipeline->stop();
     if (m_source) m_source->close();
     if (m_audioSource) m_audioSource->close();
@@ -152,8 +155,57 @@ void StreamPlayer::onOpened(qint64 total, bool seekable)
     }
     m_seekable = seekable; emit seekableChanged();
     m_pipeline->configure(m_mode, seekable, total);
-    m_pipeline->play();
+    m_gateVideoNeed = m_source->startupTarget();
+    m_gateVideoHave = m_source->downloadedBytes();
+    m_gateAudioNeed = m_gateAudioHave = 0;
+    startOrGate();
+}
+
+// Start playback, or preroll PAUSED behind the startup gate: the pipeline fills
+// its first buffers either way, but the clock only starts once every gated lane
+// downloaded its resolved startup buffer — that's what makes the first seconds
+// stutter-free instead of racing the network. Sources without an opinion
+// (startupTarget 0: HLS, tests) start immediately, as before.
+void StreamPlayer::startOrGate()
+{
+    if (m_gateVideoNeed > 0 || m_gateAudioNeed > 0) {
+        PLOG() << "startup gate: video" << m_gateVideoNeed << "audio" << m_gateAudioNeed << "bytes";
+        m_buffer = 0; emit bufferProgressChanged();
+        m_pipeline->pause();
+    } else {
+        m_pipeline->play();
+    }
     setState(Buffering);
+    updateStartupGate();      // the probe window may already satisfy the target
+}
+
+void StreamPlayer::updateStartupGate()
+{
+    if (m_gateVideoNeed <= 0 && m_gateAudioNeed <= 0) return;
+    const qint64 need = m_gateVideoNeed + m_gateAudioNeed;
+    const qint64 have = qMin(m_gateVideoHave, m_gateVideoNeed)
+                      + qMin(m_gateAudioHave, m_gateAudioNeed);
+    const int pct = need > 0 ? (int)(100 * have / need) : 100;
+    if (pct != m_buffer) { m_buffer = pct; emit bufferProgressChanged(); }
+    if (m_gateVideoHave >= m_gateVideoNeed && m_gateAudioHave >= m_gateAudioNeed) {
+        PLOG() << "startup gate passed — starting the clock";
+        m_gateVideoNeed = m_gateAudioNeed = 0;
+        m_pipeline->resume();
+    }
+}
+
+void StreamPlayer::onProgress(qint64 have)
+{
+    if (m_gateVideoNeed <= 0) return;
+    m_gateVideoHave = have;
+    updateStartupGate();
+}
+
+void StreamPlayer::onAudioProgress(qint64 have)
+{
+    if (m_gateAudioNeed <= 0) return;
+    m_gateAudioHave = have;
+    updateStartupGate();
 }
 
 void StreamPlayer::onNeedData(qint64 n)      { if (m_source) m_source->requestData(n); }
@@ -175,9 +227,12 @@ void StreamPlayer::onData(const QByteArray &c)
 
 void StreamPlayer::onSourceFinished()        { PLOG() << "source EOS";
                                                if (m_dual) drainSamples();
+                                               if (m_gateVideoNeed > 0) {   // EOF satisfies the gate by definition
+                                                   m_gateVideoHave = m_gateVideoNeed;
+                                                   updateStartupGate();
+                                               }
                                                if (m_pipeline) m_pipeline->endOfStream(); }
 void StreamPlayer::onSourceFailed(const QString &e) { fail(e); }
-void StreamPlayer::onSeekByte(qint64 off)    { if (m_source) m_source->seek(off); }
 
 void StreamPlayer::onStarted()               { setState(Playing); }
 void StreamPlayer::onBuffering(int pct)      { m_buffer = pct; emit bufferProgressChanged();
@@ -207,6 +262,7 @@ void StreamPlayer::seek(qint64 ms) { if (m_seekable && m_pipeline) m_pipeline->s
 void StreamPlayer::stop()
 {
     m_pendingSwitch = false;   // an explicit stop cancels any deferred switch
+    m_gateVideoNeed = m_gateAudioNeed = 0;
     if (m_pipeline) m_pipeline->stop();
     if (m_source) m_source->close();
     if (m_audioSource) m_audioSource->close();
@@ -252,8 +308,11 @@ void StreamPlayer::maybeStartDual()
     cfg.channels = m_audioDemux.audioChannels();
     cfg.durationNs = qMax(m_videoDemux.durationNs(), m_audioDemux.durationNs());
     m_pipeline->configureDualEs(cfg);
-    m_pipeline->play();
-    setState(Buffering);
+    m_gateVideoNeed = m_source->startupTarget();
+    m_gateVideoHave = m_source->downloadedBytes();
+    m_gateAudioNeed = m_audioSource->startupTarget();
+    m_gateAudioHave = m_audioSource->downloadedBytes();
+    startOrGate();
     drainSamples();          // the moov windows usually carry the first fragments
 }
 
@@ -297,6 +356,10 @@ void StreamPlayer::onAudioData(const QByteArray &c)
 
 void StreamPlayer::onAudioFinished()                { PLOG() << "audio source EOS";
                                                       drainSamples();
+                                                      if (m_gateAudioNeed > 0) {   // EOF satisfies the gate
+                                                          m_gateAudioHave = m_gateAudioNeed;
+                                                          updateStartupGate();
+                                                      }
                                                       if (m_pipeline) m_pipeline->audioEndOfStream(); }
 void StreamPlayer::onAudioFailed(const QString &e)  { fail(e); }
 void StreamPlayer::onNeedAudioData(qint64 n)        { if (m_audioSource) m_audioSource->requestData(n); }

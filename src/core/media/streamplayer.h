@@ -38,10 +38,10 @@ public:
     QString errorString()    const { return m_error; }
 
     Q_INVOKABLE void play(const QString &url, int mode);   // mode: 0=audio,1=video
-    // Dual-stream: a video-only URL + an audio-only URL through two appsrc
-    // branches of one pipeline (shared clock = A/V sync). Video mode; the lanes
-    // run appsrc in pull/random-access mode (0.10 qtdemux only handles YouTube's
-    // fragmented mp4 on its pull path), but UI time-seek stays off for now.
+    // Dual-stream: a video-only URL + an audio-only URL, demuxed in-house
+    // (media/fmp4demux — 0.10 qtdemux can't push-demux YouTube's fragmented mp4)
+    // and pushed as timestamped elementary streams through two appsrc branches
+    // of one pipeline (shared clock = A/V sync). UI time-seek stays off for now.
     Q_INVOKABLE void playDual(const QString &videoUrl, const QString &audioUrl);
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
@@ -59,7 +59,8 @@ private slots:
     void onAudioData(const QByteArray &chunk);
     void onAudioFinished(); void onAudioFailed(const QString &e);
     void onNeedAudioData(qint64 n);
-    void onNeedData(qint64 n); void onSeekByte(qint64 off);
+    void onNeedData(qint64 n);
+    void onProgress(qint64 have); void onAudioProgress(qint64 have);
     void onStarted(); void onBuffering(int pct);
     void onPosition(qint64 ms); void onDuration(qint64 ms);
     void onPipelineFinished(); void onPipelineError(const QString &e);
@@ -68,6 +69,8 @@ private:
     void fail(const QString &e);
     void maybeStartDual();      // configure+play once BOTH moovs are parsed
     void drainSamples();        // push everything the demuxers extracted so far
+    void startOrGate();         // preroll paused until the startup buffer is in
+    void updateStartupGate();   // progress -> buffer % -> resume when both lanes hit target
     ByteSource *m_source; IPipeline *m_pipeline; IPolicy *m_policy;
     State m_state; PlaybackMode m_mode;
     QString m_url, m_error;
@@ -77,6 +80,9 @@ private:
     QString m_audioUrl;
     bool m_dual, m_videoOpen, m_audioOpen;
     Fmp4Demuxer m_videoDemux, m_audioDemux;   // dual: per-lane fMP4 -> ES
+    // Startup gate: the pipeline prerolls PAUSED until each gated lane has its
+    // source-resolved startup buffer downloaded (0 need = lane not gated).
+    qint64 m_gateVideoNeed, m_gateVideoHave, m_gateAudioNeed, m_gateAudioHave;
     // A quality switch tapped while the pipeline is still prerolling is stashed
     // here and applied by setState once preroll ends (Playing/Stopped/Error).
     bool m_pendingSwitch, m_pendingDual; int m_pendingMode;
