@@ -116,6 +116,36 @@ void StreamSet::applyPlayer(const core::PlayerOutcome &r) {
         // video-only (width>0 && !hasAudio) is in m_catalog but not offered for
         // single-source selection — playing it alone would be silent (needs A/V mux).
     }
+    // Full resolved-catalog dump — every stream URL with its purpose + quality.
+    // Enable with MEETUBE_DEBUG=player; works on host (simulator) AND device, since the
+    // catalog is resolved over the network before playback (playback itself is a host
+    // stub). Also explains the "always 360p": only a muxed format plays as a single
+    // stream; the higher-res tracks are video-only and need A/V muxing (dual-stream
+    // playback is not wired yet), and YouTube ships only itag-18 (360p) muxed here.
+    if (core::logEnabled("player")) {
+        int muxed = 0, vonly = 0, aonly = 0, maxVonlyH = 0;
+        for (const CT::Stream &s : m_catalog) {
+            if (s.id == QLatin1String("hls")) continue;
+            if (s.width > 0 && s.hasAudio) ++muxed;
+            else if (s.width > 0) { ++vonly; if (s.height > maxVonlyH) maxVonlyH = s.height; }
+            else ++aonly;
+        }
+        PLOG() << "StreamSet: catalog" << m_catalog.size() << "formats —"
+               << muxed << "muxed(playable)," << vonly << "video-only," << aonly << "audio-only";
+        for (const CT::Stream &s : m_catalog) {
+            QString kind, quality;
+            if (s.id == QLatin1String("hls"))   { kind = "hls-manifest"; quality = "adaptive"; }
+            else if (s.width > 0 && s.hasAudio) { kind = "muxed(v+a)";   quality = QString::number(s.height) + "p"; }
+            else if (s.width > 0)               { kind = "video-only";   quality = QString::number(s.height) + "p [needs A/V mux]"; }
+            else                                { kind = "audio-only";   quality = QString::number(s.bitrate / 1000) + "kbps"; }
+            PLOG() << "  itag=" << qPrintable(s.id) << "|" << qPrintable(kind)
+                   << "|" << qPrintable(quality) << "|" << qPrintable(s.mimeType)
+                   << "|" << qPrintable(s.url);
+        }
+        if (muxed <= 1 && maxVonlyH > 360)
+            PLOG() << "  -> playback stays 360p: only" << muxed << "muxed format (itag-18); up to"
+                   << maxVonlyH << "p exists as video-only, but needs dual-stream A/V mux (not wired)";
+    }
     PLOG() << "StreamSet: ready — hls=" << (m_hls.isEmpty() ? "no" : "yes")
            << "progressive=" << (m_progressive.isEmpty() ? "no" : "yes")
            << "audio=" << (m_audio.isEmpty() ? "no" : "yes")
