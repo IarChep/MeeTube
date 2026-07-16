@@ -59,24 +59,40 @@ Page {
     // (sorted best-first), then audio-only tracks. Kept as parallel arrays so the
     // SelectionDialog's selectedIndex maps straight to a url + mode.
     function buildQualityMenu() {
-        var labels = []; var urls = []; var modes = [];
+        var labels = []; var urls = []; var modes = []; var rows = [];
         var vs = streams ? streams.videoStreams : [];
-        var i;
+        var i; var lbl;
         for (i = 0; i < vs.length; i++) {
             // Video-only rows play dual (paired with the default audio track);
             // without an audio track to pair they are unplayable — skip them.
             if (!vs[i].hasAudio && streams.audioUrl == "") continue;
-            labels.push("Video " + vs[i].label);
-            urls.push(vs[i].url);
+            lbl = "Video " + vs[i].label;
+            labels.push(lbl); urls.push(vs[i].url);
             modes.push(vs[i].hasAudio ? 1 : 2);
+            rows.push({ name: lbl });
         }
         var auds = streams ? streams.audioStreams : [];
         for (i = 0; i < auds.length; i++) {
-            labels.push("Audio " + auds[i].label);
-            urls.push(auds[i].url); modes.push(0);
+            lbl = "Audio " + auds[i].label;
+            labels.push(lbl); urls.push(auds[i].url); modes.push(0);
+            rows.push({ name: lbl });
         }
         qualLabels = labels; qualUrls = urls; qualModes = modes;
+        // SelectionDialog sizes its list as model.count * itemHeight, so the model
+        // MUST expose .count — a JS array (only .length) collapses the list to
+        // zero height and nothing shows. Build a fresh, fully-populated ListModel
+        // and assign it whole: onModelChanged then fires once with the final count,
+        // so every delegate is laid out up front (appending into the live model
+        // instead grows it row-by-row and leaves leading rows uncreated until a
+        // flick). The delegate reads the `name` role.
+        var lm = qualityModelComponent.createObject(root);
+        for (i = 0; i < rows.length; i++) lm.append(rows[i]);
+        var old = qualityDialog.model;
+        qualityDialog.selectedIndex = -1;
+        qualityDialog.model = lm;
+        if (old) old.destroy();
     }
+    Component { id: qualityModelComponent; ListModel {} }
 
     function playRow(i) {
         if (i < 0 || i >= qualUrls.length) return;
@@ -103,7 +119,8 @@ Page {
     SelectionDialog {
         id: qualityDialog
         titleText: "Quality / track"
-        model: root.qualLabels
+        // Model is assigned imperatively in buildQualityMenu (array of { name }
+        // maps, with a reset to force the ListView to rebuild all delegates).
         onAccepted: root.playRow(selectedIndex)
     }
 
