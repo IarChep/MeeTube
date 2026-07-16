@@ -265,7 +265,10 @@ Page {
         visible: player.mode === 1 && subLabel.text != ""
         color: "#c8000000"
         radius: UI.PADDING_SMALL
-        width: subLabel.paintedWidth + UI.PADDING_LARGE * 2
+        // Hug the text: box = min(natural text width, screen cap) + padding, so a
+        // short caption gets a tight plate and a long one caps and wraps. The label
+        // takes exactly the box's inner width (never wider), so nothing overflows.
+        width: Math.min(subLabel.implicitWidth, root.width - UI.PADDING_XLARGE * 4) + UI.PADDING_LARGE * 2
         height: subLabel.paintedHeight + UI.PADDING_SMALL * 2
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
@@ -273,11 +276,11 @@ Page {
         Text {
             id: subLabel
             anchors.centerIn: parent
+            width: subtitleBox.width - UI.PADDING_LARGE * 2
             text: subtitles.text
             color: "white"
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap
-            width: Math.min(implicitWidth, root.width - UI.PADDING_XLARGE * 4)
             font { family: UI.FONT_FAMILY; pixelSize: UI.FONT_LARGE }
         }
     }

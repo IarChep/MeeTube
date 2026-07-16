@@ -82,11 +82,15 @@ void SubtitleTrack::applyData(const QByteArray &body)
         const QStringRef name = xml.name();
         // srv1: <text start="S.SS" dur="S.SS"> (seconds). srv3: <p t="MS" d="MS">
         // (milliseconds, text possibly split across <s> word segments).
+        // simplified() (not trimmed()): timedtext text carries stray newlines,
+        // tabs and double spaces (srv3 <s> word segments especially) — collapse
+        // every internal whitespace run to one space so the overlay wraps cleanly
+        // instead of rendering rogue line breaks that shove the text off-centre.
         if (name == QLatin1String("text")) {
             const double start = xml.attributes().value(QLatin1String("start")).toString().toDouble();
             const double dur   = xml.attributes().value(QLatin1String("dur")).toString().toDouble();
             const QString t = htmlUnescape(
-                xml.readElementText(QXmlStreamReader::IncludeChildElements)).trimmed();
+                xml.readElementText(QXmlStreamReader::IncludeChildElements)).simplified();
             if (!t.isEmpty()) {
                 Cue c; c.start = (int)(start * 1000.0); c.end = (int)((start + dur) * 1000.0); c.text = t;
                 m_cues.append(c);
@@ -95,7 +99,7 @@ void SubtitleTrack::applyData(const QByteArray &body)
             const int start = xml.attributes().value(QLatin1String("t")).toString().toInt();
             const int dur   = xml.attributes().value(QLatin1String("d")).toString().toInt();
             const QString t = htmlUnescape(
-                xml.readElementText(QXmlStreamReader::IncludeChildElements)).trimmed();
+                xml.readElementText(QXmlStreamReader::IncludeChildElements)).simplified();
             if (!t.isEmpty()) {
                 Cue c; c.start = start; c.end = start + (dur > 0 ? dur : 2000); c.text = t;
                 m_cues.append(c);

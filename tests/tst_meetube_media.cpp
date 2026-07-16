@@ -445,6 +445,7 @@ private slots:
             "<?xml version=\"1.0\" encoding=\"utf-8\"?><transcript>"
             "<text start=\"1.0\" dur=\"2.0\">Hello there</text>"
             "<text start=\"3.5\" dur=\"1.5\">it&amp;#39;s me</text>"
+            "<text start=\"6.0\" dur=\"2.0\">  never gonna\n   give you  up  </text>"
             "</transcript>"));
         // Before any position: no cue is active (t=0 is before the first cue).
         QCOMPARE(st.text(), QString());
@@ -454,7 +455,9 @@ private slots:
         QCOMPARE(st.text(), QString());
         st.setPosition(4000);                 // inside cue 2 [3500,5000)
         QCOMPARE(st.text(), QString("it's me"));   // &amp;#39; -> &#39; -> '
-        QVERIFY(textSpy.count() >= 3);        // emitted on each real change
+        st.setPosition(6500);                 // inside cue 3: stray newline + runs of
+        QCOMPARE(st.text(), QString("never gonna give you up"));   // spaces -> simplified()
+        QVERIFY(textSpy.count() >= 4);        // emitted on each real change
         st.clear();
         QCOMPARE(st.text(), QString());
         st.setPosition(1500);                 // cues gone -> stays empty
