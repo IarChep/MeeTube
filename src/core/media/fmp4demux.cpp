@@ -251,9 +251,13 @@ bool Fmp4Demuxer::parseMoof(const uchar *p, qint64 len, qint64 moofStart)
                 Pending s;
                 s.off   = (qint64)runOff;
                 s.size  = size;
-                s.ptsNs = ticksToNs(dts, m_timescale) + (cts >= 0
-                              ? ticksToNs((quint64)cts, m_timescale)
-                              : -ticksToNs((quint64)(-(qint64)cts), m_timescale));
+                s.dtsNs = ticksToNs(dts, m_timescale);
+                // Convert dts+cts as ONE tick value (summing two truncated
+                // conversions drifts pts ~1 ns against dts); the signed sum
+                // also covers v1 negative offsets.
+                const qint64 ct = (qint64)dts + cts;
+                s.ptsNs = ct >= 0 ? ticksToNs((quint64)ct, m_timescale)
+                                  : -ticksToNs((quint64)(-ct), m_timescale);
                 s.durNs = ticksToNs(dur, m_timescale);
                 s.key   = !(flags & 0x00010000);   // !sample_is_non_sync_sample
                 m_pending << s;
@@ -302,7 +306,8 @@ bool Fmp4Demuxer::feed(const QByteArray &chunk)
             if (s.off + s.size > m_bufOff + m_buf.size()) break;   // wait for bytes
             Fmp4Sample smp;
             smp.data = m_buf.mid((int)(s.off - m_bufOff), (int)s.size);
-            smp.ptsNs = s.ptsNs; smp.durationNs = s.durNs; smp.keyframe = s.key;
+            smp.ptsNs = s.ptsNs; smp.dtsNs = s.dtsNs;
+            smp.durationNs = s.durNs; smp.keyframe = s.key;
             m_samples << smp;
             m_pending.removeFirst();
         }

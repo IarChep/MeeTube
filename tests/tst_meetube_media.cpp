@@ -43,8 +43,9 @@ static QByteArray mp4AudioEntry()
 }
 
 // Full video stream: ftyp + moov(avc1/avcC, trex defaults, mehd) + sidx(skipped)
-// + moof(tfhd default-base-is-moof, tfdt 0, trun with 3 explicit sizes and sync
-// first_sample_flags) + mdat with the 3 payloads back to back.
+// + moof(tfhd default-base-is-moof, tfdt 0, trun with 3 explicit sizes, per-
+// sample cts offsets modelling a B-frame GOP, and sync first_sample_flags)
+// + mdat with the 3 payloads back to back.
 static QByteArray fmp4VideoFile()
 {
     QByteArray avc1;
@@ -69,15 +70,17 @@ static QByteArray fmp4VideoFile()
           + mp4Full("trex", 0, 0, be32(1) + be32(1) + be32(3000) + be32(0) + be32(0x00010000))));
     // Two passes: the trun data_offset (mdat payload, relative to moof start)
     // needs the final moof size, which doesn't depend on the offset's value.
-    const QByteArray sizes = be32(5) + be32(7) + be32(9);
+    const QByteArray samples = be32(5) + be32(6000)   // size, cts offset (ticks)
+                             + be32(7) + be32(0)
+                             + be32(9) + be32(3000);
     QByteArray moof; quint32 dataOff = 0;
     for (int pass = 0; pass < 2; ++pass) {
         moof = mp4Box("moof", mp4Full("mfhd", 0, 0, be32(1))
             + mp4Box("traf",
                   mp4Full("tfhd", 0, 0x020000, be32(1))
                 + mp4Full("tfdt", 0, 0, be32(0))
-                + mp4Full("trun", 0, 0x01 | 0x04 | 0x200,
-                          be32(3) + be32(dataOff) + be32(0) + sizes)));
+                + mp4Full("trun", 0, 0x01 | 0x04 | 0x200 | 0x800,
+                          be32(3) + be32(dataOff) + be32(0) + samples)));
         dataOff = moof.size() + 8;
     }
     return mp4Box("ftyp", QByteArray("isom")) + moov
@@ -203,10 +206,10 @@ public:
     void emitError(const QString &m) { emit error(m); }
     int esConfigured = 0; yt::media::EsConfig esCfg;
     int videoSamples = 0, audioSamples = 0;
-    qint64 lastVideoPts = -1; bool lastVideoKey = false; bool audioEos = false;
+    qint64 lastVideoTs = -1; bool lastVideoKey = false; bool audioEos = false;
     void configureDualEs(const yt::media::EsConfig &cfg) { ++esConfigured; esCfg = cfg; }
-    void pushVideoSample(const QByteArray &, qint64 pts, qint64, bool key)
-    { ++videoSamples; lastVideoPts = pts; lastVideoKey = key; }
+    void pushVideoSample(const QByteArray &, qint64 ts, qint64, bool key)
+    { ++videoSamples; lastVideoTs = ts; lastVideoKey = key; }
     void pushAudioSample(const QByteArray &, qint64, qint64) { ++audioSamples; }
     void audioEndOfStream() { audioEos = true; }
     void emitNeedAudioData(qint64 n) { emit needAudioData(n); }
@@ -451,7 +454,10 @@ private slots:
         QCOMPARE(pipe->esCfg.channels, 2);
         QCOMPARE(pipe->esCfg.durationNs, Q_INT64_C(84311000000));
         QCOMPARE(pipe->videoSamples, 3);              // fragment drained on configure
-        QVERIFY(pipe->lastVideoPts >= 0);
+        // The player stamps monotonic DTS (last sample: 2 x 3000 ticks @ 90000),
+        // NOT the zigzag pts (which would be 100000000 here) — the N9 DSP
+        // decoder maps timestamps FIFO and B-frame pts breaks it.
+        QCOMPARE(pipe->lastVideoTs, Q_INT64_C(66666666));
         QCOMPARE(pipe->played, 1);
         QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Buffering);
         QVERIFY(!p.seekable());
@@ -542,9 +548,14 @@ private slots:
         QCOMPARE(s[0].data, QByteArray("AAAAA"));
         QCOMPARE(s[1].data, QByteArray("BBBBBBB"));
         QCOMPARE(s[2].data, QByteArray("CCCCCCCCC"));
-        QCOMPARE(s[0].ptsNs, Q_INT64_C(0));
-        QCOMPARE(s[1].ptsNs, Q_INT64_C(33333333));          // 3000 ticks @ 90000
-        QCOMPARE(s[2].ptsNs, Q_INT64_C(66666666));
+        // dts accumulates trex durations (monotonic); pts = dts + cts zigzags
+        // across the modelled B-frame GOP.
+        QCOMPARE(s[0].dtsNs, Q_INT64_C(0));
+        QCOMPARE(s[1].dtsNs, Q_INT64_C(33333333));          // 3000 ticks @ 90000
+        QCOMPARE(s[2].dtsNs, Q_INT64_C(66666666));
+        QCOMPARE(s[0].ptsNs, Q_INT64_C(66666666));          // dts + cts 6000
+        QCOMPARE(s[1].ptsNs, Q_INT64_C(33333333));          // dts + cts 0
+        QCOMPARE(s[2].ptsNs, Q_INT64_C(100000000));         // dts + cts 3000
         QCOMPARE(s[0].durationNs, Q_INT64_C(33333333));
         QVERIFY(s[0].keyframe);                             // first_sample_flags = sync
         QVERIFY(!s[1].keyframe);                            // tfhd default = non-sync
@@ -562,7 +573,8 @@ private slots:
         QList<yt::media::Fmp4Sample> s = d.takeSamples();
         QCOMPARE(s.size(), 3);
         QCOMPARE(s[2].data, QByteArray("CCCCCCCCC"));
-        QCOMPARE(s[2].ptsNs, Q_INT64_C(66666666));
+        QCOMPARE(s[2].dtsNs, Q_INT64_C(66666666));
+        QCOMPARE(s[2].ptsNs, Q_INT64_C(100000000));
     }
 
     // Audio moov: mp4a fields + the AudioSpecificConfig dug out of esds.

@@ -35,10 +35,10 @@ public:
         Q_UNUSED(cfg);
         emit error(QString::fromLatin1("dual playback not supported by this pipeline"));
     }
-    virtual void pushVideoSample(const QByteArray &data, qint64 ptsNs, qint64 durNs, bool keyframe)
-    { Q_UNUSED(data); Q_UNUSED(ptsNs); Q_UNUSED(durNs); Q_UNUSED(keyframe); }
-    virtual void pushAudioSample(const QByteArray &data, qint64 ptsNs, qint64 durNs)
-    { Q_UNUSED(data); Q_UNUSED(ptsNs); Q_UNUSED(durNs); }
+    virtual void pushVideoSample(const QByteArray &data, qint64 tsNs, qint64 durNs, bool keyframe)
+    { Q_UNUSED(data); Q_UNUSED(tsNs); Q_UNUSED(durNs); Q_UNUSED(keyframe); }
+    virtual void pushAudioSample(const QByteArray &data, qint64 tsNs, qint64 durNs)
+    { Q_UNUSED(data); Q_UNUSED(tsNs); Q_UNUSED(durNs); }
     virtual void pushData(const QByteArray &chunk) = 0;
     virtual void endOfStream() = 0;
     virtual void audioEndOfStream() {}

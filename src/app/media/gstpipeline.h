@@ -32,8 +32,8 @@ public:
     void endOfStream();
     void play(); void pause(); void resume(); void stop(); void seek(qint64 ms);
     void configureDualEs(const EsConfig &cfg);
-    void pushVideoSample(const QByteArray &data, qint64 ptsNs, qint64 durNs, bool keyframe);
-    void pushAudioSample(const QByteArray &data, qint64 ptsNs, qint64 durNs);
+    void pushVideoSample(const QByteArray &data, qint64 tsNs, qint64 durNs, bool keyframe);
+    void pushAudioSample(const QByteArray &data, qint64 tsNs, qint64 durNs);
     void audioEndOfStream();
     // Texture-streaming renderer seam (EglVideoItem): the item's first paint
     // hands over the QML scene's GL context; VideoMode then builds gltexturesink

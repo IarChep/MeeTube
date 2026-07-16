@@ -320,16 +320,22 @@ void StreamPlayer::maybeStartDual()
 void StreamPlayer::drainSamples()
 {
     if (!m_pipeline) return;
+    // Stamp DTS, not PTS: the N9's dspvdec hands out output timestamps FIFO
+    // (onto display-order frames), so the non-monotonic B-frame PTS feed trips
+    // its ts engine into a broken interpolate mode — the back-and-forth judder.
+    // Monotonic DTS keeps it in the FIFO path; for YouTube's constant-duration
+    // streams the FIFO'd DTS sequence IS the elst-corrected presentation
+    // timeline, exactly. (AAC has no cts: dts == pts.)
     const QList<Fmp4Sample> vs = m_videoDemux.takeSamples();
     for (const Fmp4Sample &s : vs)
-        m_pipeline->pushVideoSample(s.data, s.ptsNs, s.durationNs, s.keyframe);
+        m_pipeline->pushVideoSample(s.data, s.dtsNs, s.durationNs, s.keyframe);
     const QList<Fmp4Sample> as = m_audioDemux.takeSamples();
     for (const Fmp4Sample &s : as)
-        m_pipeline->pushAudioSample(s.data, s.ptsNs, s.durationNs);
+        m_pipeline->pushAudioSample(s.data, s.dtsNs, s.durationNs);
     if (!vs.isEmpty() || !as.isEmpty())
         PLOG() << "drain: video+" << vs.size() << "audio+" << as.size()
-               << (vs.isEmpty() ? -1 : vs.last().ptsNs / 1000000)
-               << "/" << (as.isEmpty() ? -1 : as.last().ptsNs / 1000000) << "ms";
+               << (vs.isEmpty() ? -1 : vs.last().dtsNs / 1000000)
+               << "/" << (as.isEmpty() ? -1 : as.last().dtsNs / 1000000) << "ms";
 }
 
 void StreamPlayer::onAudioOpened(qint64 total, bool)

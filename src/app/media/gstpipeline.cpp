@@ -525,27 +525,28 @@ void GstAppPipeline::pushData(const QByteArray &chunk)
 
 void GstAppPipeline::endOfStream() { if (m_appsrc) gst_app_src_end_of_stream(GST_APP_SRC(m_appsrc)); }
 
-// Dual-ES sample push: timestamped, decode order; non-keyframes flagged DELTA so
-// the decoder/sink know where sync points are.
-static GstBuffer *sampleBuffer(const QByteArray &data, qint64 ptsNs, qint64 durNs)
+// Dual-ES sample push: decode order, stamped with the player's MONOTONIC DTS
+// (dspvdec hands timestamps out FIFO — see StreamPlayer::drainSamples);
+// non-keyframes flagged DELTA so the decoder/sink know where sync points are.
+static GstBuffer *sampleBuffer(const QByteArray &data, qint64 tsNs, qint64 durNs)
 {
     GstBuffer *b = gst_buffer_new_and_alloc(data.size());
     memcpy(GST_BUFFER_DATA(b), data.constData(), data.size());
-    GST_BUFFER_TIMESTAMP(b) = (GstClockTime)ptsNs;
+    GST_BUFFER_TIMESTAMP(b) = (GstClockTime)tsNs;
     if (durNs > 0) GST_BUFFER_DURATION(b) = (GstClockTime)durNs;
     return b;
 }
-void GstAppPipeline::pushVideoSample(const QByteArray &data, qint64 ptsNs, qint64 durNs, bool keyframe)
+void GstAppPipeline::pushVideoSample(const QByteArray &data, qint64 tsNs, qint64 durNs, bool keyframe)
 {
     if (!m_appsrc) return;
-    GstBuffer *b = sampleBuffer(data, ptsNs, durNs);
+    GstBuffer *b = sampleBuffer(data, tsNs, durNs);
     if (!keyframe) GST_BUFFER_FLAG_SET(b, GST_BUFFER_FLAG_DELTA_UNIT);
     gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), b);   // takes ownership
 }
-void GstAppPipeline::pushAudioSample(const QByteArray &data, qint64 ptsNs, qint64 durNs)
+void GstAppPipeline::pushAudioSample(const QByteArray &data, qint64 tsNs, qint64 durNs)
 {
     if (!m_audiosrc) return;
-    gst_app_src_push_buffer(GST_APP_SRC(m_audiosrc), sampleBuffer(data, ptsNs, durNs));
+    gst_app_src_push_buffer(GST_APP_SRC(m_audiosrc), sampleBuffer(data, tsNs, durNs));
 }
 void GstAppPipeline::audioEndOfStream() { if (m_audiosrc) gst_app_src_end_of_stream(GST_APP_SRC(m_audiosrc)); }
 

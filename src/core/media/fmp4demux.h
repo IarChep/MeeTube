@@ -22,10 +22,14 @@
 namespace yt { namespace media {
 
 // One extracted media sample: raw payload (AVC length-prefixed NALs for video,
-// a raw AAC frame for audio) + presentation timestamp/duration in nanoseconds.
+// a raw AAC frame for audio) + timestamps/duration in nanoseconds. ptsNs is the
+// composed presentation time (decode time + trun cts offset, so non-monotonic
+// across B-frame GOPs); dtsNs is the monotonic decode time (tfdt + summed
+// durations) — the one the player stamps on pushed buffers (see drainSamples).
 struct Fmp4Sample {
     QByteArray data;
     qint64 ptsNs;
+    qint64 dtsNs;
     qint64 durationNs;
     bool keyframe;
 };
@@ -62,7 +66,7 @@ public:
     QList<Fmp4Sample> takeSamples();
 
 private:
-    struct Pending { qint64 off; qint64 size; qint64 ptsNs; qint64 durNs; bool key; };
+    struct Pending { qint64 off; qint64 size; qint64 ptsNs; qint64 dtsNs; qint64 durNs; bool key; };
     bool fail(const char *why);
     bool parseMoov(const uchar *p, qint64 len);
     bool parseMoof(const uchar *p, qint64 len, qint64 moofStart);
