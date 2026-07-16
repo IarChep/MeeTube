@@ -578,14 +578,45 @@ private slots:
         // Selectable video = muxed only (18,22); default progressive = smallest (18).
         QCOMPARE(s.videoStreams().size(), 2);
         QVERIFY(s.progressiveUrl().contains("vid18") || s.progressiveUrl().contains("18"));
-        // Selectable audio = adaptive audio-only (140,251); default = itag 140.
-        QCOMPARE(s.audioStreams().size(), 2);
+        // Selectable audio = AAC only; 251 opus is not N9-decodable.
+        QCOMPARE(s.audioStreams().size(), 1);   // AAC only; 251 opus is not N9-decodable
         QCOMPARE(s.audioUrl(), QString("https://gv.example/aud140"));
         // urlForItag reaches the whole catalog, video-only 137 included.
         QCOMPARE(s.urlForItag("137"), QString("https://gv.example/vid137"));
-        // The default video pick carries audio (playable single-source).
+        // Height-desc sort: 22 (720p muxed) now leads; both rows are muxed.
         QVariantMap v0 = s.videoStreams().at(0).toMap();
+        QCOMPARE(v0["itag"].toString(), QString("22"));
         QVERIFY(v0["hasAudio"].toBool());
+    }
+
+    // Dual-stream slicing: video-only mp4 tracks the N9 can decode (<=720p, above
+    // the best muxed height) join the selectable video list marked hasAudio=false;
+    // webm/opus never appear; the list is height-desc sorted and height-deduped
+    // (same-height keeps the lower bitrate — 30fps over 60fps).
+    void streamSetOffersDualCandidates() {
+        TestStreamSet s;
+        s.m_fake.queue("player", loadFixtureRaw("player_streams.json"));
+        s.load("aaa11111111");
+        s.m_fake.flush();
+        QCOMPARE((int)s.status(), (int)core::Ready);
+        // Selectable video: 136 (720p video-only, beat 298 on bitrate), 135 (480p
+        // video-only), 18 (360p muxed). 137 excluded (>720), 244 excluded (webm).
+        QCOMPARE(s.videoStreams().size(), 3);
+        QVariantMap v0 = s.videoStreams().at(0).toMap();
+        QVariantMap v1 = s.videoStreams().at(1).toMap();
+        QVariantMap v2 = s.videoStreams().at(2).toMap();
+        QCOMPARE(v0["itag"].toString(), QString("136"));
+        QVERIFY(!v0["hasAudio"].toBool());
+        QCOMPARE(v1["itag"].toString(), QString("135"));
+        QCOMPARE(v2["itag"].toString(), QString("18"));
+        QVERIFY(v2["hasAudio"].toBool());
+        // Audio: AAC only (251 opus dropped); default stays itag 140.
+        QCOMPARE(s.audioStreams().size(), 1);
+        QCOMPARE(s.audioUrl(), QString("https://gv.example/aud140"));
+        // Defaults unchanged: progressive = smallest muxed.
+        QCOMPARE(s.progressiveUrl(), QString("https://gv.example/vid18"));
+        // The full catalog still answers everything, filtered rows included.
+        QCOMPARE(s.urlForItag("251"), QString("https://gv.example/aud251"));
     }
 
     // ChannelDetails: single channel header via UserRequest.

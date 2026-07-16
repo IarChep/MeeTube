@@ -17,6 +17,7 @@
 #include "streamset.h"
 #include "innertube/innertube.h"
 #include "core/debuglog.h"
+#include <algorithm>
 
 namespace yt {
 
@@ -81,10 +82,20 @@ static QVariantMap streamMap(const CT::Stream &s) {
     return m;
 }
 
-// Streams side of the player outcome: slice the full catalog into the selectable
-// video (muxed) + audio (adaptive) lists and pick sensible defaults —
-// smallest-height muxed for progressive (bandwidth-friendly on the N9), itag-140
-// (or first) audio-only for audio, plus any HLS manifest.
+// Picker order: highest first; at equal height prefer the lower bitrate
+// (720p30 over 720p60 — the DM3730 decoder tops out at 720p30).
+static bool betterVideo(const CT::Stream &a, const CT::Stream &b) {
+    if (a.height != b.height) return a.height > b.height;
+    return a.bitrate < b.bitrate;
+}
+
+// Streams side of the player outcome: slice the full catalog into:
+// - selectable video: muxed entries (hasAudio=true) PLUS N9-decodable video-only
+//   tracks (H.264 mp4, <=720p, above the best muxed height), sorted height-desc
+//   and height-deduped (same height keeps the lower-bitrate / 30fps variant);
+// - selectable audio: audio/mp4 (AAC) only — opus is not N9-decodable;
+// - progressive default: smallest-height muxed (bandwidth-friendly on the N9);
+// - audio default: itag 140 (or first AAC found).
 void StreamSet::applyPlayer(const core::PlayerOutcome &r) {
     if (!r.streamsOk) {
         PLOG() << "StreamSet: streams FAILED:" << qPrintable(r.streamsError);
@@ -92,20 +103,36 @@ void StreamSet::applyPlayer(const core::PlayerOutcome &r) {
     }
     m_catalog = r.streams;
     int bestMuxedH = -1;                 // default progressive = smallest muxed
+    int maxMuxedH = 0;                   // dual candidates must beat this
     bool haveAudioDefault = false;
+    QList<CT::Stream> vids;
     for (const CT::Stream &s : m_catalog) {
         if (s.id == QLatin1String("hls")) { m_hls = s.url; continue; }
-        if (s.width > 0 && s.hasAudio) {                 // muxed: selectable video
-            m_videoStreams << streamMap(s);
+        if (s.width > 0 && s.hasAudio) {                 // muxed: always selectable
+            vids << s;
+            if (s.height > maxMuxedH) maxMuxedH = s.height;
             if (bestMuxedH < 0 || s.height < bestMuxedH) { m_progressive = s.url; bestMuxedH = s.height; }
-        } else if (s.width == 0) {                        // audio-only: selectable audio
+        } else if (s.width == 0) {                        // audio-only: AAC decodes on the N9, opus doesn't
+            if (!s.mimeType.startsWith(QLatin1String("audio/mp4"))) continue;
             m_audioStreams << streamMap(s);
             if (!haveAudioDefault || s.id == QLatin1String("140")) { m_audio = s.url; }
             if (s.id == QLatin1String("140")) haveAudioDefault = true;
         }
-        // video-only (width>0 && !hasAudio) is in m_catalog but not offered for
-        // single-source selection — playing it alone would be silent (needs A/V mux).
     }
+    // Video-only tracks: dual-stream candidates (played via playDual with the
+    // default audio track). Only what the N9 can decode (H.264 mp4, <=720p) and
+    // only where dual actually buys quality over the best muxed format.
+    for (const CT::Stream &s : m_catalog) {
+        if (s.width <= 0 || s.hasAudio) continue;
+        if (!s.mimeType.startsWith(QLatin1String("video/mp4"))) continue;
+        if (s.height > 720 || s.height <= maxMuxedH) continue;
+        vids << s;
+    }
+    std::stable_sort(vids.begin(), vids.end(), betterVideo);
+    for (const CT::Stream &s : vids)      // same height twice = 60fps sibling; keep the first
+        if (m_videoStreams.isEmpty()
+            || m_videoStreams.last().toMap().value("height").toInt() != s.height)
+            m_videoStreams << streamMap(s);
     PLOG() << "StreamSet: ready — hls=" << (m_hls.isEmpty() ? "no" : "yes")
            << "progressive=" << (m_progressive.isEmpty() ? "no" : "yes")
            << "audio=" << (m_audio.isEmpty() ? "no" : "yes")
