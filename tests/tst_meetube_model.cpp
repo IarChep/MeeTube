@@ -608,6 +608,7 @@ private slots:
         QCOMPARE(v0["itag"].toString(), QString("136"));
         QVERIFY(!v0["hasAudio"].toBool());
         QCOMPARE(v1["itag"].toString(), QString("135"));
+        QVERIFY(!v1["hasAudio"].toBool());   // every non-muxed row = dual candidate (mode 2)
         QCOMPARE(v2["itag"].toString(), QString("18"));
         QVERIFY(v2["hasAudio"].toBool());
         // Audio: AAC only (251 opus dropped); default stays itag 140.
