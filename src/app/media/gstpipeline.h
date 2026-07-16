@@ -31,8 +31,9 @@ public:
     void pushData(const QByteArray &chunk);
     void endOfStream();
     void play(); void pause(); void resume(); void stop(); void seek(qint64 ms);
-    void configureDual(qint64 videoTotal, qint64 audioTotal);
-    void pushAudioData(const QByteArray &chunk);
+    void configureDualEs(const EsConfig &cfg);
+    void pushVideoSample(const QByteArray &data, qint64 ptsNs, qint64 durNs, bool keyframe);
+    void pushAudioSample(const QByteArray &data, qint64 ptsNs, qint64 durNs);
     void audioEndOfStream();
     // Texture-streaming renderer seam (EglVideoItem): the item's first paint
     // hands over the QML scene's GL context; VideoMode then builds gltexturesink
@@ -71,7 +72,8 @@ private:
     WId m_winId;
     QTimer m_posTimer;   // polls position/duration while playing
     PlaybackMode m_mode; bool m_seekable; qint64 m_total;
-    bool m_dual; qint64 m_audioTotal;
+    bool m_dual;
+    EsConfig m_es;   // dual: codec blobs for the appsrc caps
     // Texture-streaming state (canon QGstreamerGLTextureRenderer): the scene GL
     // context, the gltexturesink element, and the frame handshake gate.
     QGLContext    *m_glCtx;
@@ -79,12 +81,13 @@ private:
     QMutex         m_glMutex;
     QWaitCondition m_glPainted;    // streaming thread waits <=60 ms per frame
     int            m_glFrame;      // current frame number (-1 = none)
+    int            m_glGen;        // bumped by teardown(); stamps frame events so stale ones drop
     guint          m_sizeProbeId;  // canon m_bufferProbeId (one-shot native size)
 private slots:
     void emitNeedData(qint64 n);   // marshalled from the streaming thread
     void emitNeedAudioData(qint64 n);   // marshalled from the audio appsrc's streaming thread
     void onPosTick();              // query + emit position/duration
-    void onGlFrame(int frame);     // GUI side of frame-ready: stash + notify item
+    void onGlFrame(int frame, int gen);   // GUI side of frame-ready: stash + notify item
     void updateNativeVideoSize();  // canon: negotiated sink caps -> videoWidth/Height
 #endif
 };

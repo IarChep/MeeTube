@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QString>
 #include "media/playbackmode.h"
+#include "media/fmp4demux.h"
 namespace yt { namespace media {
 class ByteSource; class IPipeline; class IPolicy;
 
@@ -38,8 +39,9 @@ public:
 
     Q_INVOKABLE void play(const QString &url, int mode);   // mode: 0=audio,1=video
     // Dual-stream: a video-only URL + an audio-only URL through two appsrc
-    // branches of one pipeline (shared clock = A/V sync). Video mode, never
-    // seekable (appsrc STREAM push mode has no seek-data handler).
+    // branches of one pipeline (shared clock = A/V sync). Video mode; the lanes
+    // run appsrc in pull/random-access mode (0.10 qtdemux only handles YouTube's
+    // fragmented mp4 on its pull path), but UI time-seek stays off for now.
     Q_INVOKABLE void playDual(const QString &videoUrl, const QString &audioUrl);
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
@@ -64,7 +66,8 @@ private slots:
 private:
     void setState(State s);
     void fail(const QString &e);
-    void maybeStartDual();      // configure+play once BOTH sources reported open
+    void maybeStartDual();      // configure+play once BOTH moovs are parsed
+    void drainSamples();        // push everything the demuxers extracted so far
     ByteSource *m_source; IPipeline *m_pipeline; IPolicy *m_policy;
     State m_state; PlaybackMode m_mode;
     QString m_url, m_error;
@@ -73,7 +76,11 @@ private:
     ByteSource *m_audioSource;  // dual lane; 0 = dual unsupported (playDual fails)
     QString m_audioUrl;
     bool m_dual, m_videoOpen, m_audioOpen;
-    qint64 m_videoTotal, m_audioTotal;
+    Fmp4Demuxer m_videoDemux, m_audioDemux;   // dual: per-lane fMP4 -> ES
+    // A quality switch tapped while the pipeline is still prerolling is stashed
+    // here and applied by setState once preroll ends (Playing/Stopped/Error).
+    bool m_pendingSwitch, m_pendingDual; int m_pendingMode;
+    QString m_pendingUrl, m_pendingAudioUrl;
 };
 }}
 #endif

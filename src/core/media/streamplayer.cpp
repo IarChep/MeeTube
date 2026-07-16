@@ -46,7 +46,7 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
       m_state(Idle), m_mode(AudioMode), m_position(0), m_duration(0), m_buffer(0),
       m_seekable(false), m_granted(false),
       m_audioSource(audioSource), m_dual(false), m_videoOpen(false), m_audioOpen(false),
-      m_videoTotal(-1), m_audioTotal(-1)
+      m_pendingSwitch(false), m_pendingDual(false), m_pendingMode(0)
 {
     if (m_source) m_source->setParent(this);
     if (m_pipeline) m_pipeline->setParent(this);
@@ -85,9 +85,17 @@ StreamPlayer::~StreamPlayer() { if (m_policy) m_policy->release(); }
 
 void StreamPlayer::setState(State s)
 {
-    if (m_state != s) {
-        PLOG() << "state" << stateName(m_state) << "->" << stateName(s);
-        m_state = s; emit stateChanged();
+    if (m_state == s) return;
+    PLOG() << "state" << stateName(m_state) << "->" << stateName(s);
+    m_state = s; emit stateChanged();
+    // Apply a quality switch that arrived mid-preroll now that the pipeline has
+    // left it — tearing down a still-prerolling pipeline aborts the process (the
+    // DSP codec dies when its setup is cancelled; device-observed 2026-07-16).
+    if (m_pendingSwitch && (s == Playing || s == Stopped || s == Error)) {
+        m_pendingSwitch = false;
+        PLOG() << "applying deferred switch";
+        if (m_pendingDual) playDual(m_pendingUrl, m_pendingAudioUrl);
+        else play(m_pendingUrl, m_pendingMode);
     }
 }
 
@@ -105,6 +113,12 @@ void StreamPlayer::fail(const QString &e)
 void StreamPlayer::play(const QString &url, int mode)
 {
     PLOG() << "play mode=" << (mode == (int)VideoMode ? "video" : "audio") << "url=" << qPrintable(url);
+    if (m_state == Loading || m_state == Buffering) {   // mid-preroll: defer (see setState)
+        PLOG() << "switch deferred until preroll completes";
+        m_pendingSwitch = true; m_pendingDual = false;
+        m_pendingUrl = url; m_pendingMode = mode;
+        return;
+    }
     if (m_state != Idle && m_state != Stopped && m_state != Error) stop();
     m_dual = false;
     m_url = url; m_mode = (mode == (int)VideoMode) ? VideoMode : AudioMode;
@@ -131,7 +145,11 @@ void StreamPlayer::onGranted()
 void StreamPlayer::onOpened(qint64 total, bool seekable)
 {
     PLOG() << "source opened total=" << total << "seekable=" << seekable;
-    if (m_dual) { m_videoOpen = true; m_videoTotal = total; maybeStartDual(); return; }
+    if (m_dual) {
+        m_videoOpen = true;
+        m_source->requestData(1 << 20);   // pump the moov into the demuxer
+        return;
+    }
     m_seekable = seekable; emit seekableChanged();
     m_pipeline->configure(m_mode, seekable, total);
     m_pipeline->play();
@@ -139,8 +157,25 @@ void StreamPlayer::onOpened(qint64 total, bool seekable)
 }
 
 void StreamPlayer::onNeedData(qint64 n)      { if (m_source) m_source->requestData(n); }
-void StreamPlayer::onData(const QByteArray &c){ if (m_pipeline) m_pipeline->pushData(c); }
-void StreamPlayer::onSourceFinished()        { PLOG() << "source EOS"; if (m_pipeline) m_pipeline->endOfStream(); }
+
+void StreamPlayer::onData(const QByteArray &c)
+{
+    if (!m_dual) { if (m_pipeline) m_pipeline->pushData(c); return; }
+    if (!m_videoOpen) return;   // stale delivery from a previous source life — drop
+    if (!m_videoDemux.feed(c)) {
+        fail(QString::fromLatin1("video demux: ") + m_videoDemux.error());
+        return;
+    }
+    if (m_state == Loading) {
+        if (!m_videoDemux.headerReady()) { m_source->requestData(1 << 20); return; }
+        maybeStartDual();                 // may still wait for the audio moov
+    }
+    if (m_state != Loading) drainSamples();
+}
+
+void StreamPlayer::onSourceFinished()        { PLOG() << "source EOS";
+                                               if (m_dual) drainSamples();
+                                               if (m_pipeline) m_pipeline->endOfStream(); }
 void StreamPlayer::onSourceFailed(const QString &e) { fail(e); }
 void StreamPlayer::onSeekByte(qint64 off)    { if (m_source) m_source->seek(off); }
 
@@ -152,6 +187,11 @@ void StreamPlayer::onPosition(qint64 ms)     { m_position = ms; emit positionCha
 void StreamPlayer::onDuration(qint64 ms)     { m_duration = ms; emit durationChanged(); }
 void StreamPlayer::onPipelineFinished()      { PLOG() << "pipeline finished (playback complete)";
                                                if (m_pipeline) m_pipeline->stop();
+                                               // A premature pipeline EOS (e.g. a demuxer bailing on the container)
+                                               // must also stop the fetch: the sources otherwise keep downloading
+                                               // the whole file in the background. No-op after a normal EOS.
+                                               if (m_source) m_source->close();
+                                               if (m_audioSource) m_audioSource->close();
                                                if (m_policy) m_policy->release();
                                                setState(Stopped); emit playbackFinished(); }
 void StreamPlayer::onPipelineError(const QString &e) { fail(e); }
@@ -166,6 +206,7 @@ void StreamPlayer::seek(qint64 ms) { if (m_seekable && m_pipeline) m_pipeline->s
 
 void StreamPlayer::stop()
 {
+    m_pendingSwitch = false;   // an explicit stop cancels any deferred switch
     if (m_pipeline) m_pipeline->stop();
     if (m_source) m_source->close();
     if (m_audioSource) m_audioSource->close();
@@ -178,8 +219,15 @@ void StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl)
     PLOG() << "playDual video=" << qPrintable(videoUrl.left(90))
            << "audio=" << qPrintable(audioUrl.left(90));
     if (!m_audioSource) { fail(QString::fromLatin1("dual playback needs an audio source")); return; }
+    if (m_state == Loading || m_state == Buffering) {   // mid-preroll: defer (see setState)
+        PLOG() << "switch deferred until preroll completes";
+        m_pendingSwitch = true; m_pendingDual = true;
+        m_pendingUrl = videoUrl; m_pendingAudioUrl = audioUrl;
+        return;
+    }
     if (m_state != Idle && m_state != Stopped && m_state != Error) stop();
-    m_dual = true; m_videoOpen = m_audioOpen = false; m_videoTotal = m_audioTotal = -1;
+    m_dual = true; m_videoOpen = m_audioOpen = false;
+    m_videoDemux.reset(); m_audioDemux.reset();
     m_url = videoUrl; m_audioUrl = audioUrl;
     m_mode = VideoMode; emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
@@ -187,25 +235,69 @@ void StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl)
     m_policy->acquire(m_mode);
 }
 
+// Configure + start once BOTH lanes parsed their moov: only then are the codec
+// blobs (avcC / AudioSpecificConfig) known for the appsrc caps.
 void StreamPlayer::maybeStartDual()
 {
     if (!m_videoOpen || !m_audioOpen) return;
-    m_seekable = false; emit seekableChanged();   // push mode: no in-stream seek
-    m_pipeline->configureDual(m_videoTotal, m_audioTotal);
+    if (!m_videoDemux.headerReady() || !m_audioDemux.headerReady()) return;
+    if (m_state != Loading) return;               // already configured
+    m_seekable = false; emit seekableChanged();   // ES push: no in-stream seek yet
+    EsConfig cfg;
+    cfg.videoCodecData = m_videoDemux.codecData();
+    cfg.width  = m_videoDemux.width();
+    cfg.height = m_videoDemux.height();
+    cfg.audioCodecData = m_audioDemux.codecData();
+    cfg.rate     = m_audioDemux.audioRate();
+    cfg.channels = m_audioDemux.audioChannels();
+    cfg.durationNs = qMax(m_videoDemux.durationNs(), m_audioDemux.durationNs());
+    m_pipeline->configureDualEs(cfg);
     m_pipeline->play();
     setState(Buffering);
+    drainSamples();          // the moov windows usually carry the first fragments
+}
+
+// Forward every sample the demuxers extracted (decode order per lane).
+void StreamPlayer::drainSamples()
+{
+    if (!m_pipeline) return;
+    const QList<Fmp4Sample> vs = m_videoDemux.takeSamples();
+    for (const Fmp4Sample &s : vs)
+        m_pipeline->pushVideoSample(s.data, s.ptsNs, s.durationNs, s.keyframe);
+    const QList<Fmp4Sample> as = m_audioDemux.takeSamples();
+    for (const Fmp4Sample &s : as)
+        m_pipeline->pushAudioSample(s.data, s.ptsNs, s.durationNs);
+    if (!vs.isEmpty() || !as.isEmpty())
+        PLOG() << "drain: video+" << vs.size() << "audio+" << as.size()
+               << (vs.isEmpty() ? -1 : vs.last().ptsNs / 1000000)
+               << "/" << (as.isEmpty() ? -1 : as.last().ptsNs / 1000000) << "ms";
 }
 
 void StreamPlayer::onAudioOpened(qint64 total, bool)
 {
     if (!m_dual) return;
     PLOG() << "audio source opened total=" << total;
-    m_audioOpen = true; m_audioTotal = total;
-    maybeStartDual();
+    m_audioOpen = true;
+    m_audioSource->requestData(1 << 20);          // pump the moov into the demuxer
 }
 
-void StreamPlayer::onAudioData(const QByteArray &c) { if (m_pipeline) m_pipeline->pushAudioData(c); }
-void StreamPlayer::onAudioFinished()                { PLOG() << "audio source EOS"; if (m_pipeline) m_pipeline->audioEndOfStream(); }
+void StreamPlayer::onAudioData(const QByteArray &c)
+{
+    if (!m_dual || !m_audioOpen) return;   // stale delivery — drop (see onData)
+    if (!m_audioDemux.feed(c)) {
+        fail(QString::fromLatin1("audio demux: ") + m_audioDemux.error());
+        return;
+    }
+    if (m_state == Loading) {
+        if (!m_audioDemux.headerReady()) { m_audioSource->requestData(1 << 20); return; }
+        maybeStartDual();                 // may still wait for the video moov
+    }
+    if (m_state != Loading) drainSamples();
+}
+
+void StreamPlayer::onAudioFinished()                { PLOG() << "audio source EOS";
+                                                      drainSamples();
+                                                      if (m_pipeline) m_pipeline->audioEndOfStream(); }
 void StreamPlayer::onAudioFailed(const QString &e)  { fail(e); }
 void StreamPlayer::onNeedAudioData(qint64 n)        { if (m_audioSource) m_audioSource->requestData(n); }
 

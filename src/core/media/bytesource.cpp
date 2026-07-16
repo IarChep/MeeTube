@@ -31,6 +31,12 @@ void ProgressiveSource::close()
     if (m_reply) { m_reply->disconnect(this); m_reply->abort(); m_reply->deleteLater(); m_reply = 0; }
     m_ready.clear();
     m_waiting = false;
+    // Deactivate until the next open(): a stale pump (a queued need-data from a
+    // torn-down pipeline, or a topUp reached re-entrantly from a delivery that
+    // stopped the player) must NOT refetch at the old offset — those bytes would
+    // land in the NEXT session's consumer (device-observed 2026-07-16: an old
+    // itag-18 window fed the fresh dual demuxer -> "not an fMP4 stream").
+    m_url.clear();
 }
 
 // Probe the first window: learn total size + seekability from the 206
@@ -60,6 +66,7 @@ void ProgressiveSource::issueWindow(qint64 start, const char *slot)
 // Start a prefetch if nothing is in flight and we're under the read-ahead target.
 void ProgressiveSource::topUp()
 {
+    if (m_url.isEmpty()) return;                 // closed — dead until open()
     if (m_reply || m_eof) return;
     if (m_total >= 0 && m_fetchOffset >= m_total) { m_eof = true; return; }
     if (m_ready.size() >= kReadAhead) return;    // enough buffered already
@@ -94,6 +101,7 @@ void ProgressiveSource::onProbeFinished()
 
 void ProgressiveSource::requestData(qint64 /*maxBytes*/)
 {
+    if (m_url.isEmpty()) return;                 // closed — dead until open()
     // maxBytes ignored: appsrc hints its 4096-byte blocksize, and one HTTPS round
     // trip per 4 KiB caps throughput below the itag-18 bitrate (playback starved
     // ~30 s in device tests). We always move whole windows; the read-ahead keeps
@@ -136,7 +144,9 @@ void ProgressiveSource::onWindowFinished()
 bool ProgressiveSource::seek(qint64 byteOffset)
 {
     if (!m_seekable) return false;
+    const QString url = m_url;
     close();                                     // drops in-flight fetch + buffered windows
+    m_url = url;                                 // seek re-anchors — it does NOT close
     m_fetchOffset = byteOffset;
     m_eof = false;
     return true;

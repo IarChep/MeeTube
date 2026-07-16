@@ -8,8 +8,95 @@
 #include "media/ipolicy.h"
 #include "net/curlnetworkaccessmanager.h"
 #include "media/bytesource.h"
+#include "media/fmp4demux.h"
 #include "media/subtitletrack.h"
 #include "core/debuglog.h"
+
+// ---- synthetic fMP4 builders (the exact single-track layout YouTube serves) --
+static QByteArray be16(quint16 v)
+{ QByteArray b(2, '\0'); b[0] = char(v >> 8); b[1] = char(v); return b; }
+static QByteArray be32(quint32 v)
+{ QByteArray b(4, '\0');
+  b[0] = char(v >> 24); b[1] = char(v >> 16); b[2] = char(v >> 8); b[3] = char(v); return b; }
+static QByteArray mp4Box(const char *type, const QByteArray &payload)
+{ return be32(payload.size() + 8) + QByteArray(type, 4) + payload; }
+static QByteArray mp4Full(const char *type, quint8 ver, quint32 flags, const QByteArray &payload)
+{ return mp4Box(type, QByteArray(1, char(ver)) + be32(flags).mid(1) + payload); }
+
+// mp4a sample entry with an esds carrying AudioSpecificConfig {0x12, 0x10}.
+static QByteArray mp4AudioEntry()
+{
+    const QByteArray asc("\x12\x10", 2);
+    const QByteArray dec5 = QByteArray(1, 0x05) + QByteArray(1, char(asc.size())) + asc;
+    const QByteArray dec4 = QByteArray(1, 0x04)
+        + QByteArray(1, char(13 + dec5.size())) + QByteArray(13, '\0') + dec5;
+    const QByteArray dec3 = QByteArray(1, 0x03)
+        + QByteArray(1, char(3 + dec4.size())) + QByteArray(3, '\0') + dec4;
+    QByteArray entry;
+    entry += QByteArray(6, '\0') + be16(1);       // reserved + data_reference_index
+    entry += QByteArray(8, '\0');                 // version/revision/vendor
+    entry += be16(2) + be16(16);                  // channels, sample size
+    entry += QByteArray(4, '\0');                 // compression_id + packet size
+    entry += be32(quint32(44100) << 16);          // rate, 16.16 fixed point
+    entry += mp4Full("esds", 0, 0, dec3);
+    return mp4Box("mp4a", entry);
+}
+
+// Full video stream: ftyp + moov(avc1/avcC, trex defaults, mehd) + sidx(skipped)
+// + moof(tfhd default-base-is-moof, tfdt 0, trun with 3 explicit sizes and sync
+// first_sample_flags) + mdat with the 3 payloads back to back.
+static QByteArray fmp4VideoFile()
+{
+    QByteArray avc1;
+    avc1 += QByteArray(6, '\0') + be16(1);        // reserved + dri
+    avc1 += QByteArray(16, '\0');                 // pre_defined / reserved
+    avc1 += be16(854) + be16(480);                // width x height
+    avc1 += be32(0x00480000) + be32(0x00480000);  // 72 dpi
+    avc1 += be32(0) + be16(1);                    // reserved + frame_count
+    avc1 += QByteArray(32, '\0');                 // compressorname
+    avc1 += be16(24) + be16(0xFFFF);              // depth + pre_defined
+    avc1 += mp4Box("avcC", QByteArray("AVCC-TEST-BYTES"));
+    const QByteArray moov = mp4Box("moov",
+        mp4Full("mvhd", 0, 0, be32(0) + be32(0) + be32(1000) + be32(0) + QByteArray(80, '\0'))
+      + mp4Box("trak",
+            mp4Full("tkhd", 0, 0, be32(0) + be32(0) + be32(1) + QByteArray(72, '\0'))
+          + mp4Box("mdia",
+                mp4Full("mdhd", 0, 0, be32(0) + be32(0) + be32(90000) + be32(0) + be32(0))
+              + mp4Box("minf", mp4Box("stbl",
+                    mp4Full("stsd", 0, 0, be32(1) + mp4Box("avc1", avc1))))))
+      + mp4Box("mvex",
+            mp4Full("mehd", 0, 0, be32(84311))
+          + mp4Full("trex", 0, 0, be32(1) + be32(1) + be32(3000) + be32(0) + be32(0x00010000))));
+    // Two passes: the trun data_offset (mdat payload, relative to moof start)
+    // needs the final moof size, which doesn't depend on the offset's value.
+    const QByteArray sizes = be32(5) + be32(7) + be32(9);
+    QByteArray moof; quint32 dataOff = 0;
+    for (int pass = 0; pass < 2; ++pass) {
+        moof = mp4Box("moof", mp4Full("mfhd", 0, 0, be32(1))
+            + mp4Box("traf",
+                  mp4Full("tfhd", 0, 0x020000, be32(1))
+                + mp4Full("tfdt", 0, 0, be32(0))
+                + mp4Full("trun", 0, 0x01 | 0x04 | 0x200,
+                          be32(3) + be32(dataOff) + be32(0) + sizes)));
+        dataOff = moof.size() + 8;
+    }
+    return mp4Box("ftyp", QByteArray("isom")) + moov
+         + mp4Box("sidx", QByteArray(20, '\0'))
+         + moof + mp4Box("mdat", QByteArray("AAAAA") + "BBBBBBB" + "CCCCCCCCC");
+}
+
+// ftyp + audio moov only (mp4a/esds ASC {0x12,0x10}, 44.1 kHz stereo).
+static QByteArray fmp4AudioHeader()
+{
+    return mp4Box("ftyp", QByteArray("isom")) + mp4Box("moov",
+        mp4Full("mvhd", 0, 0, be32(0) + be32(0) + be32(1000) + be32(0) + QByteArray(80, '\0'))
+      + mp4Box("trak",
+            mp4Full("tkhd", 0, 0, be32(0) + be32(0) + be32(1) + QByteArray(72, '\0'))
+          + mp4Box("mdia",
+                mp4Full("mdhd", 0, 0, be32(0) + be32(0) + be32(44100) + be32(0) + be32(0))
+              + mp4Box("minf", mp4Box("stbl",
+                    mp4Full("stsd", 0, 0, be32(1) + mp4AudioEntry()))))));
+}
 
 // Qt 4.7.4's QtTest ships no QTRY_COMPARE (added in 4.8) — same gap the loopback
 // tst_meetube_client/threading tests note. Shim it with a bounded spin that pumps
@@ -114,10 +201,13 @@ public:
     void emitStarted() { emit started(); }
     void emitFinished() { emit finished(); }
     void emitError(const QString &m) { emit error(m); }
-    int dualConfigured = 0; qint64 dualVideoTotal = -2, dualAudioTotal = -2;
-    QByteArray audioPushed; bool audioEos = false;
-    void configureDual(qint64 v, qint64 a) { ++dualConfigured; dualVideoTotal = v; dualAudioTotal = a; }
-    void pushAudioData(const QByteArray &c) { audioPushed += c; }
+    int esConfigured = 0; yt::media::EsConfig esCfg;
+    int videoSamples = 0, audioSamples = 0;
+    qint64 lastVideoPts = -1; bool lastVideoKey = false; bool audioEos = false;
+    void configureDualEs(const yt::media::EsConfig &cfg) { ++esConfigured; esCfg = cfg; }
+    void pushVideoSample(const QByteArray &, qint64 pts, qint64, bool key)
+    { ++videoSamples; lastVideoPts = pts; lastVideoKey = key; }
+    void pushAudioSample(const QByteArray &, qint64, qint64) { ++audioSamples; }
     void audioEndOfStream() { audioEos = true; }
     void emitNeedAudioData(qint64 n) { emit needAudioData(n); }
 };
@@ -333,51 +423,157 @@ private slots:
         QCOMPARE(pol->acquired, 2);          // re-acquired after the stop
     }
 
-    // playDual: grant opens BOTH sources; the pipeline is configured exactly once,
-    // only after both report their totals; dual is never seekable.
-    void dualWaitsForBothOpens() {
+    // playDual: grant opens BOTH sources; the ES pipeline is configured exactly
+    // once, only after BOTH lanes parsed their moov (codec blobs known); the
+    // samples already extracted drain right after configure; never seekable.
+    void dualConfiguresAfterBothMoovs() {
         ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
         FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
         yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
-        p.playDual("http://v/136", "http://a/140");
-        QCOMPARE(pol->acquired, 1);
+        p.playDual("http://v/135", "http://a/140");
         pol->emitGranted();
-        QCOMPARE(vsrc->openedUrl, QString("http://v/136"));
+        QCOMPARE(vsrc->openedUrl, QString("http://v/135"));
         QCOMPARE(asrc->openedUrl, QString("http://a/140"));
-        QCOMPARE(pipe->dualConfigured, 0);
-        vsrc->emitOpened(1000);
-        QCOMPARE(pipe->dualConfigured, 0);      // still waiting for audio
-        asrc->emitOpened(200);
-        QCOMPARE(pipe->dualConfigured, 1);
-        QCOMPARE(pipe->dualVideoTotal, (qint64)1000);
-        QCOMPARE(pipe->dualAudioTotal, (qint64)200);
+        vsrc->emitOpened(1000); asrc->emitOpened(200);
+        QCOMPARE(pipe->esConfigured, 0);              // no moov fed yet
+        vsrc->emitData(fmp4VideoFile());              // video moov + 3-sample fragment
+        QCOMPARE(pipe->esConfigured, 0);              // audio moov still missing
+        asrc->emitData(fmp4AudioHeader());
+        QCOMPARE(pipe->esConfigured, 1);
+        QCOMPARE(pipe->esCfg.videoCodecData, QByteArray("AVCC-TEST-BYTES"));
+        QCOMPARE(pipe->esCfg.width, 854);
+        QCOMPARE(pipe->esCfg.height, 480);
+        QCOMPARE(pipe->esCfg.audioCodecData, QByteArray("\x12\x10", 2));
+        QCOMPARE(pipe->esCfg.rate, 44100);
+        QCOMPARE(pipe->esCfg.channels, 2);
+        QCOMPARE(pipe->esCfg.durationNs, Q_INT64_C(84311000000));
+        QCOMPARE(pipe->videoSamples, 3);              // fragment drained on configure
+        QVERIFY(pipe->lastVideoPts >= 0);
         QCOMPARE(pipe->played, 1);
-        QCOMPARE(pipe->configured, 0);          // single-mode configure untouched
         QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Buffering);
         QVERIFY(!p.seekable());
-        QCOMPARE((int)p.mode(), 1);             // dual plays as video
-    }
-
-    // Data/need-data/EOS route per lane: video source feeds pushData, audio source
-    // feeds pushAudioData; each appsrc's hunger reaches only its own source.
-    void dualPumpsBothLanes() {
-        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
-        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
-        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
-        p.playDual("http://v", "http://a");
-        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        // Per-lane hunger routes to the right source; per-lane EOS forwards.
+        int v = vsrc->dataRequests, a = asrc->dataRequests;
         pipe->emitNeedData(100);
-        QCOMPARE(vsrc->dataRequests, 1); QCOMPARE(asrc->dataRequests, 0);
+        QCOMPARE(vsrc->dataRequests, v + 1); QCOMPARE(asrc->dataRequests, a);
         pipe->emitNeedAudioData(100);
-        QCOMPARE(asrc->dataRequests, 1);
-        vsrc->emitData(QByteArray("VVV"));
-        QCOMPARE(pipe->pushed, QByteArray("VVV")); QVERIFY(pipe->audioPushed.isEmpty());
-        asrc->emitData(QByteArray("AA"));
-        QCOMPARE(pipe->audioPushed, QByteArray("AA"));
+        QCOMPARE(asrc->dataRequests, a + 1);
         vsrc->emitFinished();
         QVERIFY(pipe->eos); QVERIFY(!pipe->audioEos);
         asrc->emitFinished();
         QVERIFY(pipe->audioEos);
+    }
+
+    // Bytes delivered before the lane's open() completes belong to a PREVIOUS
+    // source life (device-observed 2026-07-16: a stale queued need-data refetched
+    // an old itag-18 window right after the switch and poisoned the fresh
+    // demuxer) — they must be dropped, not fed.
+    void dualDropsStaleDataBeforeOpen() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/135", "http://a/140");
+        pol->emitGranted();
+        vsrc->emitData(QByteArray("OLD-PROGRESSIVE-GARBAGE"));       // pre-open leftovers
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Loading);
+        vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFile());
+        asrc->emitData(fmp4AudioHeader());
+        QCOMPARE(pipe->esConfigured, 1);                             // clean start after the drop
+    }
+
+    // A lane delivering garbage (an HTML error page instead of an fMP4) must be
+    // a terminal failure, not a silent stall.
+    void dualGarbageLaneFails() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/135", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(QByteArray("<html>oops, definitely not an mp4</html>"));
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Error);
+        QVERIFY(vsrc->closed);
+        QVERIFY(asrc->closed);
+        QCOMPARE(pipe->esConfigured, 0);
+    }
+
+    // ---- Fmp4Demuxer: synthetic single-track fragmented mp4 ----
+    // Builders for the exact box layout YouTube serves (moov with mvex/zero
+    // sample tables, then moof/mdat fragments).
+    void fmp4VideoMoovAndFragment() {
+        const QByteArray file = fmp4VideoFile();
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(d.feed(file));
+        QVERIFY(d.headerReady());
+        QVERIFY(d.isVideo());
+        QCOMPARE(d.width(), 854);
+        QCOMPARE(d.height(), 480);
+        QCOMPARE(d.codecData(), QByteArray("AVCC-TEST-BYTES"));
+        QCOMPARE(d.durationNs(), Q_INT64_C(84311000000));   // mehd 84311 @ movie ts 1000
+        QList<yt::media::Fmp4Sample> s = d.takeSamples();
+        QCOMPARE(s.size(), 3);
+        QCOMPARE(s[0].data, QByteArray("AAAAA"));
+        QCOMPARE(s[1].data, QByteArray("BBBBBBB"));
+        QCOMPARE(s[2].data, QByteArray("CCCCCCCCC"));
+        QCOMPARE(s[0].ptsNs, Q_INT64_C(0));
+        QCOMPARE(s[1].ptsNs, Q_INT64_C(33333333));          // 3000 ticks @ 90000
+        QCOMPARE(s[2].ptsNs, Q_INT64_C(66666666));
+        QCOMPARE(s[0].durationNs, Q_INT64_C(33333333));
+        QVERIFY(s[0].keyframe);                             // first_sample_flags = sync
+        QVERIFY(!s[1].keyframe);                            // tfhd default = non-sync
+        QVERIFY(!s[2].keyframe);
+        QVERIFY(d.takeSamples().isEmpty());                 // drained
+    }
+
+    // Byte-dribble feeding must produce the identical result (state machine).
+    void fmp4ChunkedFeed() {
+        const QByteArray file = fmp4VideoFile();
+        yt::media::Fmp4Demuxer d;
+        for (int i = 0; i < file.size(); i += 7)
+            QVERIFY(d.feed(file.mid(i, 7)));
+        QVERIFY(d.headerReady());
+        QList<yt::media::Fmp4Sample> s = d.takeSamples();
+        QCOMPARE(s.size(), 3);
+        QCOMPARE(s[2].data, QByteArray("CCCCCCCCC"));
+        QCOMPARE(s[2].ptsNs, Q_INT64_C(66666666));
+    }
+
+    // Audio moov: mp4a fields + the AudioSpecificConfig dug out of esds.
+    void fmp4AudioMoov() {
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(d.feed(fmp4AudioHeader()));
+        QVERIFY2(d.headerReady(), qPrintable(d.error()));
+        QVERIFY(!d.isVideo());
+        QCOMPARE(d.audioRate(), 44100);
+        QCOMPARE(d.audioChannels(), 2);
+        QCOMPARE(d.codecData(), QByteArray("\x12\x10", 2));
+    }
+
+    // Garbage input must fail loudly, not wait forever for a fictitious box.
+    void fmp4GarbageFails() {
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(!d.feed(QByteArray("<html>not a video at all, sorry</html>")));
+        QVERIFY(!d.error().isEmpty());
+    }
+
+    // A quality switch while the pipeline is still prerolling must be deferred
+    // (tearing down a mid-preroll pipeline aborts the DSP codec on device) and
+    // applied once the pipeline reports started.
+    void switchDuringBufferingIsDeferred() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.play("http://v/18", 1);
+        pol->emitGranted(); vsrc->emitOpened(1000);      // configure #1 -> Buffering
+        QCOMPARE(pipe->configured, 1);
+        p.playDual("http://v/135", "http://a/140");      // mid-preroll switch
+        QCOMPARE(pipe->esConfigured, 0);                 // deferred, nothing torn down
+        QCOMPARE(pipe->stopped, 0);
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Buffering);
+        pipe->emitStarted();                             // preroll done -> Playing
+        pol->emitGranted();                              // grant the deferred dual acquire
+        QCOMPARE(vsrc->openedUrl, QString("http://v/135"));
+        QCOMPARE(asrc->openedUrl, QString("http://a/140"));
     }
 
     // Either lane failing kills the whole playback and closes BOTH sources.
@@ -407,7 +603,7 @@ private slots:
         QVERIFY(asrc->openedUrl.isEmpty());
         vsrc->emitOpened(1000);
         QCOMPARE(pipe->configured, 1);
-        QCOMPARE(pipe->dualConfigured, 0);
+        QCOMPARE(pipe->esConfigured, 0);
     }
 
     // playDual on a player wired without an audio source = immediate error.

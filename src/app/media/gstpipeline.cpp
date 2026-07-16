@@ -11,8 +11,9 @@ void GstAppPipeline::setVideoWindow(WId) {}
 void GstAppPipeline::configure(PlaybackMode, bool, qint64) {}
 void GstAppPipeline::pushData(const QByteArray &) {}
 void GstAppPipeline::endOfStream() {}
-void GstAppPipeline::configureDual(qint64, qint64) {}
-void GstAppPipeline::pushAudioData(const QByteArray &) {}
+void GstAppPipeline::configureDualEs(const EsConfig &) {}
+void GstAppPipeline::pushVideoSample(const QByteArray &, qint64, qint64, bool) {}
+void GstAppPipeline::pushAudioSample(const QByteArray &, qint64, qint64) {}
 void GstAppPipeline::audioEndOfStream() {}
 void GstAppPipeline::play()  { emit error(QString::fromLatin1("media playback is device-only (N9)")); }
 void GstAppPipeline::pause() {}
@@ -39,8 +40,8 @@ GstAppPipeline::GstAppPipeline(QObject *parent)
       m_audiosrc(0), m_adecode(0),
       m_aconv(0), m_ares(0), m_asink(0), m_vconv(0), m_vsink(0), m_busWatchId(0),
       m_winId(0), m_mode(AudioMode), m_seekable(false), m_total(-1),
-      m_dual(false), m_audioTotal(-1),
-      m_glCtx(0), m_glSink(0), m_glFrame(-1), m_sizeProbeId(0)
+      m_dual(false),
+      m_glCtx(0), m_glSink(0), m_glFrame(-1), m_glGen(0), m_sizeProbeId(0)
 {
     m_videoW = m_videoH = 0;
     // gst_init is idempotent; main.cpp also inits, but this guards standalone use.
@@ -68,6 +69,16 @@ void GstAppPipeline::teardown()
         gst_element_set_state(m_pipeline, GST_STATE_NULL);
         gst_object_unref(m_pipeline);   // unrefs the whole bin
         m_pipeline = 0; m_appsrc = m_decode = m_audiosrc = m_adecode = m_aconv = m_ares = m_asink = m_vconv = m_vsink = 0;
+        // Invalidate queued frame events ONLY NOW, after the NULL transition joined
+        // the streaming threads: a frame-ready emitted between the wake above and
+        // the join would be stamped with an already-bumped gen and sneak its stale
+        // frame number past onGlFrame's guard (device-observed "frame 4 not ready"
+        // spam after a source switch). Post-join the old pipeline can't post, so
+        // every still-queued event carries this pre-bump gen and gets dropped.
+        {
+            QMutexLocker lk(&m_glMutex);
+            ++m_glGen;
+        }
     }
 }
 
@@ -77,14 +88,19 @@ void GstAppPipeline::configure(PlaybackMode mode, bool seekable, qint64 totalSiz
     buildPipeline();
 }
 
-// Dual mode: video-only file through the main appsrc, audio-only file through a
-// second appsrc branch of the SAME pipeline — one clock, so the sinks sync and
-// PLAYING waits for both branches to preroll. Always video, never seekable.
-void GstAppPipeline::configureDual(qint64 videoTotal, qint64 audioTotal)
+// Dual-ES mode: H.264 + AAC elementary streams through two caps'd appsrc
+// branches of the SAME pipeline — one clock, so the sinks sync and PLAYING
+// waits for both branches to preroll. The player owns the fMP4 demux (0.10
+// qtdemux can't push-demux YouTube's fragmented mp4); we only decode/render.
+// Always video, never seekable.
+void GstAppPipeline::configureDualEs(const EsConfig &cfg)
 {
-    m_dual = true; m_mode = VideoMode; m_seekable = false;
-    m_total = videoTotal; m_audioTotal = audioTotal;
+    m_dual = true; m_mode = VideoMode; m_seekable = false; m_total = -1;
+    m_es = cfg;
     buildPipeline();
+    // Nothing downstream knows the movie length in ES push mode — surface the
+    // mvex/mehd duration the demuxer found so the scrubber isn't blank.
+    if (cfg.durationNs > 0) emit durationChanged(cfg.durationNs / 1000000);
 }
 
 void GstAppPipeline::buildPipeline()
@@ -95,7 +111,13 @@ void GstAppPipeline::buildPipeline()
     m_decode   = gst_element_factory_make("decodebin2", "dec");
     m_aconv    = gst_element_factory_make("audioconvert", "aconv");
     m_ares     = gst_element_factory_make("audioresample", "ares");
-    m_asink    = gst_element_factory_make("autoaudiosink", "asink");
+    // MEETUBE_NO_AUDIO=1 (diagnostic): swallow audio into a non-blocking fakesink
+    // so a video-only stream (no audio pad) can't stall preroll on a starved real
+    // audio sink — isolates whether the video track alone renders.
+    const bool noAudio = qgetenv("MEETUBE_NO_AUDIO") == "1";
+    m_asink    = gst_element_factory_make(noAudio ? "fakesink" : "autoaudiosink", "asink");
+    if (noAudio && m_asink)
+        g_object_set(G_OBJECT(m_asink), "async", FALSE, "sync", FALSE, (char *) NULL);
     if (m_mode == VideoMode) {                          // video pad -> colorspace ! sink
         m_vconv = gst_element_factory_make("ffmpegcolorspace", "vconv");
         m_glSink = 0;
@@ -182,18 +204,41 @@ void GstAppPipeline::buildPipeline()
                << "audioconvert=" << (m_aconv != 0) << "audioresample=" << (m_ares != 0)
                << "autoaudiosink=" << (m_asink != 0) << "vsink=" << (m_vsink != 0);
 
-    // appsrc: ALWAYS forward-only STREAM. Advertising SEEKABLE makes qtdemux issue a
-    // byte-seek during preroll, and with no "seek-data" handler connected appsrc can't
-    // service it — the pipeline freezes in READY before the first need-data
-    // (device-observed 2026-07-13: probe 206/seekable=true -> no need-data, no error).
-    // STREAM is the device-verified working config; YouTube progressive mp4 is
-    // faststart (moov first), so push-mode demuxing works. In-stream seek, if ever
-    // needed, = connect "seek-data" + re-anchor the ByteSource window.
+    // appsrc scheduling — ALWAYS forward-only STREAM push:
+    // - Single stream (BYTES): advertising SEEKABLE makes qtdemux issue a byte-seek
+    //   during preroll, and with no "seek-data" handler connected appsrc can't
+    //   service it — the pipeline freezes in READY before the first need-data
+    //   (device-observed 2026-07-13). YouTube progressive mp4 is faststart (moov
+    //   first), so push-mode demuxing works — device-verified config.
+    // - Dual (TIME): the player demuxes the fragmented mp4 itself (0.10 qtdemux
+    //   can't — it parses the moov, finds no samples and EOSes instantly;
+    //   device-observed 2026-07-16) and pushes timestamped H.264/AAC samples;
+    //   the caps below carry the codec config qtdemux would have produced.
+    //   block=FALSE on the ES lanes: sample pushes come from the GUI thread in
+    //   window-sized bursts, and a full appsrc queue drains at PLAYBACK speed —
+    //   a blocking push would freeze the whole app for minutes (a 2 MiB AAC
+    //   queue is ~2 min of audio). Queue growth stays bounded anyway: appsrc
+    //   only asks (need-data) when it runs dry, and one request moves one
+    //   source window.
     g_object_set(G_OBJECT(m_appsrc),
                  "stream-type", GST_APP_STREAM_TYPE_STREAM,
-                 "format", GST_FORMAT_BYTES,
+                 "format", m_dual ? GST_FORMAT_TIME : GST_FORMAT_BYTES,
                  "is-live", FALSE,
-                 "block", TRUE, NULL);
+                 "block", m_dual ? FALSE : TRUE, NULL);
+    if (m_dual) {
+        g_object_set(G_OBJECT(m_appsrc), "max-bytes", (guint64)(8 * 1024 * 1024), NULL);
+        GstBuffer *cd = gst_buffer_new_and_alloc(m_es.videoCodecData.size());
+        memcpy(GST_BUFFER_DATA(cd), m_es.videoCodecData.constData(), m_es.videoCodecData.size());
+        GstCaps *caps = gst_caps_new_simple("video/x-h264",
+            "codec_data", GST_TYPE_BUFFER, cd,
+            "width",  G_TYPE_INT, m_es.width,
+            "height", G_TYPE_INT, m_es.height, NULL);
+        gst_buffer_unref(cd);
+        gst_app_src_set_caps(GST_APP_SRC(m_appsrc), caps);
+        PLOG() << "gst: video ES caps" << m_es.width << "x" << m_es.height
+               << "avcC=" << m_es.videoCodecData.size();
+        gst_caps_unref(caps);
+    }
     if (m_total >= 0) gst_app_src_set_size(GST_APP_SRC(m_appsrc), (gint64)m_total);
     g_signal_connect(m_appsrc, "need-data", G_CALLBACK(&GstAppPipeline::onNeedDataCb), this);
 
@@ -212,10 +257,23 @@ void GstAppPipeline::buildPipeline()
         } else {
             g_object_set(G_OBJECT(m_audiosrc),
                          "stream-type", GST_APP_STREAM_TYPE_STREAM,
-                         "format", GST_FORMAT_BYTES,
+                         "format", GST_FORMAT_TIME,
                          "is-live", FALSE,
-                         "block", TRUE, NULL);
-            if (m_audioTotal >= 0) gst_app_src_set_size(GST_APP_SRC(m_audiosrc), (gint64)m_audioTotal);
+                         "block", FALSE,   // see the video appsrc comment
+                         "max-bytes", (guint64)(4 * 1024 * 1024), NULL);
+            GstBuffer *cd = gst_buffer_new_and_alloc(m_es.audioCodecData.size());
+            memcpy(GST_BUFFER_DATA(cd), m_es.audioCodecData.constData(), m_es.audioCodecData.size());
+            GstCaps *caps = gst_caps_new_simple("audio/mpeg",
+                "mpegversion", G_TYPE_INT, 4,
+                "framed", G_TYPE_BOOLEAN, TRUE,
+                "codec_data", GST_TYPE_BUFFER, cd,
+                "rate",     G_TYPE_INT, m_es.rate,
+                "channels", G_TYPE_INT, m_es.channels, NULL);
+            gst_buffer_unref(cd);
+            gst_app_src_set_caps(GST_APP_SRC(m_audiosrc), caps);
+            PLOG() << "gst: audio ES caps" << m_es.rate << "Hz ch=" << m_es.channels
+                   << "ASC=" << m_es.audioCodecData.size();
+            gst_caps_unref(caps);
             g_signal_connect(m_audiosrc, "need-data", G_CALLBACK(&GstAppPipeline::onAudioNeedDataCb), this);
             // Same pad router as the main decodebin: the audio file's one pad -> aconv.
             g_signal_connect(m_adecode, "pad-added", G_CALLBACK(&GstAppPipeline::onPadAddedCb), this);
@@ -397,15 +455,20 @@ void GstAppPipeline::onGlFrameReadyCb(GstElement *, gint frame, gpointer user)
     GstAppPipeline *self = static_cast<GstAppPipeline *>(user);
     QMutexLocker lk(&self->m_glMutex);
     QMetaObject::invokeMethod(self, "onGlFrame", Qt::QueuedConnection,
-                              Q_ARG(int, (int) frame));
+                              Q_ARG(int, (int) frame), Q_ARG(int, self->m_glGen));
     self->m_glPainted.wait(&self->m_glMutex, 60);
 }
 
 // GUI thread — canon renderGLFrame: skip while the sink is (heading to) NULL,
 // stash the frame, schedule the scene draw, then release the streaming thread
 // (canon wakes at the END of renderGLFrame, right after present()).
-void GstAppPipeline::onGlFrame(int frame)
+void GstAppPipeline::onGlFrame(int frame, int gen)
 {
+    // A queued frame event can land AFTER teardown()+buildPipeline() replaced its
+    // sink (source switch): accepting it resurrects a stale frame number against
+    // the NEW sink — every paint then acquire-fails until a real frame overwrites
+    // it (or forever, if preroll stalls). Drop events stamped by a past life.
+    if (gen != m_glGen) return;
     if (m_glSink) {
         GstState cur = GST_STATE_NULL, pend = GST_STATE_NULL;
         const GstStateChangeReturn r =
@@ -468,12 +531,27 @@ void GstAppPipeline::pushData(const QByteArray &chunk)
 
 void GstAppPipeline::endOfStream() { if (m_appsrc) gst_app_src_end_of_stream(GST_APP_SRC(m_appsrc)); }
 
-void GstAppPipeline::pushAudioData(const QByteArray &chunk)
+// Dual-ES sample push: timestamped, decode order; non-keyframes flagged DELTA so
+// the decoder/sink know where sync points are.
+static GstBuffer *sampleBuffer(const QByteArray &data, qint64 ptsNs, qint64 durNs)
+{
+    GstBuffer *b = gst_buffer_new_and_alloc(data.size());
+    memcpy(GST_BUFFER_DATA(b), data.constData(), data.size());
+    GST_BUFFER_TIMESTAMP(b) = (GstClockTime)ptsNs;
+    if (durNs > 0) GST_BUFFER_DURATION(b) = (GstClockTime)durNs;
+    return b;
+}
+void GstAppPipeline::pushVideoSample(const QByteArray &data, qint64 ptsNs, qint64 durNs, bool keyframe)
+{
+    if (!m_appsrc) return;
+    GstBuffer *b = sampleBuffer(data, ptsNs, durNs);
+    if (!keyframe) GST_BUFFER_FLAG_SET(b, GST_BUFFER_FLAG_DELTA_UNIT);
+    gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), b);   // takes ownership
+}
+void GstAppPipeline::pushAudioSample(const QByteArray &data, qint64 ptsNs, qint64 durNs)
 {
     if (!m_audiosrc) return;
-    GstBuffer *buf = gst_buffer_new_and_alloc(chunk.size());
-    memcpy(GST_BUFFER_DATA(buf), chunk.constData(), chunk.size());
-    gst_app_src_push_buffer(GST_APP_SRC(m_audiosrc), buf);   // takes ownership
+    gst_app_src_push_buffer(GST_APP_SRC(m_audiosrc), sampleBuffer(data, ptsNs, durNs));
 }
 void GstAppPipeline::audioEndOfStream() { if (m_audiosrc) gst_app_src_end_of_stream(GST_APP_SRC(m_audiosrc)); }
 
