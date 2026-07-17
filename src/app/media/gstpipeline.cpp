@@ -598,9 +598,15 @@ void GstAppPipeline::onPosTick()
 {
     if (!m_pipeline) return;
     GstFormat fmt = GST_FORMAT_TIME; gint64 pos = 0, dur = 0;
-    if (gst_element_query_position(m_pipeline, &fmt, &pos)) emit positionChanged((qint64)(pos / GST_MSECOND));
+    if (gst_element_query_position(m_pipeline, &fmt, &pos) && pos >= 0)
+        emit positionChanged((qint64)(pos / GST_MSECOND));
     fmt = GST_FORMAT_TIME;
-    if (gst_element_query_duration(m_pipeline, &fmt, &dur)) emit durationChanged((qint64)(dur / GST_MSECOND));
+    // Only forward a real duration: in dual ES-push mode the pipeline has no
+    // length (appsrc, no size) and query returns 0 / GST_CLOCK_TIME_NONE — the
+    // demuxer's sidx/mehd duration set at configureDualEs is authoritative and
+    // must not be clobbered (else the scrubber snaps back to 00:00).
+    if (gst_element_query_duration(m_pipeline, &fmt, &dur) && dur > 0)
+        emit durationChanged((qint64)(dur / GST_MSECOND));
 }
 void GstAppPipeline::seek(qint64 ms)
 {

@@ -228,7 +228,7 @@ bool Fmp4Demuxer::parseMoov(const uchar *p, qint64 len)
                         if (mediaTime < 0) continue;               // empty edit
                         m_editTicks = mediaTime;
                         m_editNs = ticksToNs((quint64)mediaTime, m_timescale);
-                        if (n > 1) PLOG() << "fmp4: elst has" << n << "edits — using the first offset";
+                        if (n > 1) { PLOG() << "fmp4: elst has" << n << "edits — using the first offset"; }
                         break;
                     }
                 }

@@ -304,6 +304,7 @@ public:
     void emitStarted() { emit started(); }
     void emitFinished() { emit finished(); }
     void emitError(const QString &m) { emit error(m); }
+    void emitDuration(qint64 ms) { emit durationChanged(ms); }
     int esConfigured = 0; yt::media::EsConfig esCfg;
     int videoSamples = 0, audioSamples = 0;
     qint64 lastVideoTs = -1; bool lastVideoKey = false; bool audioEos = false;
@@ -577,6 +578,22 @@ private slots:
         QVERIFY(pipe->eos); QVERIFY(!pipe->audioEos);
         asrc->emitFinished();
         QVERIFY(pipe->audioEos);
+    }
+
+    // Duration from the demuxer must survive the pipeline's position timer: in
+    // dual ES-push mode the pipeline never learns the length (appsrc, no size)
+    // and query_duration returns 0 every tick — that 0 must NOT clobber the
+    // sidx/mehd duration (the "scrubber shows 00:00" device bug).
+    void durationSurvivesZeroFromPipeline() {
+        FakeSource *src = new FakeSource; FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer player(src, pipe, pol);
+        player.play(QString("http://x/v"), yt::media::VideoMode); pol->emitGranted();
+        pipe->emitDuration(213040);                  // demuxer duration (configureDualEs)
+        QCOMPARE(player.duration(), Q_INT64_C(213040));
+        pipe->emitDuration(0);                        // a position-timer query miss
+        QCOMPARE(player.duration(), Q_INT64_C(213040));   // pre-fix: 0 -> UI 00:00
+        pipe->emitDuration(-1);                       // GST_CLOCK_TIME_NONE
+        QCOMPARE(player.duration(), Q_INT64_C(213040));
     }
 
     // Startup gate: a source that resolved a startup buffer holds the pipeline

@@ -351,7 +351,11 @@ void StreamPlayer::onPosition(qint64 ms)     { m_position = ms; emit positionCha
                                                if (m_state == Buffering
                                                    && m_gateVideoNeed <= 0 && m_gateAudioNeed <= 0)
                                                    setState(Playing); }
-void StreamPlayer::onDuration(qint64 ms)     { m_duration = ms; emit durationChanged(); }
+void StreamPlayer::onDuration(qint64 ms)     { if (ms <= 0) return;   // a 0/unknown from the pipeline is noise —
+                                               // in dual ES-push the pipeline never learns the length (it comes
+                                               // from the demuxer's sidx/mehd via configureDualEs); its position
+                                               // timer would otherwise clobber that with a query'd 0 -> UI 00:00.
+                                               m_duration = ms; emit durationChanged(); }
 void StreamPlayer::onPipelineFinished()      { PLOG() << "pipeline finished (playback complete)";
                                                if (m_pipeline) m_pipeline->stop();
                                                // A premature pipeline EOS (e.g. a demuxer bailing on the container)
