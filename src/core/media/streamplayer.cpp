@@ -28,6 +28,23 @@ QString videoColorKeyCss()
     return QString::fromLatin1("#%1").arg(videoColorKey() & 0xFFFFFF, 6, 16, QChar('0'));
 }
 
+// "Main@3.1"-style label from the avcC profile/level bytes (0 -> empty).
+static QString avcProfileString(int profile, int level)
+{
+    if (!profile) return QString();
+    QString name;
+    switch (profile) {
+    case 66:  name = QString::fromLatin1("Baseline"); break;
+    case 77:  name = QString::fromLatin1("Main");     break;
+    case 88:  name = QString::fromLatin1("Extended"); break;
+    case 100: name = QString::fromLatin1("High");     break;
+    default:  name = QString::number(profile);        break;
+    }
+    if (level > 0)
+        name += QString::fromLatin1("@%1.%2").arg(level / 10).arg(level % 10);
+    return name;
+}
+
 static const char *stateName(int s)
 {
     switch (s) {
@@ -47,7 +64,7 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
     : QObject(parent), m_pipeline(pipeline), m_policy(policy),
       m_state(Idle), m_mode(AudioMode), m_position(0), m_duration(0), m_buffer(0),
       m_seekable(false), m_granted(false),
-      m_dual(false),
+      m_dual(false), m_videoFps(0),
       m_pump(new MediaPump(source, audioSource, pipeline)),
       m_mediaThread(0),
       m_gateVideoNeed(0), m_gateVideoHave(0), m_gateAudioNeed(0), m_gateAudioHave(0),
@@ -160,6 +177,8 @@ void StreamPlayer::play(const QString &url, int mode)
     m_url = url; m_mode = (mode == (int)VideoMode) ? VideoMode : AudioMode;
     emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
+    m_segStarts.clear();
+    m_videoFps = 0; m_videoProfile.clear(); emit videoInfoChanged();
     setState(Loading);
     m_policy->acquire(m_mode);        // play only after granted()
 }
@@ -180,6 +199,8 @@ void StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl)
     m_url = videoUrl; m_audioUrl = audioUrl;
     m_mode = VideoMode; emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
+    m_segStarts.clear();
+    m_videoFps = 0; m_videoProfile.clear(); emit videoInfoChanged();
     setState(Loading);
     m_policy->acquire(m_mode);
 }
@@ -232,6 +253,10 @@ void StreamPlayer::onEsReady(yt::media::EsConfig cfg, qint64 videoTarget, qint64
 {
     if (m_state != Loading) return;               // switched away meanwhile
     m_seekable = seekable; emit seekableChanged(); // sidx present on both lanes
+    m_segStarts = cfg.videoSegStartsNs;
+    m_videoFps = cfg.fpsD ? double(cfg.fpsN) / cfg.fpsD : 0;
+    m_videoProfile = avcProfileString(cfg.avcProfile, cfg.avcLevel);
+    emit videoInfoChanged();
     m_pipeline->configureDualEs(cfg);
     m_gateVideoNeed = videoTarget; m_gateVideoHave = videoHave;
     m_gateAudioNeed = audioTarget; m_gateAudioHave = audioHave;
@@ -346,8 +371,20 @@ void StreamPlayer::resume() { if (m_state == Paused)  { m_pipeline->resume(); se
 void StreamPlayer::seek(qint64 ms)
 {
     if (!m_seekable || !m_pipeline) return;
+    // Dual: snap to the sidx subsegment start at or before the target. The
+    // flushed segment then begins exactly at a moof/IDR, so the DSP decodes
+    // nothing the sinks would clip (an unsnapped mid-subsegment seek costs up
+    // to ~7 s of decode-and-discard per YouTube subsegment). Ceil the ns->ms
+    // conversion: a floor could land the pipeline target a hair BEFORE the
+    // subsegment start and re-anchor the lanes one whole subsegment early.
+    if (m_dual && !m_segStarts.isEmpty()) {
+        int i = 0;
+        while (i + 1 < m_segStarts.size()
+               && m_segStarts.at(i + 1) <= ms * Q_INT64_C(1000000)) ++i;
+        ms = (m_segStarts.at(i) + Q_INT64_C(999999)) / Q_INT64_C(1000000);
+    }
     m_pipeline->seek(ms);
-    m_position = ms; emit positionChanged();      // scrubber stays where it was dropped
+    m_position = ms; emit positionChanged();      // scrubber lands on the snap
     if (m_state == Playing) setState(Buffering);  // flushed queues refill now
 }
 

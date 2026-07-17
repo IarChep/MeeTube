@@ -25,6 +25,13 @@ class StreamPlayer : public QObject {
     Q_PROPERTY(int     mode           READ mode           NOTIFY modeChanged)
     Q_PROPERTY(QString overlayColorKey READ overlayColorKey CONSTANT)
     Q_PROPERTY(QString errorString    READ errorString    NOTIFY stateChanged)
+    // Dual-stream stream metadata for the UI (0/empty in single mode — qtdemux
+    // owns that path): nominal fps and the "Main@3.1"-style avcC profile label.
+    // double, not qreal: on ARM qreal is float and moc encodes the property
+    // type as (QMetaType::QReal << 24), which narrows in the uint metadata
+    // table under the device build's flags. QML numbers are doubles anyway.
+    Q_PROPERTY(double  videoFps       READ videoFps       NOTIFY videoInfoChanged)
+    Q_PROPERTY(QString videoProfile   READ videoProfile   NOTIFY videoInfoChanged)
 public:
     enum State { Idle, Loading, Buffering, Playing, Paused, Stopped, Error };
     StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *policy,
@@ -47,6 +54,8 @@ public:
     int     mode()           const { return (int)m_mode; }
     QString overlayColorKey() const { return videoColorKeyCss(); }
     QString errorString()    const { return m_error; }
+    double  videoFps()       const { return m_videoFps; }
+    QString videoProfile()   const { return m_videoProfile; }
 
     Q_INVOKABLE void play(const QString &url, int mode);   // mode: 0=audio,1=video
     // Dual-stream: a video-only URL + an audio-only URL, demuxed in-house
@@ -62,6 +71,7 @@ public:
 Q_SIGNALS:
     void stateChanged(); void positionChanged(); void durationChanged();
     void bufferProgressChanged(); void seekableChanged(); void modeChanged();
+    void videoInfoChanged();
     void playbackFinished();
 private slots:
     void onGranted(); void onLost(); void onDenied(); void onReleasedByManager();
@@ -91,6 +101,8 @@ private:
     bool m_granted;   // first grant seen (distinguish initial grant from re-grant)
     QString m_audioUrl;
     bool m_dual;
+    double m_videoFps; QString m_videoProfile;   // dual metadata for the UI
+    QList<qint64> m_segStarts;   // sidx subsegment starts (ns) — the seek-snap table
     MediaPump *m_pump;          // parentless (must be movable); deleted in dtor
     QThread *m_mediaThread;     // 0 = inline mode (tests)
     // Startup gate: the pipeline prerolls PAUSED until each gated lane has its

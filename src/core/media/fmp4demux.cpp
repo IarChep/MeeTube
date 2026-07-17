@@ -44,15 +44,21 @@ static inline qint64 ticksToNs(quint64 ticks, quint32 timescale)
 struct Box { quint32 type; const uchar *body; qint64 len; };
 static bool nextBox(const uchar *p, qint64 len, qint64 &at, Box &out)
 {
-    if (at + 8 > len) return false;
+    // `at` is kept in [0, len]; test every bound against the REMAINING bytes,
+    // never `at + size` — a 64-bit size from a version-1 box (rd64) otherwise
+    // overflows the signed add (fuzz-found UB). size <= avail then guarantees
+    // the advance keeps at <= len, so the invariant holds by induction.
+    if (at < 0 || at > len) return false;
+    const qint64 avail = len - at;
+    if (avail < 8) return false;
     quint64 size = rd32(p + at);
     quint32 type = rd32(p + at + 4);
     qint64 hdr = 8;
     if (size == 1) {
-        if (at + 16 > len) return false;
+        if (avail < 16) return false;
         size = rd64(p + at + 8); hdr = 16;
     }
-    if (size < (quint64)hdr || at + (qint64)size > len) return false;
+    if (size < (quint64)hdr || size > (quint64)avail) return false;
     out.type = type; out.body = p + at + hdr; out.len = (qint64)size - hdr;
     at += (qint64)size;
     return true;
@@ -76,6 +82,7 @@ void Fmp4Demuxer::reset()
     m_trexDur = m_trexSize = m_trexFlags = 0;
     m_nextDts = 0;
     m_editTicks = 0; m_editNs = 0;
+    m_frameDurTicks = 0;
     m_needTfdt = false; m_timingWarned = false;
     m_sidx.clear(); m_sidxDurationNs = 0;
 }
@@ -352,6 +359,7 @@ bool Fmp4Demuxer::parseMoof(const uchar *p, qint64 len, qint64 moofStart)
         // uniform and the fragment's min composition time sits exactly elst
         // above its base DTS — true for every YouTube stream measured. Warn
         // ONCE if a stream ever breaks it: the timeline would skew silently.
+        if (m_video && firstDur && !m_frameDurTicks) m_frameDurTicks = firstDur;
         if (m_video && !m_timingWarned
             && (durVaries || (haveCts && minCt - (qint64)trafBaseDts != m_editTicks))) {
             m_timingWarned = true;
@@ -449,11 +457,20 @@ bool Fmp4Demuxer::feed(const QByteArray &chunk)
                 const uchar *bp = (const uchar *)m_buf.constData() + relW;
                 quint64 bsz = rd32(bp); qint64 bhdr = 8;
                 if (bsz == 1 && relW + 16 <= m_buf.size()) { bsz = rd64(bp + 8); bhdr = 16; }
-                if (rd32(bp + 4) == fourcc("mdat") && bsz >= (quint64)bhdr
-                    && (s.off < m_walk + bhdr || s.off + s.size > m_walk + (qint64)bsz))
-                    return fail("sample outside its mdat");
+                // mdat body = [m_walk+bhdr, m_walk+bsz). Compare sample extents
+                // in box-relative space (offsets never summed with a raw 64-bit
+                // bsz) so a hostile size can't overflow the arithmetic.
+                if (rd32(bp + 4) == fourcc("mdat") && bsz >= (quint64)bhdr) {
+                    const qint64 rel = s.off - m_walk;         // >= 0: s.off >= m_bufOff, walk >= bufOff
+                    if (rel < bhdr || (quint64)rel > bsz - (quint64)s.size
+                        || (quint64)s.size > bsz)
+                        return fail("sample outside its mdat");
+                }
             }
-            if (s.off + s.size > m_bufOff + m_buf.size()) break;   // wait for bytes
+            // Bytes not all here yet -> wait. Subtract the (<=32 MiB, parseMoof-
+            // capped) size instead of adding it to s.off, which could be a huge
+            // 64-bit base_data_offset and overflow the signed add.
+            if (s.off > m_bufOff + m_buf.size() - (qint64)s.size) break;
             Fmp4Sample smp;
             smp.data = m_buf.mid((int)(s.off - m_bufOff), (int)s.size);
             smp.ptsNs = s.ptsNs; smp.dtsNs = s.dtsNs;

@@ -2,6 +2,7 @@
 #define YT_MEDIA_IPIPELINE_H
 #include <QObject>
 #include <QByteArray>
+#include <QList>
 #include <QMetaType>
 #include "media/playbackmode.h"
 namespace yt { namespace media {
@@ -15,7 +16,14 @@ struct EsConfig {
     QByteArray audioCodecData;   // AudioSpecificConfig
     int rate, channels;
     qint64 durationNs;           // whole movie (mehd, else the sidx total); 0 = unknown
-    EsConfig() : width(0), height(0), rate(0), channels(0), durationNs(0) {}
+    int fpsN, fpsD;              // nominal framerate fraction (timescale / sample dur); 0/0 = unknown
+    int avcProfile, avcLevel;    // avcC profile/level bytes (77/31 = Main@3.1); 0 = unknown
+    // sidx subsegment start times (presentation ns) — the player's seek-snap
+    // table: UI seeks quantize to these so the flushed segment begins at an
+    // IDR and the DSP decodes nothing it will throw away.
+    QList<qint64> videoSegStartsNs;
+    EsConfig() : width(0), height(0), rate(0), channels(0), durationNs(0),
+                 fpsN(0), fpsD(0), avcProfile(0), avcLevel(0) {}
 };
 
 // Decode/render seam. The real impl (GstAppPipeline, src/app/media/) is a

@@ -245,10 +245,18 @@ void GstAppPipeline::buildPipeline()
             "codec_data", GST_TYPE_BUFFER, cd,
             "width",  G_TYPE_INT, m_es.width,
             "height", G_TYPE_INT, m_es.height, NULL);
+        // Nominal framerate when the demuxer resolved it (needs moof #1 —
+        // always inside the probe window in practice): dspvdec's ts engine
+        // uses it as its QoS/interpolation frame period; absent, negotiation
+        // proceeds exactly as before.
+        if (m_es.fpsN > 0 && m_es.fpsD > 0)
+            gst_caps_set_simple(caps, "framerate", GST_TYPE_FRACTION,
+                                m_es.fpsN, m_es.fpsD, NULL);
         gst_buffer_unref(cd);
         gst_app_src_set_caps(GST_APP_SRC(m_appsrc), caps);
         PLOG() << "gst: video ES caps" << m_es.width << "x" << m_es.height
-               << "avcC=" << m_es.videoCodecData.size();
+               << "avcC=" << m_es.videoCodecData.size()
+               << "fps=" << m_es.fpsN << "/" << m_es.fpsD;
         gst_caps_unref(caps);
     }
     if (m_total >= 0) gst_app_src_set_size(GST_APP_SRC(m_appsrc), (gint64)m_total);

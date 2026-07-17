@@ -67,6 +67,23 @@ public:
     // ticks -> ns): the composition -> presentation offset. Already folded
     // into every sample's ptsNs; exposed for the pump's audio clamp.
     qint64 editOffsetNs() const { return m_editNs; }
+    // Nominal frame rate = media timescale / the fragments' sample duration.
+    // YouTube's trex carries 0, so this is known once the FIRST moof parsed
+    // (the moov probe window always contains it in practice); 0.0 until then.
+    double frameRate() const { return m_frameDurTicks ? double(m_timescale) / m_frameDurTicks : 0.0; }
+    quint32 frameDurTicks() const { return m_frameDurTicks; }   // caps fraction denominator
+    quint32 timescale() const { return m_timescale; }           // caps fraction numerator
+    // avcC profile_idc / level_idc bytes (77/31 = "Main@3.1"); 0 for audio.
+    int avcProfile() const { return m_video && m_codecData.size() >= 4 ? (uchar)m_codecData.at(1) : 0; }
+    int avcLevel()   const { return m_video && m_codecData.size() >= 4 ? (uchar)m_codecData.at(3) : 0; }
+    // Subsegment (moof) start times from the sidx, presentation ns — the
+    // player snaps UI seeks to these so the post-seek segment begins exactly
+    // at an IDR and nothing is decode-and-discarded.
+    QList<qint64> segmentStartsNs() const {
+        QList<qint64> out;
+        for (int i = 0; i < m_sidx.size(); ++i) out << m_sidx.at(i).timeNs;
+        return out;
+    }
 
     // Seek index from the stream's sidx box (one per YouTube DASH file).
     bool seekIndexReady() const { return !m_sidx.isEmpty(); }
@@ -108,6 +125,7 @@ private:
     quint64 m_nextDts;       // fallback base decode time when a traf has no tfdt
     qint64 m_editTicks;      // elst media_time (media timescale); 0 = no edit
     qint64 m_editNs;
+    quint32 m_frameDurTicks; // first fragment's sample duration (video); 0 = unseen
     bool m_needTfdt;         // post-reanchor: the next fragment MUST carry a tfdt
     bool m_timingWarned;     // CFR/elst invariant warning already fired (once)
     QList<SidxRef> m_sidx;   // time -> byte map for seeking

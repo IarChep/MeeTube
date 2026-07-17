@@ -1,0 +1,6 @@
+# libFuzzer working scratch (grown from seeds/; seeds/ IS versioned)
+/corpus/
+/fuzz_fmp4
+/crash-*
+/leak-*
+/timeout-*

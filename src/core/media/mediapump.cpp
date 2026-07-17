@@ -175,6 +175,11 @@ void MediaPump::maybeEsReady()
     cfg.rate     = m_audioDemux.audioRate();
     cfg.channels = m_audioDemux.audioChannels();
     cfg.durationNs = qMax(m_videoDemux.durationNs(), m_audioDemux.durationNs());
+    cfg.fpsN = (int)m_videoDemux.timescale();       // known once moof #1 parsed
+    cfg.fpsD = (int)m_videoDemux.frameDurTicks();   // (the probe window has it)
+    cfg.avcProfile = m_videoDemux.avcProfile();
+    cfg.avcLevel   = m_videoDemux.avcLevel();
+    cfg.videoSegStartsNs = m_videoDemux.segmentStartsNs();
     emit esReady(cfg, m_video->startupTarget(), m_video->downloadedBytes(),
                  m_audio->startupTarget(), m_audio->downloadedBytes(),
                  m_videoDemux.seekIndexReady() && m_audioDemux.seekIndexReady());

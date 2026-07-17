@@ -50,6 +50,11 @@ static QByteArray mp4Edts(quint32 mediaTime)
         be32(1) + be32(0) + be32(mediaTime) + be16(1) + be16(0)));
 }
 
+// avcC: ver 1, profile 77 (Main), compat 0, level 31 -> "Main@3.1"; the tail
+// (lengthSize/SPS bytes) is opaque to the demuxer.
+static QByteArray testAvcC()
+{ return QByteArray("\x01\x4D\x00\x1F\xFF\xE1", 6) + QByteArray("SPSPPS"); }
+
 // Full video stream: ftyp + moov(avc1/avcC, trex defaults, mehd, optional
 // elst) + sidx(skipped) + moof(tfhd default-base-is-moof, tfdt 0, trun with 3
 // explicit sizes, per-sample cts offsets modelling a B-frame GOP, and sync
@@ -64,7 +69,7 @@ static QByteArray fmp4VideoFile(quint32 elstMediaTime = 0)
     avc1 += be32(0) + be16(1);                    // reserved + frame_count
     avc1 += QByteArray(32, '\0');                 // compressorname
     avc1 += be16(24) + be16(0xFFFF);              // depth + pre_defined
-    avc1 += mp4Box("avcC", QByteArray("AVCC-TEST-BYTES"));
+    avc1 += mp4Box("avcC", testAvcC());
     const QByteArray moov = mp4Box("moov",
         mp4Full("mvhd", 0, 0, be32(0) + be32(0) + be32(1000) + be32(0) + QByteArray(80, '\0'))
       + mp4Box("trak",
@@ -129,7 +134,7 @@ static QByteArray fmp4VideoFileTwoFrags()
     avc1 += be32(0) + be16(1);
     avc1 += QByteArray(32, '\0');
     avc1 += be16(24) + be16(0xFFFF);
-    avc1 += mp4Box("avcC", QByteArray("AVCC-TEST-BYTES"));
+    avc1 += mp4Box("avcC", testAvcC());
     const QByteArray moov = mp4Box("moov",
         mp4Full("mvhd", 0, 0, be32(0) + be32(0) + be32(1000) + be32(0) + QByteArray(80, '\0'))
       + mp4Box("trak",
@@ -165,6 +170,14 @@ static QByteArray fmp4AudioHeader(quint32 elstMediaTime = 0)
                 mp4Full("mdhd", 0, 0, be32(0) + be32(0) + be32(44100) + be32(0) + be32(0))
               + mp4Box("minf", mp4Box("stbl",
                     mp4Full("stsd", 0, 0, be32(1) + mp4AudioEntry()))))));
+}
+
+// Flat audio sidx: one reference covering the (44100-timescale) fragment —
+// makes the audio lane seekable in the dual seek-snap test.
+static QByteArray fmp4AudioSidx(quint32 fragSize)
+{
+    return mp4Full("sidx", 0, 0, be32(1) + be32(44100) + be32(0) + be32(0)
+                   + be16(0) + be16(1) + be32(fragSize) + be32(3072) + be32(0));
 }
 
 // One 3-sample AAC fragment: per-sample durations (1024 ticks each) + sizes,
@@ -285,7 +298,8 @@ public:
     void pause() { ++paused; }
     void resume() { ++resumed; }
     void stop() { ++stopped; }
-    void seek(qint64) {}
+    qint64 lastSeekMs = -1;
+    void seek(qint64 ms) { lastSeekMs = ms; }
     void emitNeedData(qint64 n) { emit needData(n); }
     void emitStarted() { emit started(); }
     void emitFinished() { emit finished(); }
@@ -534,9 +548,13 @@ private slots:
         QCOMPARE(pipe->esConfigured, 0);              // audio moov still missing
         asrc->emitData(fmp4AudioHeader());
         QCOMPARE(pipe->esConfigured, 1);
-        QCOMPARE(pipe->esCfg.videoCodecData, QByteArray("AVCC-TEST-BYTES"));
+        QCOMPARE(pipe->esCfg.videoCodecData, testAvcC());
         QCOMPARE(pipe->esCfg.width, 854);
         QCOMPARE(pipe->esCfg.height, 480);
+        QCOMPARE(pipe->esCfg.fpsN, 90000);            // caps fraction = 30 fps
+        QCOMPARE(pipe->esCfg.fpsD, 3000);
+        QCOMPARE(p.videoFps(), 30.0);                 // the UI properties
+        QCOMPARE(p.videoProfile(), QString("Main@3.1"));
         QCOMPARE(pipe->esCfg.audioCodecData, QByteArray("\x12\x10", 2));
         QCOMPARE(pipe->esCfg.rate, 44100);
         QCOMPARE(pipe->esCfg.channels, 2);
@@ -629,8 +647,11 @@ private slots:
         QVERIFY(d.isVideo());
         QCOMPARE(d.width(), 854);
         QCOMPARE(d.height(), 480);
-        QCOMPARE(d.codecData(), QByteArray("AVCC-TEST-BYTES"));
+        QCOMPARE(d.codecData(), testAvcC());
+        QCOMPARE(d.avcProfile(), 77);                       // avcC bytes 1/3
+        QCOMPARE(d.avcLevel(), 31);
         QCOMPARE(d.durationNs(), Q_INT64_C(84311000000));   // mehd 84311 @ movie ts 1000
+        QCOMPARE(d.frameRate(), 30.0);                      // 90000 / trex dur 3000
         QList<yt::media::Fmp4Sample> s = d.takeSamples();
         QCOMPARE(s.size(), 3);
         QCOMPARE(s[0].data, QByteArray("AAAAA"));
@@ -698,6 +719,31 @@ private slots:
         const qint64 off2 = d.seekOffsetForNs(Q_INT64_C(150000000), &segStart);
         QCOMPARE(segStart, Q_INT64_C(100000000));          // 150 ms -> 2nd (9000 ticks)
         QVERIFY(off2 > off1);
+        const QList<qint64> starts = d.segmentStartsNs();  // the seek-snap table
+        QCOMPARE(starts.size(), 2);
+        QCOMPARE(starts.at(0), Q_INT64_C(0));
+        QCOMPARE(starts.at(1), Q_INT64_C(100000000));
+    }
+
+    // UI seeks in dual mode snap to the sidx subsegment start at or before the
+    // target: the flushed segment then begins at a moof/IDR and the DSP decodes
+    // nothing the sinks would clip (up to ~7 s per YouTube subsegment).
+    void dualSeekSnapsToSubsegment() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/136", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFileTwoFrags());           // segments at 0 and 100 ms
+        const QByteArray afrag = fmp4AudioFragment();
+        asrc->emitData(fmp4AudioHeader() + fmp4AudioSidx(afrag.size()) + afrag);
+        QCOMPARE(pipe->esConfigured, 1);
+        QVERIFY(p.seekable());                             // sidx on BOTH lanes
+        p.seek(150);
+        QCOMPARE(pipe->lastSeekMs, Q_INT64_C(100));        // snapped back to moof #2
+        QCOMPARE(p.position(), Q_INT64_C(100));            // scrubber tells the truth
+        p.seek(50);
+        QCOMPARE(pipe->lastSeekMs, Q_INT64_C(0));          // snapped to moof #1
     }
 
     // Re-anchoring at a sidx boundary keeps the header state and resumes with
