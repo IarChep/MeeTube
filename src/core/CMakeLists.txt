@@ -46,6 +46,7 @@ add_library(meetube-core STATIC
     media/bytesource.cpp
     media/fmp4demux.cpp
     media/hlssource.cpp
+    media/mediapump.cpp
     media/streamplayer.cpp
     media/subtitletrack.cpp
 )

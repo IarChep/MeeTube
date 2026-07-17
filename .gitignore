@@ -3,6 +3,7 @@
 /build-n9/
 # ctest scratch (from running ctest in-tree)
 /tests/Testing/
+/Testing/
 # Debian package outputs (produced by `make -C build-n9 package`)
 /*.deb
 /*.changes

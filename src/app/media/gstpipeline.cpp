@@ -23,7 +23,6 @@ void GstAppPipeline::seek(qint64) {}
 void GstAppPipeline::setGlContext(QGLContext *) {}
 void *GstAppPipeline::glSink() const { return 0; }
 bool GstAppPipeline::currentGlFrame(int *) { return false; }
-void GstAppPipeline::glFramePainted() {}
 }}
 #else                    // ---- device: GStreamer 0.10 appsrc pipeline ----
 #include <QString>
@@ -57,12 +56,19 @@ void GstAppPipeline::setVideoWindow(WId w) { m_winId = w; }
 void GstAppPipeline::teardown()
 {
     if (m_pipeline) {
-        // Release a streaming thread parked in the frame-ready gate BEFORE the
-        // NULL transition joins it, or teardown deadlocks on our own condition.
+        // Detach the pump-facing data entry points FIRST: pushes arrive from
+        // the media thread, and taking the lock waits out any in-flight push —
+        // later pushes see null sources and no-op, so the bin below dies with
+        // nobody feeding it.
+        {
+            QMutexLocker es(&m_esLock);
+            m_appsrc = 0; m_audiosrc = 0;
+        }
+        // Invalidate the current frame before the NULL transition (paints must
+        // stop acquiring against a dying sink).
         {
             QMutexLocker lk(&m_glMutex);
             m_glFrame = -1;
-            m_glPainted.wakeAll();
         }
         m_glSink = 0;
         if (m_busWatchId) { g_source_remove(m_busWatchId); m_busWatchId = 0; }
@@ -75,9 +81,13 @@ void GstAppPipeline::teardown()
         // frame number past onGlFrame's guard (device-observed "frame 4 not ready"
         // spam after a source switch). Post-join the old pipeline can't post, so
         // every still-queued event carries this pre-bump gen and gets dropped.
+        // The frame number is reset here too — the dying sink's last frame-ready
+        // callback may have re-recorded a slot after the wake above, and that
+        // slot doesn't exist against the next pipeline's sink.
         {
             QMutexLocker lk(&m_glMutex);
             ++m_glGen;
+            m_glFrame = -1;
         }
     }
 }
@@ -92,20 +102,25 @@ void GstAppPipeline::configure(PlaybackMode mode, bool seekable, qint64 totalSiz
 // branches of the SAME pipeline — one clock, so the sinks sync and PLAYING
 // waits for both branches to preroll. The player owns the fMP4 demux (0.10
 // qtdemux can't push-demux YouTube's fragmented mp4); we only decode/render.
-// Always video, never seekable.
+// Always video. Seekable: flushing TIME seeks land in the appsrcs' seek-data
+// callbacks and the pump re-anchors via sidx (the player gates seek() on the
+// index actually existing).
 void GstAppPipeline::configureDualEs(const EsConfig &cfg)
 {
-    m_dual = true; m_mode = VideoMode; m_seekable = false; m_total = -1;
+    m_dual = true; m_mode = VideoMode; m_seekable = true; m_total = -1;
     m_es = cfg;
     buildPipeline();
     // Nothing downstream knows the movie length in ES push mode — surface the
-    // mvex/mehd duration the demuxer found so the scrubber isn't blank.
+    // mehd (or sidx-summed) duration the demuxer found so the scrubber isn't blank.
     if (cfg.durationNs > 0) emit durationChanged(cfg.durationNs / 1000000);
 }
 
 void GstAppPipeline::buildPipeline()
 {
     teardown();
+    // Serialize against media-thread pushes for the whole build: the appsrc
+    // pointers must not be observable half-configured (caps/props pending).
+    QMutexLocker es(&m_esLock);
     m_pipeline = gst_pipeline_new("meetube-player");
     m_appsrc   = gst_element_factory_make("appsrc", "src");
     m_decode   = gst_element_factory_make("decodebin2", "dec");
@@ -198,27 +213,30 @@ void GstAppPipeline::buildPipeline()
                << "audioconvert=" << (m_aconv != 0) << "audioresample=" << (m_ares != 0)
                << "autoaudiosink=" << (m_asink != 0) << "vsink=" << (m_vsink != 0);
 
-    // appsrc scheduling — ALWAYS forward-only STREAM push:
-    // - Single stream (BYTES): advertising SEEKABLE makes qtdemux issue a byte-seek
-    //   during preroll, and with no "seek-data" handler connected appsrc can't
-    //   service it — the pipeline freezes in READY before the first need-data
-    //   (device-observed 2026-07-13). YouTube progressive mp4 is faststart (moov
-    //   first), so push-mode demuxing works — device-verified config.
+    // appsrc scheduling:
+    // - Single stream (BYTES): SEEKABLE when the HTTP source honours ranges —
+    //   qtdemux maps time seeks to byte offsets against its sample tables and
+    //   the "seek-data" callback re-anchors the fetch (the 2026-07-13 freeze was
+    //   SEEKABLE with NO handler connected). YouTube progressive mp4 is
+    //   faststart (moov first), so push-mode demuxing works.
     // - Dual (TIME): the player demuxes the fragmented mp4 itself (0.10 qtdemux
     //   can't — it parses the moov, finds no samples and EOSes instantly;
     //   device-observed 2026-07-16) and pushes timestamped H.264/AAC samples;
     //   the caps below carry the codec config qtdemux would have produced.
-    //   block=FALSE on the ES lanes: sample pushes come from the GUI thread in
-    //   window-sized bursts, and a full appsrc queue drains at PLAYBACK speed —
-    //   a blocking push would freeze the whole app for minutes (a 2 MiB AAC
-    //   queue is ~2 min of audio). Queue growth stays bounded anyway: appsrc
-    //   only asks (need-data) when it runs dry, and one request moves one
-    //   source window.
+    //   SEEKABLE: a flushing TIME seek hands both lanes' seek-data callbacks the
+    //   target, and the pump re-anchors each lane at a moof via its sidx.
+    //   block=FALSE on the ES lanes: sample pushes arrive in window-sized
+    //   bursts, and a full appsrc queue drains at PLAYBACK speed — a blocking
+    //   push would stall the pump for minutes (a 2 MiB AAC queue is ~2 min of
+    //   audio). Queue growth stays bounded anyway: appsrc only asks (need-data)
+    //   when it runs dry, and one request moves one source window.
     g_object_set(G_OBJECT(m_appsrc),
-                 "stream-type", GST_APP_STREAM_TYPE_STREAM,
+                 "stream-type", (m_dual || m_seekable) ? GST_APP_STREAM_TYPE_SEEKABLE
+                                                       : GST_APP_STREAM_TYPE_STREAM,
                  "format", m_dual ? GST_FORMAT_TIME : GST_FORMAT_BYTES,
                  "is-live", FALSE,
                  "block", m_dual ? FALSE : TRUE, NULL);
+    g_signal_connect(m_appsrc, "seek-data", G_CALLBACK(&GstAppPipeline::onSeekDataCb), this);
     if (m_dual) {
         g_object_set(G_OBJECT(m_appsrc), "max-bytes", (guint64)(8 * 1024 * 1024), NULL);
         GstBuffer *cd = gst_buffer_new_and_alloc(m_es.videoCodecData.size());
@@ -250,11 +268,13 @@ void GstAppPipeline::buildPipeline()
             m_audiosrc = m_adecode = 0;
         } else {
             g_object_set(G_OBJECT(m_audiosrc),
-                         "stream-type", GST_APP_STREAM_TYPE_STREAM,
+                         "stream-type", GST_APP_STREAM_TYPE_SEEKABLE,
                          "format", GST_FORMAT_TIME,
                          "is-live", FALSE,
                          "block", FALSE,   // see the video appsrc comment
                          "max-bytes", (guint64)(4 * 1024 * 1024), NULL);
+            g_signal_connect(m_audiosrc, "seek-data",
+                             G_CALLBACK(&GstAppPipeline::onSeekDataCb), this);
             GstBuffer *cd = gst_buffer_new_and_alloc(m_es.audioCodecData.size());
             memcpy(GST_BUFFER_DATA(cd), m_es.audioCodecData.constData(), m_es.audioCodecData.size());
             GstCaps *caps = gst_caps_new_simple("audio/mpeg",
@@ -339,6 +359,20 @@ void GstAppPipeline::onAudioNeedDataCb(GstAppSrc *, guint length, gpointer user)
 }
 void GstAppPipeline::emitNeedData(qint64 n) { emit needData(n); }
 void GstAppPipeline::emitNeedAudioData(qint64 n) { emit needAudioData(n); }
+void GstAppPipeline::emitSeekRequested(qint64 off) { emit seekRequested(off); }
+
+// static — a flushing seek reached an appsrc (its streaming thread): report the
+// resume point and return TRUE; the pump re-anchors asynchronously and pushes
+// continue from the new spot. Single mode: `offset` is BYTES (qtdemux computed
+// it from the sample tables). Dual mode: both lanes fire with the same TIME
+// target; the pump dedupes and maps it to per-lane moofs via sidx.
+gboolean GstAppPipeline::onSeekDataCb(GstAppSrc *, guint64 offset, gpointer user)
+{
+    GstAppPipeline *self = static_cast<GstAppPipeline *>(user);
+    QMetaObject::invokeMethod(self, "emitSeekRequested", Qt::QueuedConnection,
+                              Q_ARG(qint64, (qint64)offset));
+    return TRUE;
+}
 
 // static — link decodebin2 output pads: audio -> aconv, anything else -> fakesink.
 void GstAppPipeline::onPadAddedCb(GstElement *, GstPad *pad, gpointer user)
@@ -434,55 +468,35 @@ bool GstAppPipeline::currentGlFrame(int *frame)
     return true;
 }
 
-void GstAppPipeline::glFramePainted()
-{
-    QMutexLocker lk(&m_glMutex);
-    m_glPainted.wakeAll();
-}
-
-// static — "frame-ready" on the sink's streaming thread. canon handleFrameReady:
-// marshal the frame number to the GUI thread, then hold this thread (bounded to
-// 60 ms ~ 1-2 frame intervals) so the sink doesn't recycle the frame before the
-// scene had a chance to draw it; the item's paint releases us via glFramePainted().
+// static — "frame-ready" on the sink's streaming thread. Record the frame
+// number IMMEDIATELY (latest-wins: the paint always samples the sink's newest
+// frame — a queued backlog of stale frame numbers must never reach the screen,
+// their slots get rewritten and the picture shuffles; device-traced 2026-07-17)
+// and do NOT hold this thread: canon parked it up to 60 ms per frame waiting
+// for the GUI, which converts every GUI stall into a late/dropped video frame
+// (measured: 546 ms feed holds -> 17 timeout hits/min). Slot lifetime during
+// the actual draw is what acquire+bind+EGL-fence already guard.
 void GstAppPipeline::onGlFrameReadyCb(GstElement *, gint frame, gpointer user)
 {
     GstAppPipeline *self = static_cast<GstAppPipeline *>(user);
-    QMutexLocker lk(&self->m_glMutex);
+    int gen;
+    {
+        QMutexLocker lk(&self->m_glMutex);
+        self->m_glFrame = frame;
+        gen = self->m_glGen;
+    }
     QMetaObject::invokeMethod(self, "onGlFrame", Qt::QueuedConnection,
-                              Q_ARG(int, (int) frame), Q_ARG(int, self->m_glGen));
-    self->m_glPainted.wait(&self->m_glMutex, 60);
+                              Q_ARG(int, gen));
 }
 
-// GUI thread — canon renderGLFrame: skip while the sink is (heading to) NULL,
-// stash the frame, schedule the scene draw, then release the streaming thread
-// (canon wakes at the END of renderGLFrame, right after present()).
-void GstAppPipeline::onGlFrame(int frame, int gen)
+// GUI thread — schedule the scene draw for the (already recorded) newest frame.
+// The frame number itself was stored by the streaming thread; this queued hop
+// only exists to call update() on the GUI thread. Stale events (gen from a past
+// pipeline life) are ignored — the frame slot they announce is gone.
+void GstAppPipeline::onGlFrame(int gen)
 {
-    // A queued frame event can land AFTER teardown()+buildPipeline() replaced its
-    // sink (source switch): accepting it resurrects a stale frame number against
-    // the NEW sink — every paint then acquire-fails until a real frame overwrites
-    // it (or forever, if preroll stalls). Drop events stamped by a past life.
     if (gen != m_glGen) return;
-    if (m_glSink) {
-        GstState cur = GST_STATE_NULL, pend = GST_STATE_NULL;
-        const GstStateChangeReturn r =
-            gst_element_get_state(m_glSink, &cur, &pend, 0);   // don't block
-        if (r == GST_STATE_CHANGE_FAILURE
-            || cur == GST_STATE_NULL || pend == GST_STATE_NULL) {
-            QMutexLocker lk(&m_glMutex);
-            m_glPainted.wakeAll();
-            return;
-        }
-    }
-    {
-        QMutexLocker lk(&m_glMutex);
-        m_glFrame = frame;
-    }
     emit glFrameReady();   // -> EglVideoItem::update() (the present() analogue)
-    {
-        QMutexLocker lk(&m_glMutex);
-        m_glPainted.wakeAll();
-    }
 }
 
 // static — bus watch -> IPipeline signals.
@@ -515,19 +529,28 @@ gboolean GstAppPipeline::onBusCb(GstBus *, GstMessage *msg, gpointer user)
     return TRUE;
 }
 
+// Data entry points — the ONLY pipeline methods called from the media thread
+// (MediaPump). m_esLock guards the appsrc pointers against the GUI-side
+// teardown()/buildPipeline(); the gst push itself is thread-safe.
 void GstAppPipeline::pushData(const QByteArray &chunk)
 {
+    QMutexLocker es(&m_esLock);
     if (!m_appsrc) return;
     GstBuffer *buf = gst_buffer_new_and_alloc(chunk.size());
     memcpy(GST_BUFFER_DATA(buf), chunk.constData(), chunk.size());
     gst_app_src_push_buffer(GST_APP_SRC(m_appsrc), buf);   // takes ownership
 }
 
-void GstAppPipeline::endOfStream() { if (m_appsrc) gst_app_src_end_of_stream(GST_APP_SRC(m_appsrc)); }
+void GstAppPipeline::endOfStream()
+{
+    QMutexLocker es(&m_esLock);
+    if (m_appsrc) gst_app_src_end_of_stream(GST_APP_SRC(m_appsrc));
+}
 
-// Dual-ES sample push: decode order, stamped with the player's MONOTONIC DTS
-// (dspvdec hands timestamps out FIFO — see StreamPlayer::drainSamples);
-// non-keyframes flagged DELTA so the decoder/sink know where sync points are.
+// Dual-ES sample push: decode order — video stamped with the pump's MONOTONIC
+// DTS, audio with its elst-corrected pts (dspvdec hands timestamps out FIFO —
+// see MediaPump::drainSamples); non-keyframes flagged DELTA so the
+// decoder/sink know where sync points are.
 static GstBuffer *sampleBuffer(const QByteArray &data, qint64 tsNs, qint64 durNs)
 {
     GstBuffer *b = gst_buffer_new_and_alloc(data.size());
@@ -538,6 +561,7 @@ static GstBuffer *sampleBuffer(const QByteArray &data, qint64 tsNs, qint64 durNs
 }
 void GstAppPipeline::pushVideoSample(const QByteArray &data, qint64 tsNs, qint64 durNs, bool keyframe)
 {
+    QMutexLocker es(&m_esLock);
     if (!m_appsrc) return;
     GstBuffer *b = sampleBuffer(data, tsNs, durNs);
     if (!keyframe) GST_BUFFER_FLAG_SET(b, GST_BUFFER_FLAG_DELTA_UNIT);
@@ -545,10 +569,15 @@ void GstAppPipeline::pushVideoSample(const QByteArray &data, qint64 tsNs, qint64
 }
 void GstAppPipeline::pushAudioSample(const QByteArray &data, qint64 tsNs, qint64 durNs)
 {
+    QMutexLocker es(&m_esLock);
     if (!m_audiosrc) return;
     gst_app_src_push_buffer(GST_APP_SRC(m_audiosrc), sampleBuffer(data, tsNs, durNs));
 }
-void GstAppPipeline::audioEndOfStream() { if (m_audiosrc) gst_app_src_end_of_stream(GST_APP_SRC(m_audiosrc)); }
+void GstAppPipeline::audioEndOfStream()
+{
+    QMutexLocker es(&m_esLock);
+    if (m_audiosrc) gst_app_src_end_of_stream(GST_APP_SRC(m_audiosrc));
+}
 
 void GstAppPipeline::play()   { if (m_pipeline) { gst_element_set_state(m_pipeline, GST_STATE_PLAYING); m_posTimer.start(); } }
 void GstAppPipeline::pause()  { if (m_pipeline) gst_element_set_state(m_pipeline, GST_STATE_PAUSED); m_posTimer.stop(); }

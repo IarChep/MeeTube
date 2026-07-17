@@ -7,7 +7,6 @@
 #include <gst/app/gstappsrc.h>
 #include <QTimer>
 #include <QMutex>
-#include <QWaitCondition>
 #endif
 class QGLContext;
 namespace yt { namespace media {
@@ -38,11 +37,11 @@ public:
     // Texture-streaming renderer seam (EglVideoItem): the item's first paint
     // hands over the QML scene's GL context; VideoMode then builds gltexturesink
     // against it (canon QtMultimediaKit flow). glSink()/currentGlFrame() feed the
-    // item's paint; glFramePainted() releases the sink's 60 ms frame gate.
+    // item's paint (currentGlFrame always reports the sink's NEWEST frame — the
+    // streaming thread records it directly and never blocks on the GUI).
     void setGlContext(QGLContext *ctx);
     void *glSink() const;
     bool currentGlFrame(int *frame);
-    void glFramePainted();
     int videoWidth() const  { return m_videoW; }
     int videoHeight() const { return m_videoH; }
 Q_SIGNALS:
@@ -55,6 +54,7 @@ private:
     // GStreamer callbacks trampoline back into Qt-thread-safe emits via queued signals.
     static void onNeedDataCb(GstAppSrc *src, guint length, gpointer user);
     static void onAudioNeedDataCb(GstAppSrc *src, guint length, gpointer user);  // dual mode's audio appsrc
+    static gboolean onSeekDataCb(GstAppSrc *src, guint64 offset, gpointer user); // flushing seek reached an appsrc
     static void onPadAddedCb(GstElement *dec, GstPad *pad, gpointer user);
     static gboolean onBusCb(GstBus *bus, GstMessage *msg, gpointer user);
     static GstBusSyncReply onSyncMsg(GstBus *bus, GstMessage *msg, gpointer user);  // prepare-xwindow-id -> overlay
@@ -74,20 +74,23 @@ private:
     PlaybackMode m_mode; bool m_seekable; qint64 m_total;
     bool m_dual;
     EsConfig m_es;   // dual: codec blobs for the appsrc caps
+    // Guards the appsrc pointers between the media thread's data pushes
+    // (pushData/push*Sample/endOfStream*) and the GUI's teardown/buildPipeline.
+    QMutex m_esLock;
     // Texture-streaming state (canon QGstreamerGLTextureRenderer): the scene GL
     // context, the gltexturesink element, and the frame handshake gate.
     QGLContext    *m_glCtx;
     GstElement    *m_glSink;       // == m_vsink when texture mode is active
     QMutex         m_glMutex;
-    QWaitCondition m_glPainted;    // streaming thread waits <=60 ms per frame
     int            m_glFrame;      // current frame number (-1 = none)
     int            m_glGen;        // bumped by teardown(); stamps frame events so stale ones drop
     guint          m_sizeProbeId;  // canon m_bufferProbeId (one-shot native size)
 private slots:
     void emitNeedData(qint64 n);   // marshalled from the streaming thread
     void emitNeedAudioData(qint64 n);   // marshalled from the audio appsrc's streaming thread
+    void emitSeekRequested(qint64 offset);   // marshalled from onSeekDataCb
     void onPosTick();              // query + emit position/duration
-    void onGlFrame(int frame, int gen);   // GUI side of frame-ready: stash + notify item
+    void onGlFrame(int gen);       // GUI side of frame-ready: notify the item
     void updateNativeVideoSize();  // canon: negotiated sink caps -> videoWidth/Height
 #endif
 };

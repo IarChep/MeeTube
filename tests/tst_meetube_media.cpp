@@ -42,11 +42,19 @@ static QByteArray mp4AudioEntry()
     return mp4Box("mp4a", entry);
 }
 
-// Full video stream: ftyp + moov(avc1/avcC, trex defaults, mehd) + sidx(skipped)
-// + moof(tfhd default-base-is-moof, tfdt 0, trun with 3 explicit sizes, per-
-// sample cts offsets modelling a B-frame GOP, and sync first_sample_flags)
-// + mdat with the 3 payloads back to back.
-static QByteArray fmp4VideoFile()
+// v0 elst with one edit: segment_duration 0, media_time (the composition ->
+// presentation shift), rate 1.0 — the exact single-edit shape YouTube writes.
+static QByteArray mp4Edts(quint32 mediaTime)
+{
+    return mp4Box("edts", mp4Full("elst", 0, 0,
+        be32(1) + be32(0) + be32(mediaTime) + be16(1) + be16(0)));
+}
+
+// Full video stream: ftyp + moov(avc1/avcC, trex defaults, mehd, optional
+// elst) + sidx(skipped) + moof(tfhd default-base-is-moof, tfdt 0, trun with 3
+// explicit sizes, per-sample cts offsets modelling a B-frame GOP, and sync
+// first_sample_flags) + mdat with the 3 payloads back to back.
+static QByteArray fmp4VideoFile(quint32 elstMediaTime = 0)
 {
     QByteArray avc1;
     avc1 += QByteArray(6, '\0') + be16(1);        // reserved + dri
@@ -61,6 +69,7 @@ static QByteArray fmp4VideoFile()
         mp4Full("mvhd", 0, 0, be32(0) + be32(0) + be32(1000) + be32(0) + QByteArray(80, '\0'))
       + mp4Box("trak",
             mp4Full("tkhd", 0, 0, be32(0) + be32(0) + be32(1) + QByteArray(72, '\0'))
+          + (elstMediaTime ? mp4Edts(elstMediaTime) : QByteArray())
           + mp4Box("mdia",
                 mp4Full("mdhd", 0, 0, be32(0) + be32(0) + be32(90000) + be32(0) + be32(0))
               + mp4Box("minf", mp4Box("stbl",
@@ -88,17 +97,94 @@ static QByteArray fmp4VideoFile()
          + moof + mp4Box("mdat", QByteArray("AAAAA") + "BBBBBBB" + "CCCCCCCCC");
 }
 
-// ftyp + audio moov only (mp4a/esds ASC {0x12,0x10}, 44.1 kHz stereo).
-static QByteArray fmp4AudioHeader()
+// One 3-sample fragment (moof + mdat) with an explicit tfdt — the trex default
+// duration (3000 ticks) makes each fragment 9000 ticks long.
+static QByteArray fmp4Fragment(quint32 tfdtTicks)
+{
+    const QByteArray samples = be32(5) + be32(0)   // size, cts offset
+                             + be32(7) + be32(0)
+                             + be32(9) + be32(0);
+    QByteArray moof; quint32 dataOff = 0;
+    for (int pass = 0; pass < 2; ++pass) {
+        moof = mp4Box("moof", mp4Full("mfhd", 0, 0, be32(1))
+            + mp4Box("traf",
+                  mp4Full("tfhd", 0, 0x020000, be32(1))
+                + mp4Full("tfdt", 0, 0, be32(tfdtTicks))
+                + mp4Full("trun", 0, 0x01 | 0x04 | 0x200 | 0x800,
+                          be32(3) + be32(dataOff) + be32(0) + samples)));
+        dataOff = moof.size() + 8;
+    }
+    return moof + mp4Box("mdat", QByteArray("AAAAA") + "BBBBBBB" + "CCCCCCCCC");
+}
+
+// YouTube-shaped two-fragment stream: moov WITHOUT mehd (duration must come
+// from the sidx) + a real sidx (2 refs, 9000 ticks @ 90000 each) + 2 fragments.
+static QByteArray fmp4VideoFileTwoFrags()
+{
+    QByteArray avc1;
+    avc1 += QByteArray(6, '\0') + be16(1);
+    avc1 += QByteArray(16, '\0');
+    avc1 += be16(854) + be16(480);
+    avc1 += be32(0x00480000) + be32(0x00480000);
+    avc1 += be32(0) + be16(1);
+    avc1 += QByteArray(32, '\0');
+    avc1 += be16(24) + be16(0xFFFF);
+    avc1 += mp4Box("avcC", QByteArray("AVCC-TEST-BYTES"));
+    const QByteArray moov = mp4Box("moov",
+        mp4Full("mvhd", 0, 0, be32(0) + be32(0) + be32(1000) + be32(0) + QByteArray(80, '\0'))
+      + mp4Box("trak",
+            mp4Full("tkhd", 0, 0, be32(0) + be32(0) + be32(1) + QByteArray(72, '\0'))
+          + mp4Box("mdia",
+                mp4Full("mdhd", 0, 0, be32(0) + be32(0) + be32(90000) + be32(0) + be32(0))
+              + mp4Box("minf", mp4Box("stbl",
+                    mp4Full("stsd", 0, 0, be32(1) + mp4Box("avc1", avc1))))))
+      + mp4Box("mvex",
+            mp4Full("trex", 0, 0, be32(1) + be32(1) + be32(3000) + be32(0) + be32(0x00010000))));
+    const QByteArray frag1 = fmp4Fragment(0);
+    const QByteArray frag2 = fmp4Fragment(9000);
+    const QByteArray sidxPayload = be32(1)          // reference_ID
+        + be32(90000)                               // timescale
+        + be32(0) + be32(0)                         // earliest_pts, first_offset
+        + be16(0) + be16(2)                         // reserved, reference_count
+        + be32(frag1.size()) + be32(9000) + be32(0)
+        + be32(frag2.size()) + be32(9000) + be32(0);
+    return mp4Box("ftyp", QByteArray("isom")) + moov
+         + mp4Full("sidx", 0, 0, sidxPayload) + frag1 + frag2;
+}
+
+// ftyp + audio moov only (mp4a/esds ASC {0x12,0x10}, 44.1 kHz stereo,
+// optional priming elst).
+static QByteArray fmp4AudioHeader(quint32 elstMediaTime = 0)
 {
     return mp4Box("ftyp", QByteArray("isom")) + mp4Box("moov",
         mp4Full("mvhd", 0, 0, be32(0) + be32(0) + be32(1000) + be32(0) + QByteArray(80, '\0'))
       + mp4Box("trak",
             mp4Full("tkhd", 0, 0, be32(0) + be32(0) + be32(1) + QByteArray(72, '\0'))
+          + (elstMediaTime ? mp4Edts(elstMediaTime) : QByteArray())
           + mp4Box("mdia",
                 mp4Full("mdhd", 0, 0, be32(0) + be32(0) + be32(44100) + be32(0) + be32(0))
               + mp4Box("minf", mp4Box("stbl",
                     mp4Full("stsd", 0, 0, be32(1) + mp4AudioEntry()))))));
+}
+
+// One 3-sample AAC fragment: per-sample durations (1024 ticks each) + sizes,
+// no cts offsets (audio never reorders), tfdt 0, tfhd default-base-is-moof.
+static QByteArray fmp4AudioFragment()
+{
+    const QByteArray samples = be32(1024) + be32(5)   // duration, size
+                             + be32(1024) + be32(7)
+                             + be32(1024) + be32(9);
+    QByteArray moof; quint32 dataOff = 0;
+    for (int pass = 0; pass < 2; ++pass) {
+        moof = mp4Box("moof", mp4Full("mfhd", 0, 0, be32(1))
+            + mp4Box("traf",
+                  mp4Full("tfhd", 0, 0x020000, be32(1))
+                + mp4Full("tfdt", 0, 0, be32(0))
+                + mp4Full("trun", 0, 0x01 | 0x100 | 0x200,
+                          be32(3) + be32(dataOff) + samples)));
+        dataOff = moof.size() + 8;
+    }
+    return moof + mp4Box("mdat", QByteArray("AAAAA") + "BBBBBBB" + "CCCCCCCCC");
 }
 
 // Qt 4.7.4's QtTest ships no QTRY_COMPARE (added in 4.8) — same gap the loopback
@@ -207,10 +293,12 @@ public:
     int esConfigured = 0; yt::media::EsConfig esCfg;
     int videoSamples = 0, audioSamples = 0;
     qint64 lastVideoTs = -1; bool lastVideoKey = false; bool audioEos = false;
+    qint64 firstAudioTs = -1, lastAudioTs = -1;
     void configureDualEs(const yt::media::EsConfig &cfg) { ++esConfigured; esCfg = cfg; }
     void pushVideoSample(const QByteArray &, qint64 ts, qint64, bool key)
     { ++videoSamples; lastVideoTs = ts; lastVideoKey = key; }
-    void pushAudioSample(const QByteArray &, qint64, qint64) { ++audioSamples; }
+    void pushAudioSample(const QByteArray &, qint64 ts, qint64)
+    { if (!audioSamples) firstAudioTs = ts; ++audioSamples; lastAudioTs = ts; }
     void audioEndOfStream() { audioEos = true; }
     void emitNeedAudioData(qint64 n) { emit needAudioData(n); }
 };
@@ -593,6 +681,179 @@ private slots:
         yt::media::Fmp4Demuxer d;
         QVERIFY(!d.feed(QByteArray("<html>not a video at all, sorry</html>")));
         QVERIFY(!d.error().isEmpty());
+    }
+
+    // sidx (YouTube layout, no mehd): total duration + the time->byte seek map.
+    void fmp4SidxDurationAndSeekIndex() {
+        const QByteArray file = fmp4VideoFileTwoFrags();
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(d.feed(file));
+        QVERIFY(d.headerReady());
+        QVERIFY(d.seekIndexReady());
+        QCOMPARE(d.durationNs(), Q_INT64_C(200000000));    // 18000 ticks @ 90000
+        QCOMPARE(d.takeSamples().size(), 6);               // both fragments demuxed
+        qint64 segStart = -1;
+        const qint64 off1 = d.seekOffsetForNs(Q_INT64_C(50000000), &segStart);
+        QCOMPARE(segStart, Q_INT64_C(0));                  // 50 ms -> 1st subsegment
+        const qint64 off2 = d.seekOffsetForNs(Q_INT64_C(150000000), &segStart);
+        QCOMPARE(segStart, Q_INT64_C(100000000));          // 150 ms -> 2nd (9000 ticks)
+        QVERIFY(off2 > off1);
+    }
+
+    // Re-anchoring at a sidx boundary keeps the header state and resumes with
+    // tfdt-correct absolute timestamps — the dual-seek core.
+    void fmp4ReanchorResumesAtFragment() {
+        const QByteArray file = fmp4VideoFileTwoFrags();
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(d.feed(file));
+        d.takeSamples();
+        qint64 segStart = -1;
+        const qint64 off = d.seekOffsetForNs(Q_INT64_C(150000000), &segStart);
+        d.reanchor(off);
+        QVERIFY(d.headerReady());                          // codec state survives
+        QVERIFY(d.feed(file.mid((int)off)));               // bytes arrive from the new spot
+        QList<yt::media::Fmp4Sample> s = d.takeSamples();
+        QCOMPARE(s.size(), 3);
+        QCOMPARE(s[0].dtsNs, Q_INT64_C(100000000));        // tfdt 9000 @ 90000
+        QCOMPARE(s[0].data, QByteArray("AAAAA"));
+    }
+
+    // elst (the MSE single-edit profile): media_time shifts ptsNs — composition
+    // -> presentation, real YouTube inits carry it (e.g. 512 @ 12800) — and is
+    // exposed via editOffsetNs(). The decode clock (dtsNs) is untouched.
+    void fmp4ElstShiftsPts() {
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(d.feed(fmp4VideoFile(3000)));              // elst = the min cts offset
+        QVERIFY(d.headerReady());
+        QCOMPARE(d.editOffsetNs(), Q_INT64_C(33333333));   // 3000 @ 90000
+        QList<yt::media::Fmp4Sample> s = d.takeSamples();
+        QCOMPARE(s.size(), 3);
+        QCOMPARE(s[0].dtsNs, Q_INT64_C(0));                // decode clock unchanged
+        QCOMPARE(s[2].dtsNs, Q_INT64_C(66666666));
+        QCOMPARE(s[0].ptsNs, Q_INT64_C(33333333));         // (0 + 6000 − 3000) ticks
+        QCOMPARE(s[1].ptsNs, Q_INT64_C(0));                // (3000 + 0 − 3000)
+        QCOMPARE(s[2].ptsNs, Q_INT64_C(66666666));         // (6000 + 3000 − 3000)
+    }
+
+    // AAC priming: an audio elst dips the leading samples' pts below zero;
+    // dts stays the raw decode clock.
+    void fmp4AudioElstPriming() {
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(d.feed(fmp4AudioHeader(1024) + fmp4AudioFragment()));
+        QVERIFY2(d.headerReady(), qPrintable(d.error()));
+        QCOMPARE(d.editOffsetNs(), Q_INT64_C(23219954));   // 1024 @ 44100
+        QList<yt::media::Fmp4Sample> s = d.takeSamples();
+        QCOMPARE(s.size(), 3);
+        QCOMPARE(s[0].dtsNs, Q_INT64_C(0));
+        QCOMPARE(s[0].ptsNs, Q_INT64_C(-23219954));        // priming sample
+        QCOMPARE(s[1].ptsNs, Q_INT64_C(0));
+        QCOMPARE(s[2].ptsNs, Q_INT64_C(23219954));
+    }
+
+    // Dual: audio buffers are stamped with the elst-corrected pts, clamped at
+    // 0 for the priming samples (a negative GstClockTime would wrap) — landing
+    // audio on the same presentation clock as the video's FIFO'd DTS.
+    void dualAudioElstClampsAtZero() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/136", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFile());
+        asrc->emitData(fmp4AudioHeader(1024) + fmp4AudioFragment());
+        QCOMPARE(pipe->esConfigured, 1);
+        QCOMPARE(pipe->audioSamples, 3);
+        QCOMPARE(pipe->firstAudioTs, Q_INT64_C(0));        // clamped from −23 ms
+        QCOMPARE(pipe->lastAudioTs, Q_INT64_C(23219954));
+    }
+
+    // A trun data_offset pointing outside the fragment's own mdat must fail
+    // loudly (pre-fix: the slicer waited forever for bytes that never come —
+    // a silent EOS with zero samples).
+    void fmp4SampleOutsideMdatFails() {
+        QByteArray file = fmp4VideoFile();
+        const int trunAt = file.indexOf("trun");
+        QVERIFY(trunAt > 0);
+        const int offAt = trunAt + 4 + 4 + 4;   // fourcc + fullbox + count -> data_offset
+        file[offAt]     = char(0x00);
+        file[offAt + 1] = char(0x0F);           // data_offset 0x000F0000: ~1 MB past the mdat
+        file[offAt + 2] = char(0x00);
+        file[offAt + 3] = char(0x00);
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(!d.feed(file));
+        QVERIFY2(d.error().contains("mdat"), qPrintable(d.error()));
+    }
+
+    // Truncated version-1 boxes must fail loudly, not read past the box end
+    // (v1 payloads are 4-8 bytes longer than v0's).
+    void fmp4TruncatedV1BoxesFail() {
+        // mvhd v1 with a v0-sized payload -> moov parse fails.
+        yt::media::Fmp4Demuxer d1;
+        QVERIFY(!d1.feed(mp4Box("ftyp", QByteArray("isom")) + mp4Box("moov",
+            mp4Full("mvhd", 1, 0, be32(0) + be32(0) + be32(1000) + be32(0)))));
+        QVERIFY2(d1.error().contains("mvhd"), qPrintable(d1.error()));
+        // tfdt v1 with a 32-bit payload -> fragment parse fails.
+        QByteArray file = fmp4VideoFile();
+        const QByteArray head = file.left(file.indexOf("moof") - 4);   // ftyp+moov+sidx
+        const QByteArray moof = mp4Box("moof", mp4Full("mfhd", 0, 0, be32(1))
+            + mp4Box("traf",
+                  mp4Full("tfhd", 0, 0x020000, be32(1))
+                + mp4Full("tfdt", 1, 0, be32(0))));                    // v1 but 4 bytes
+        yt::media::Fmp4Demuxer d2;
+        QVERIFY(!d2.feed(head + moof));
+        QVERIFY2(d2.error().contains("tfdt"), qPrintable(d2.error()));
+    }
+
+    // An explicit tfhd base_data_offset must win over default-base-is-moof
+    // (14496-12 §8.8.7 precedence, the qtdemux/ExoPlayer reading; both flags
+    // together never happen on YouTube). Pre-fix the explicit offset was
+    // ignored and the samples resolved against the moof start.
+    void fmp4ExplicitBaseDataOffsetWins() {
+        QByteArray file = fmp4VideoFile();
+        const int moofAt = file.indexOf("moof") - 4;
+        const QByteArray head = file.left(moofAt);
+        QByteArray moof; qint64 absPayload = 0;
+        for (int pass = 0; pass < 2; ++pass) {
+            QByteArray b64(8, '\0');
+            for (int i = 0; i < 8; ++i) b64[i] = char(quint64(absPayload) >> (56 - 8 * i));
+            moof = mp4Box("moof", mp4Full("mfhd", 0, 0, be32(1))
+                + mp4Box("traf",
+                      mp4Full("tfhd", 0, 0x01 | 0x020000, be32(1) + b64)   // explicit ABS base
+                    + mp4Full("tfdt", 0, 0, be32(0))
+                    + mp4Full("trun", 0, 0x01 | 0x200,                     // data_offset 0 from base
+                              be32(3) + be32(0) + be32(5) + be32(7) + be32(9))));
+            absPayload = moofAt + moof.size() + 8;                         // the mdat payload
+        }
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(d.feed(head + moof
+                       + mp4Box("mdat", QByteArray("AAAAA") + "BBBBBBB" + "CCCCCCCCC")));
+        QList<yt::media::Fmp4Sample> s = d.takeSamples();
+        QCOMPARE(s.size(), 3);
+        QCOMPARE(s[0].data, QByteArray("AAAAA"));
+        QCOMPARE(s[2].data, QByteArray("CCCCCCCCC"));
+    }
+
+    // After a reanchor (seek) the next fragment MUST self-time via tfdt —
+    // silently continuing the pre-seek m_nextDts clock would be wrong.
+    void fmp4ReanchorRequiresTfdt() {
+        const QByteArray file = fmp4VideoFileTwoFrags();
+        yt::media::Fmp4Demuxer d;
+        QVERIFY(d.feed(file));
+        d.takeSamples();
+        qint64 segStart = 0;
+        d.reanchor(d.seekOffsetForNs(Q_INT64_C(150000000), &segStart));
+        const QByteArray samples = be32(5) + be32(0) + be32(7) + be32(0) + be32(9) + be32(0);
+        QByteArray moof; quint32 dataOff = 0;
+        for (int pass = 0; pass < 2; ++pass) {             // fragment WITHOUT tfdt
+            moof = mp4Box("moof", mp4Full("mfhd", 0, 0, be32(1))
+                + mp4Box("traf",
+                      mp4Full("tfhd", 0, 0x020000, be32(1))
+                    + mp4Full("trun", 0, 0x01 | 0x04 | 0x200 | 0x800,
+                              be32(3) + be32(dataOff) + be32(0) + samples)));
+            dataOff = moof.size() + 8;
+        }
+        QVERIFY(!d.feed(moof + mp4Box("mdat", QByteArray(21, 'X'))));
+        QVERIFY2(d.error().contains("tfdt"), qPrintable(d.error()));
     }
 
     // A quality switch while the pipeline is still prerolling must be deferred

@@ -23,9 +23,10 @@ namespace yt { namespace media {
 
 // One extracted media sample: raw payload (AVC length-prefixed NALs for video,
 // a raw AAC frame for audio) + timestamps/duration in nanoseconds. ptsNs is the
-// composed presentation time (decode time + trun cts offset, so non-monotonic
-// across B-frame GOPs); dtsNs is the monotonic decode time (tfdt + summed
-// durations) — the one the player stamps on pushed buffers (see drainSamples).
+// true presentation time (decode time + trun cts offset − the init segment's
+// elst shift; non-monotonic across B-frame GOPs, negative for AAC priming
+// samples); dtsNs is the monotonic decode time (tfdt + summed durations) — the
+// one stamped on pushed VIDEO buffers (see MediaPump::drainSamples).
 struct Fmp4Sample {
     QByteArray data;
     qint64 ptsNs;
@@ -60,16 +61,34 @@ public:
     int height() const { return m_height; }
     int audioRate() const { return m_rate; }             // audio (mp4a fields)
     int audioChannels() const { return m_channels; }
-    qint64 durationNs() const { return m_durationNs; }   // mvex/mehd; 0 = unknown
+    // mvex/mehd when present, else the sidx total (YouTube DASH has no mehd).
+    qint64 durationNs() const { return m_durationNs ? m_durationNs : m_sidxDurationNs; }
+    // The init segment's edit-list shift (elst media_time, media-timescale
+    // ticks -> ns): the composition -> presentation offset. Already folded
+    // into every sample's ptsNs; exposed for the pump's audio clamp.
+    qint64 editOffsetNs() const { return m_editNs; }
+
+    // Seek index from the stream's sidx box (one per YouTube DASH file).
+    bool seekIndexReady() const { return !m_sidx.isEmpty(); }
+    // Absolute file offset of the subsegment (moof) containing targetNs;
+    // *segStartNs gets that subsegment's start time. -1 when no sidx.
+    qint64 seekOffsetForNs(qint64 targetNs, qint64 *segStartNs) const;
+    // Re-anchor the walker at a subsegment boundary (from seekOffsetForNs):
+    // keeps the parsed header/codec/sidx state, drops buffered bytes and pending
+    // samples. The next feed() chunk must start at exactly this offset; tfdt in
+    // each fragment restores the absolute timestamps.
+    void reanchor(qint64 absOffset);
 
     // Samples extracted since the last call (file order = decode order).
     QList<Fmp4Sample> takeSamples();
 
 private:
     struct Pending { qint64 off; qint64 size; qint64 ptsNs; qint64 dtsNs; qint64 durNs; bool key; };
+    struct SidxRef { qint64 timeNs; qint64 offset; };   // subsegment start time + abs offset
     bool fail(const char *why);
     bool parseMoov(const uchar *p, qint64 len);
     bool parseMoof(const uchar *p, qint64 len, qint64 moofStart);
+    void parseSidx(const uchar *p, qint64 len, qint64 anchor);
     void trim();
 
     QByteArray m_buf;        // rolling window of the file
@@ -87,6 +106,12 @@ private:
     quint32 m_trackId;
     quint32 m_trexDur, m_trexSize, m_trexFlags;   // mvex/trex defaults
     quint64 m_nextDts;       // fallback base decode time when a traf has no tfdt
+    qint64 m_editTicks;      // elst media_time (media timescale); 0 = no edit
+    qint64 m_editNs;
+    bool m_needTfdt;         // post-reanchor: the next fragment MUST carry a tfdt
+    bool m_timingWarned;     // CFR/elst invariant warning already fired (once)
+    QList<SidxRef> m_sidx;   // time -> byte map for seeking
+    qint64 m_sidxDurationNs; // total presentation length per sidx; 0 = none
 };
 
 }}

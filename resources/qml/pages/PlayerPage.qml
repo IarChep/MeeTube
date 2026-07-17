@@ -450,6 +450,10 @@ Page {
             height: UI.SIZE_PLAYER_SEEK
             minimumValue: 0
             maximumValue: player.duration > 0 ? player.duration : 1
+            // Draggable only when the stream can actually seek (progressive mp4,
+            // or dual once both lanes carried a sidx); HLS/gapless stays display-only.
+            enabled: player.seekable
+            opacity: player.seekable ? 1.0 : UI.OPACITY_DISABLED
             onPressedChanged: { if (!pressed) player.seek(value); root.poke(); }
             // Blank the template's own fill + handle via the style URLs, NOT by
             // replacing the items: an overridden default item is left orphaned

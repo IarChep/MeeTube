@@ -164,10 +164,12 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
         yt::media::GstAppPipeline *gstPipe = new yt::media::GstAppPipeline;
         yt::media::StreamPlayer *player =
             new yt::media::StreamPlayer(src, gstPipe, new yt::media::PolicyGuard, audioSrc);
-        // NAM lifetime: parented to the player AFTER the sources, so child
-        // destruction order (sources first, NAM last) never leaves a live reply
-        // pointing at a dead manager.
-        playerNam->setParent(player);
+        // Move the whole network+demux stage (both sources, their NAM/CurlEngine
+        // and the fMP4 demuxers) onto the player's dedicated media thread: a
+        // 2 MiB window demuxed+pushed on the GUI thread held it ~0.5 s, starving
+        // the video sink's frame-ready dispatch into judder (device-traced
+        // 2026-07-17). The NAM is reparented into the pump so it rides along.
+        player->startMediaThread(playerNam);
         viewer.rootContext()->setContextProperty("player", player);
         // Subtitles: fetches the selected timedtext track over its own libcurl NAM
         // (Qt does no TLS) and exposes the caption line for the current position.
@@ -192,6 +194,9 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
         gstPipe->setVideoWindow(viewer.winId());
 
         rc = app->exec();
+        // Join the media thread first: after this no fetch of the player's NAM
+        // is in flight on that thread (pairs with startMediaThread above).
+        player->shutdownMediaThread();
         // Scope end: ~QmlApplicationViewer tears down the QML engine and with it
         // every QML-side CurlNetworkAccessManager/CurlEngine (GUI thread + image-
         // reader threads) — while libcurl's process-global state is still alive.

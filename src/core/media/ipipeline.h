@@ -2,6 +2,7 @@
 #define YT_MEDIA_IPIPELINE_H
 #include <QObject>
 #include <QByteArray>
+#include <QMetaType>
 #include "media/playbackmode.h"
 namespace yt { namespace media {
 
@@ -13,7 +14,7 @@ struct EsConfig {
     int width, height;
     QByteArray audioCodecData;   // AudioSpecificConfig
     int rate, channels;
-    qint64 durationNs;           // whole movie (mvex/mehd); 0 = unknown
+    qint64 durationNs;           // whole movie (mehd, else the sidx total); 0 = unknown
     EsConfig() : width(0), height(0), rate(0), channels(0), durationNs(0) {}
 };
 
@@ -50,6 +51,9 @@ public:
 Q_SIGNALS:
     void needData(qint64 maxBytes);
     void needAudioData(qint64 maxBytes);    // the dual audio appsrc is hungry
+    // A flushing seek reached the appsrc(s): resume delivery from `offset` —
+    // BYTES in single mode (qtdemux computed it), TIME ns in dual mode.
+    void seekRequested(qint64 offset);
     void started();                 // first decoded frames -> Playing
     void buffering(int percent);    // 0..100
     void positionChanged(qint64 ms);
@@ -58,4 +62,5 @@ Q_SIGNALS:
     void error(const QString &message);
 };
 }}
+Q_DECLARE_METATYPE(yt::media::EsConfig)   // queued esReady payload (media thread)
 #endif
