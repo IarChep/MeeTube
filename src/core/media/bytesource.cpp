@@ -23,7 +23,8 @@ static QByteArray streamUserAgent()
 ProgressiveSource::ProgressiveSource(QNetworkAccessManager *nam, QObject *parent)
     : ByteSource(nam, parent), m_total(-1), m_fetchOffset(0), m_seekable(false),
       m_eof(false), m_waiting(false), m_reply(0),
-      m_durationSec(0), m_netBps(0), m_startupTarget(0), m_readAhead(kReadAhead) {}
+      m_durationSec(0), m_netBps(0), m_startupTarget(0),
+      m_windowBytes(kWindow), m_readAhead(kReadAhead) {}
 
 ProgressiveSource::~ProgressiveSource() { close(); }
 
@@ -46,7 +47,7 @@ void ProgressiveSource::open(const QString &url)
 {
     PLOG() << "ByteSource: open" << qPrintable(url);
     m_url = url; m_fetchOffset = 0; m_eof = false; m_waiting = false; m_ready.clear();
-    m_netBps = 0; m_startupTarget = 0; m_readAhead = kReadAhead;
+    m_netBps = 0; m_startupTarget = 0; m_windowBytes = kWindow; m_readAhead = kReadAhead;
     // Media length rides in the videoplayback URL itself (&dur=249.219&) — with
     // the Content-Length that gives the stream's average media rate for the
     // startup-buffer resolver, no extra plumbing. Absent/foreign URL -> 0.
@@ -80,6 +81,15 @@ void ProgressiveSource::resolveStartup()
 {
     const double mediaBps = (m_durationSec > 0.5 && m_total > 0)
                           ? m_total / m_durationSec : 0;
+    // Size the fetch window by MEDIA TIME, not a fixed byte count: a low-bitrate
+    // lane (audio) and a high-bitrate one (video) then buffer the same number of
+    // SECONDS per window. With fixed 2 MiB windows a 4 MB audio track was one
+    // read-ahead deep — after every seek it downloaded end-to-end, hogging a
+    // slow shared link and starving the video lane into judder (device
+    // 2026-07-17). Unknown rate (tests, no dur=) keeps the 2 MiB fallback.
+    m_windowBytes = (mediaBps > 0)
+        ? qBound<qint64>(kMinWindow, (qint64)(mediaBps * kWindowSecs), kWindow)
+        : kWindow;
     qint64 t;
     if (mediaBps <= 0 || m_netBps <= 0) {
         t = 2 * kWindow;                       // no metadata: fixed 4 MiB
@@ -88,13 +98,17 @@ void ProgressiveSource::resolveStartup()
         if (secs > 20.0) secs = 20.0;
         t = (qint64)(mediaBps * secs);
     }
-    if (t < kWindow) t = kWindow;
+    // Floor the startup buffer at ONE window (not a fixed 2 MiB): for a
+    // low-bitrate lane 2 MiB is a minute-plus of media, which needlessly delayed
+    // the startup gate and over-deepened read-ahead.
+    if (t < m_windowBytes) t = m_windowBytes;
     if (t > kMaxStartup) t = kMaxStartup;
     if (m_total >= 0 && t > m_total) t = m_total;
     m_startupTarget = t;
-    m_readAhead = (int)qBound<qint64>(kReadAhead, (t + kWindow - 1) / kWindow, 6);
+    m_readAhead = (int)qBound<qint64>(kReadAhead, (t + m_windowBytes - 1) / m_windowBytes, 6);
     PLOG() << "ByteSource: startup target" << t << "B (media" << (qint64)mediaBps
-           << "B/s, net" << (qint64)m_netBps << "B/s, readAhead" << m_readAhead << ")";
+           << "B/s, net" << (qint64)m_netBps << "B/s, window" << m_windowBytes
+           << "readAhead" << m_readAhead << ")";
 }
 
 void ProgressiveSource::issueWindow(qint64 start, const char *slot)
@@ -104,7 +118,7 @@ void ProgressiveSource::issueWindow(qint64 start, const char *slot)
     // googlevideo params -> HTTP 403 (device-verified 2026-07-13; raw libcurl 206).
     QNetworkRequest req(QUrl::fromEncoded(m_url.toUtf8()));
     const QByteArray range = "bytes=" + QByteArray::number(start) + "-"
-                           + QByteArray::number(start + kWindow - 1);
+                           + QByteArray::number(start + m_windowBytes - 1);
     PLOG() << "ByteSource: GET Range" << range.constData();
     req.setRawHeader("Range", range);
     req.setRawHeader("User-Agent", streamUserAgent());   // generic desktop UA, NOT the app UA

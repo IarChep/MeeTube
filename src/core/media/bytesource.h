@@ -63,8 +63,10 @@ private:
     void issueWindow(qint64 start, const char *slot);
     void topUp();            // start a prefetch if under the read-ahead target
     void measureFetch(qint64 bytes);   // EWMA the download rate from the last fetch
-    void resolveStartup();   // pick the startup buffer from media rate vs net rate
-    static const qint64 kWindow = 2 * 1024 * 1024;   // 2 MiB, well under the 32 MB reply cap
+    void resolveStartup();   // pick the startup buffer + window size from media rate
+    static const qint64 kWindow = 2 * 1024 * 1024;   // 2 MiB probe window / fallback ceiling
+    static const qint64 kMinWindow = 256 * 1024;     // window floor (RTT amortisation)
+    static const int kWindowSecs = 12;               // target window span in MEDIA seconds
     static const int kReadAhead = 2;                 // read-ahead floor (windows)
     static const qint64 kMaxStartup = 12 * 1024 * 1024;   // startup-buffer ceiling
     QString  m_url;
@@ -78,6 +80,7 @@ private:
     double   m_durationSec;  // media length from the URL's dur= param (0 = unknown)
     double   m_netBps;       // EWMA download rate
     qint64   m_startupTarget;// resolver output (0 until the probe returns)
+    qint64   m_windowBytes;  // per-window fetch size (kWindow until the rate is known)
     int      m_readAhead;    // dynamic prefetch depth (>= kReadAhead windows)
     QElapsedTimer m_fetchClock;  // times the in-flight window for m_netBps
 };

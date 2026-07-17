@@ -447,6 +447,26 @@ private slots:
         QCOMPARE(got.at(0).at(0).toByteArray().at(0), 'Z');   // first byte is the marker
     }
 
+    // Fetch windows are sized by MEDIA TIME (from the URL's dur= + total), not a
+    // fixed 2 MiB: a low-bitrate lane buffers the same SECONDS as a high-bitrate
+    // one, so a small audio track no longer downloads end-to-end after a seek and
+    // starve the video lane on a slow link. The probe stays 2 MiB (rate unknown
+    // yet); the next window uses the resolved size.
+    void progressiveSizesWindowByBitrate() {
+        RangeServer srv; srv.body = QByteArray(5 * 1024 * 1024, 'A');   // 5 MiB
+        yt::net::CurlNetworkAccessManager nam;
+        yt::media::ProgressiveSource src(&nam);
+        QSignalSpy got(&src, SIGNAL(data(QByteArray)));
+        QEventLoop loop; connect(&src, SIGNAL(opened(qint64,bool)), &loop, SLOT(quit()));
+        // dur=500 s over 5 MiB ~= 10 KB/s media rate -> window clamps to the floor.
+        src.open(QString("http://127.0.0.1:%1/videoplayback?x=1&dur=500").arg(srv.port()));
+        loop.exec();
+        src.requestData(1);   QTRY_COMPARE(got.count(), 1);   // probe window: 2 MiB
+        QCOMPARE(got.at(0).at(0).toByteArray().size(), 2 * 1024 * 1024);
+        src.requestData(1);   QTRY_COMPARE(got.count(), 2);   // next: the bitrate-sized window
+        QCOMPARE(got.at(1).at(0).toByteArray().size(), 256 * 1024);   // kMinWindow floor
+    }
+
     // play() acquires policy first and does NOT touch the pipeline until granted.
     void playWaitsForPolicyGrant() {
         FakeSource *src = new FakeSource; FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
