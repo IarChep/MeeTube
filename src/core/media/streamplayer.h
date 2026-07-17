@@ -103,6 +103,7 @@ private:
     bool m_dual;
     double m_videoFps; QString m_videoProfile;   // dual metadata for the UI
     QList<qint64> m_segStarts;   // sidx subsegment starts (ns) — the seek-snap table
+    bool m_seekUserPending;      // a user seek is armed; the next appsrc seek-data is real, not spurious
     MediaPump *m_pump;          // parentless (must be movable); deleted in dtor
     QThread *m_mediaThread;     // 0 = inline mode (tests)
     // Startup gate: the pipeline prerolls PAUSED until each gated lane has its

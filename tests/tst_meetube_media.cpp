@@ -316,6 +316,7 @@ public:
     { if (!audioSamples) firstAudioTs = ts; ++audioSamples; lastAudioTs = ts; }
     void audioEndOfStream() { audioEos = true; }
     void emitNeedAudioData(qint64 n) { emit needAudioData(n); }
+    void emitSeekRequested(qint64 off) { emit seekRequested(off); }
 };
 
 // Fake source: delivers a fixed payload on requestData(), then finished().
@@ -348,9 +349,10 @@ public:
     ManualSource() : ByteSource(0) {}
     QString openedUrl; int dataRequests = 0; bool closed = false;
     qint64 target = 0;                    // startup gate opt-in for tests
+    qint64 seekedTo = -1;                 // last byte offset re-anchored to (-1 = none)
     void open(const QString &u) { openedUrl = u; }
     void requestData(qint64) { ++dataRequests; }
-    bool seek(qint64) { return true; }
+    bool seek(qint64 o) { seekedTo = o; return true; }
     void close() { closed = true; }
     qint64 startupTarget() const { return target; }
     void emitOpened(qint64 t) { emit opened(t, false); }
@@ -761,6 +763,34 @@ private slots:
         QCOMPARE(p.position(), Q_INT64_C(100));            // scrubber tells the truth
         p.seek(50);
         QCOMPARE(pipe->lastSeekMs, Q_INT64_C(0));          // snapped to moof #1
+    }
+
+    // A spurious appsrc seek-data (SEEKABLE appsrc's preroll seek(0), or the one
+    // GStreamer re-issues internally on underrun/EOS) must NOT re-anchor the
+    // lanes — only a user seek does. Device bug: the stream jumped back to 0
+    // mid-playback because every seek-data was treated as a real seek.
+    void dualIgnoresSpuriousSeekData() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/136", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFileTwoFrags());
+        const QByteArray afrag = fmp4AudioFragment();
+        asrc->emitData(fmp4AudioHeader() + fmp4AudioSidx(afrag.size()) + afrag);
+        QVERIFY(p.seekable());
+        vsrc->seekedTo = asrc->seekedTo = -1;
+        pipe->emitSeekRequested(0);                    // spurious — no user seek armed
+        QCOMPARE(vsrc->seekedTo, Q_INT64_C(-1));       // ignored (pre-fix: re-anchored to 0)
+        QCOMPARE(asrc->seekedTo, Q_INT64_C(-1));
+        p.seek(150);                                   // real user seek -> arms
+        pipe->emitSeekRequested(Q_INT64_C(100000000)); // the appsrc seek-data that follows
+        QVERIFY(vsrc->seekedTo >= 0);                  // now re-anchored
+        QVERIFY(asrc->seekedTo >= 0);
+        // A second spurious one after the user seek is consumed is ignored again.
+        vsrc->seekedTo = asrc->seekedTo = -1;
+        pipe->emitSeekRequested(0);
+        QCOMPARE(vsrc->seekedTo, Q_INT64_C(-1));
     }
 
     // Re-anchoring at a sidx boundary keeps the header state and resumes with

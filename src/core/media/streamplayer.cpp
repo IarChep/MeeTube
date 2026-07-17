@@ -64,7 +64,7 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
     : QObject(parent), m_pipeline(pipeline), m_policy(policy),
       m_state(Idle), m_mode(AudioMode), m_position(0), m_duration(0), m_buffer(0),
       m_seekable(false), m_granted(false),
-      m_dual(false), m_videoFps(0),
+      m_dual(false), m_videoFps(0), m_seekUserPending(false),
       m_pump(new MediaPump(source, audioSource, pipeline)),
       m_mediaThread(0),
       m_gateVideoNeed(0), m_gateVideoHave(0), m_gateAudioNeed(0), m_gateAudioHave(0),
@@ -177,7 +177,7 @@ void StreamPlayer::play(const QString &url, int mode)
     m_url = url; m_mode = (mode == (int)VideoMode) ? VideoMode : AudioMode;
     emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
-    m_segStarts.clear();
+    m_segStarts.clear(); m_seekUserPending = false;
     m_videoFps = 0; m_videoProfile.clear(); emit videoInfoChanged();
     setState(Loading);
     m_policy->acquire(m_mode);        // play only after granted()
@@ -199,7 +199,7 @@ void StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl)
     m_url = videoUrl; m_audioUrl = audioUrl;
     m_mode = VideoMode; emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
-    m_segStarts.clear();
+    m_segStarts.clear(); m_seekUserPending = false;
     m_videoFps = 0; m_videoProfile.clear(); emit videoInfoChanged();
     setState(Loading);
     m_policy->acquire(m_mode);
@@ -268,8 +268,23 @@ void StreamPlayer::onEsReady(yt::media::EsConfig cfg, qint64 videoTarget, qint64
 // bytes in single mode, the time target in dual mode.
 void StreamPlayer::onSeekRequested(qint64 offset)
 {
-    if (m_dual) QMetaObject::invokeMethod(m_pump, "seekDualTo", Q_ARG(qint64, offset));
-    else        QMetaObject::invokeMethod(m_pump, "seekBytes", Q_ARG(qint64, offset));
+    if (m_dual) {
+        // Only a user seek (armed by seek()) may re-anchor the lanes. A SEEKABLE
+        // appsrc posts an initial seek-data(0) during preroll and GStreamer
+        // re-issues one internally on underrun / one-lane EOS; both surface as
+        // seek-data(0) through the shared callback and would yank BOTH lanes
+        // back to the start mid-playback (device-observed: the stream jumped to
+        // 0 after ~1 min). The pump's own dedup can't catch it — the offset
+        // differs from the last real seek. Drop it unless we asked for it.
+        if (!m_seekUserPending) {
+            PLOG() << "ignoring spurious dual seek-data offset=" << offset;
+            return;
+        }
+        m_seekUserPending = false;
+        QMetaObject::invokeMethod(m_pump, "seekDualTo", Q_ARG(qint64, offset));
+    } else {
+        QMetaObject::invokeMethod(m_pump, "seekBytes", Q_ARG(qint64, offset));
+    }
 }
 
 // Start playback, or preroll PAUSED behind the startup gate: the pipeline fills
@@ -387,6 +402,7 @@ void StreamPlayer::seek(qint64 ms)
                && m_segStarts.at(i + 1) <= ms * Q_INT64_C(1000000)) ++i;
         ms = (m_segStarts.at(i) + Q_INT64_C(999999)) / Q_INT64_C(1000000);
     }
+    m_seekUserPending = true;   // the appsrc seek-data that follows is ours (see onSeekRequested)
     m_pipeline->seek(ms);
     m_position = ms; emit positionChanged();      // scrubber lands on the snap
     if (m_state == Playing) setState(Buffering);  // flushed queues refill now
