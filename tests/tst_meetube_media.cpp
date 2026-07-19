@@ -8,6 +8,7 @@
 #include "media/ipolicy.h"
 #include "net/curlnetworkaccessmanager.h"
 #include "media/bytesource.h"
+#include "media/bufferplanner.h"
 #include "media/fmp4demux.h"
 #include "media/subtitletrack.h"
 #include "core/debuglog.h"
@@ -950,6 +951,90 @@ private slots:
         QCOMPARE(pipe->resumed, 0);            // gate still holds the clock
         vsrc->emitProgress(1200);              // gate satisfied -> clock starts
         QCOMPARE(pipe->resumed, 1);
+    }
+
+    // ---- BufferPlanner: pure sizing math (no network, no clock) ----
+    void plannerWindowScalesWithMediaRate() {
+        yt::media::BufferPlanner p;
+        QCOMPARE(p.windowBytes(), Q_INT64_C(2097152));   // no metadata: probe fallback
+        p.setMedia(1200000, 100.0);                      // 12 kB/s (audio-ish)
+        p.noteFetch(1000000, 1000);                      // net 1 MB/s (fast)
+        QCOMPARE(p.windowBytes(), Q_INT64_C(262144));    // 144000 -> floor 256 KiB
+        p.setMedia(120000000, 100.0);                    // 1.2 MB/s (HD)
+        QCOMPARE(p.windowBytes(), Q_INT64_C(2097152));   // 14.4 MB -> ceil 2 MiB
+        p.reset();                                       // EWMA gone with reset
+        p.setMedia(20000000, 100.0);                     // 200 kB/s media
+        p.noteFetch(100000, 1000);                       // net 100 kB/s < media
+        QCOMPARE(p.windowBytes(), Q_INT64_C(1200000));   // slow net: 6 s windows
+    }
+
+    void plannerStartupScalesWithNetRatio() {
+        yt::media::BufferPlanner p;
+        QCOMPARE(p.startupMs(), Q_INT64_C(0));           // no rates: gate off
+        p.setMedia(20000000, 100.0);                     // media 200 kB/s
+        QCOMPARE(p.startupMs(), Q_INT64_C(0));           // still no net rate
+        p.noteFetch(800000, 1000);                       // net 800 kB/s: comfortable
+        // secs = 3*max(1, 1.5*0.25) = 3 -> 600000 B; one-window floor (12 s
+        // window clamps to 2 MiB) wins -> 2097152 B = 10485 ms of media.
+        QCOMPARE(p.startupMs(), Q_INT64_C(10485));
+        p.reset();
+        p.setMedia(20000000, 100.0);
+        p.noteFetch(100000, 1000);                       // net at half the media rate
+        // secs = 3*1.5*2 = 9 -> 1.8e6 B; slow-net window 1.2e6 doesn't floor
+        QCOMPARE(p.startupMs(), Q_INT64_C(9000));
+        p.setQualityHint(720);
+        QCOMPARE(p.startupMs(), Q_INT64_C(13500));       // x1.5 for HD
+        p.setQualityHint(0);
+        p.reset();
+        p.setMedia(20000000, 100.0);
+        p.noteFetch(10000, 1000);                        // dying link
+        QCOMPARE(p.startupMs(), Q_INT64_C(20000));       // capped at 20 s
+        p.setMedia(1000000, 100.0);                      // 10 kB/s media == net
+        // secs 4.5 -> 45000 B; window floors at 256 KiB -> 26214 ms.
+        QCOMPARE(p.startupMs(), Q_INT64_C(26214));
+    }
+
+    void plannerReadAheadCoversStartup() {
+        yt::media::BufferPlanner p;
+        QCOMPARE(p.readAheadWindows(), 2);               // no facts: floor
+        p.setMedia(20000000, 100.0);
+        p.noteFetch(800000, 1000);                       // startup == window (2 MiB)
+        QCOMPARE(p.readAheadWindows(), 2);
+        p.reset();
+        p.setMedia(20000000, 100.0);
+        p.noteFetch(10000, 1000);                        // startup 4e6, window 1.2e6
+        QCOMPARE(p.readAheadWindows(), 4);               // ceil(3.33)
+    }
+
+    void plannerEwmaSmoothsNetRate() {
+        yt::media::BufferPlanner p;
+        p.noteFetch(1000000, 1000);
+        QCOMPARE((qint64)p.netBps(), Q_INT64_C(1000000));
+        p.noteFetch(200000, 1000);                       // dip
+        QCOMPARE((qint64)p.netBps(), Q_INT64_C(760000)); // 0.7*1e6 + 0.3*2e5
+        p.noteFetch(0, 1000); p.noteFetch(1000, 0);      // garbage ignored
+        QCOMPARE((qint64)p.netBps(), Q_INT64_C(760000));
+    }
+
+    void plannerPrebufferFramesFromFps() {
+        qputenv("MEETUBE_PREBUFFER_FRAMES", "");         // default path (cleanup() restores "0")
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(24.0), 24);
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(60.0), 48);   // cap
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(5.0), 12);    // floor
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(0.0), 30);    // unknown fps
+        qputenv("MEETUBE_PREBUFFER_FRAMES", "7");
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(24.0), 7);    // absolute override
+        qputenv("MEETUBE_PREBUFFER_FRAMES", "0");
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(24.0), 0);    // off
+    }
+
+    void plannerQueueBytesClamped() {
+        QCOMPARE(yt::media::BufferPlanner::queueBytesFor(0, true), Q_INT64_C(0));
+        QCOMPARE(yt::media::BufferPlanner::queueBytesFor(200000, true), Q_INT64_C(6000000));
+        QCOMPARE(yt::media::BufferPlanner::queueBytesFor(1000, true), Q_INT64_C(2097152));     // video floor
+        QCOMPARE(yt::media::BufferPlanner::queueBytesFor(1000000, true), Q_INT64_C(12582912)); // video cap
+        QCOMPARE(yt::media::BufferPlanner::queueBytesFor(16000, false), Q_INT64_C(524288));    // audio floor
+        QCOMPARE(yt::media::BufferPlanner::queueBytesFor(200000, false), Q_INT64_C(4194304));  // audio cap
     }
 
     // Re-anchoring at a sidx boundary keeps the header state and resumes with
