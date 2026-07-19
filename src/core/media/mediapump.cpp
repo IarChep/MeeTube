@@ -20,12 +20,24 @@
 
 namespace yt { namespace media {
 
+// ~1 s @ 30 fps by default; a device-tunable knob (no rebuild), 0 disables.
+static int prebufferFramesFromEnv()
+{
+    const QByteArray e = qgetenv("MEETUBE_PREBUFFER_FRAMES");
+    if (e.isEmpty()) return 30;
+    bool ok = false;
+    const int n = e.toInt(&ok);
+    return (ok && n >= 0) ? n : 30;
+}
+
 MediaPump::MediaPump(ByteSource *video, ByteSource *audio, IPipeline *pipeline)
     : QObject(0), m_video(video), m_audio(audio), m_pipeline(pipeline),
       m_dual(false), m_videoOpen(false), m_audioOpen(false),
       m_esSent(false), m_configured(false),
       m_videoEosPending(false), m_audioEosPending(false),
-      m_lastDualSeek(-1)
+      m_lastDualSeek(-1),
+      m_prebufferN(prebufferFramesFromEnv()), m_primed(true),
+      m_prebufReported(false), m_videoDone(false)
 {
     qRegisterMetaType<EsConfig>("yt::media::EsConfig");   // queued esReady payload
     m_video->setParent(this);          // one moveToThread carries the whole stage
@@ -57,6 +69,9 @@ void MediaPump::openDual(const QString &videoUrl, const QString &audioUrl)
     m_videoEosPending = m_audioEosPending = false;
     m_lastDualSeek = -1;
     m_videoDemux.reset(); m_audioDemux.reset();
+    m_vHold.clear(); m_aHold.clear();
+    m_videoDone = false;
+    rearmPrebuffer();
     m_video->open(videoUrl);
     m_audio->open(audioUrl);
 }
@@ -84,6 +99,8 @@ void MediaPump::seekDualTo(qint64 ns)
     if (vOff < 0 || aOff < 0) return;
     m_lastDualSeek = ns;
     m_videoEosPending = m_audioEosPending = false;
+    m_videoDone = false;
+    rearmPrebuffer();
     m_video->seek(vOff); m_videoDemux.reanchor(vOff);
     m_audio->seek(aOff); m_audioDemux.reanchor(aOff);
     PLOG() << "pump: dual seek" << ns / 1000000 << "ms -> video@" << vOff
@@ -95,10 +112,19 @@ void MediaPump::seekDualTo(qint64 ns)
 void MediaPump::pipelineConfigured()
 {
     m_configured = true;
-    drainSamples();   // the moov windows usually carry the first fragments
+    drainSamples(true);   // the moov windows usually carry the first fragments
 }
 
-void MediaPump::requestVideoData(qint64 maxBytes) { m_video->requestData(maxBytes); }
+// Video need-data fires only when the appsrc queue is EMPTY (min-percent 0) —
+// it IS the underrun signal, so re-arm the prebuffer. Audio need-data must
+// NOT: the flush condition counts VIDEO frames, and an audio-only underrun
+// while the video queue is still full (~40 s deep) would hold the refilled
+// audio hostage to a video count that isn't growing.
+void MediaPump::requestVideoData(qint64 maxBytes)
+{
+    if (m_dual && m_esSent) rearmPrebuffer();
+    m_video->requestData(maxBytes);
+}
 void MediaPump::requestAudioData(qint64 maxBytes) { if (m_audio) m_audio->requestData(maxBytes); }
 
 void MediaPump::closeAll()
@@ -109,6 +135,15 @@ void MediaPump::closeAll()
     m_esSent = m_configured = false;
     m_videoEosPending = m_audioEosPending = false;
     m_lastDualSeek = -1;
+    m_vHold.clear(); m_aHold.clear();
+    m_videoDone = false;
+    rearmPrebuffer();
+}
+
+void MediaPump::rearmPrebuffer()
+{
+    m_primed = (m_prebufferN <= 0);
+    m_prebufReported = false;
 }
 
 void MediaPump::onVideoOpened(qint64 total, bool seekable)
@@ -142,7 +177,7 @@ void MediaPump::onVideoData(const QByteArray &c)
         if (!m_videoDemux.headerReady()) { m_video->requestData(1 << 20); return; }
         maybeEsReady();                 // may still wait for the audio moov
     }
-    drainSamples();
+    drainSamples(true);
 }
 
 void MediaPump::onAudioData(const QByteArray &c)
@@ -156,7 +191,7 @@ void MediaPump::onAudioData(const QByteArray &c)
         if (!m_audioDemux.headerReady()) { m_audio->requestData(1 << 20); return; }
         maybeEsReady();                 // may still wait for the video moov
     }
-    drainSamples();
+    drainSamples(false);
 }
 
 // Both moovs parsed -> hand the GUI the codec blobs (appsrc caps) and the
@@ -198,27 +233,44 @@ void MediaPump::maybeEsReady()
 // minus the AAC priming elst, clamped at 0 for the leading priming samples
 // (GstClockTime is unsigned) — landing audio on the same elst-corrected
 // clock the video DTS sits on.
-void MediaPump::drainSamples()
+void MediaPump::drainSamples(bool fromVideo)
 {
     if (!m_configured) return;   // caps not on the appsrcs yet — demuxers buffer
-    const QList<Fmp4Sample> vs = m_videoDemux.takeSamples();
-    for (const Fmp4Sample &s : vs)
+    m_vHold += m_videoDemux.takeSamples();
+    m_aHold += m_audioDemux.takeSamples();
+    // Prebuffer: a video lane that already ended stops gating (else the audio
+    // tail outliving the video file would be held forever).
+    const bool videoDone = m_videoEosPending || m_videoDone;
+    if (!m_primed && !videoDone && m_vHold.size() < m_prebufferN) {
+        if (fromVideo) {
+            // Slow path: the available data didn't fill the buffer — report
+            // progress (the player may pause) and keep bytes flowing ourselves
+            // (a dry appsrc won't re-emit need-data).
+            m_prebufReported = true;
+            emit prebuffering((int)(100 * m_vHold.size() / m_prebufferN));
+            m_video->requestData(1 << 20);
+        }
+        return;
+    }
+    for (const Fmp4Sample &s : m_vHold)
         m_pipeline->pushVideoSample(s.data, s.dtsNs, s.durationNs, s.keyframe);
-    const QList<Fmp4Sample> as = m_audioDemux.takeSamples();
-    for (const Fmp4Sample &s : as)
+    for (const Fmp4Sample &s : m_aHold)
         m_pipeline->pushAudioSample(s.data, qMax(Q_INT64_C(0), s.ptsNs), s.durationNs);
-    if (!vs.isEmpty() || !as.isEmpty())
-        PLOG() << "pump: drain video+" << vs.size() << "audio+" << as.size()
-               << (vs.isEmpty() ? -1 : vs.last().dtsNs / 1000000)
-               << "/" << (as.isEmpty() ? -1 : as.last().dtsNs / 1000000) << "ms";
-    if (m_videoEosPending) { m_videoEosPending = false; m_pipeline->endOfStream(); }
+    if (!m_vHold.isEmpty() || !m_aHold.isEmpty())
+        PLOG() << "pump: drain video+" << m_vHold.size() << "audio+" << m_aHold.size()
+               << (m_vHold.isEmpty() ? -1 : m_vHold.last().dtsNs / 1000000)
+               << "/" << (m_aHold.isEmpty() ? -1 : m_aHold.last().dtsNs / 1000000) << "ms";
+    m_vHold.clear(); m_aHold.clear();
+    m_primed = true;
+    if (m_prebufReported) { m_prebufReported = false; emit prebuffering(100); }
+    if (m_videoEosPending) { m_videoEosPending = false; m_videoDone = true; m_pipeline->endOfStream(); }
     if (m_audioEosPending) { m_audioEosPending = false; m_pipeline->audioEndOfStream(); }
 }
 
 void MediaPump::onVideoFinished()
 {
     PLOG() << "pump: video source EOS";
-    if (m_dual) { m_videoEosPending = true; drainSamples(); }
+    if (m_dual) { m_videoEosPending = true; drainSamples(true); }
     else m_pipeline->endOfStream();
     emit videoLaneFinished();
 }
@@ -228,7 +280,7 @@ void MediaPump::onAudioFinished()
     PLOG() << "pump: audio source EOS";
     if (!m_dual) return;
     m_audioEosPending = true;
-    drainSamples();
+    drainSamples(false);
     emit audioLaneFinished();
 }
 

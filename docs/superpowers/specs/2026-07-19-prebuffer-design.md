@@ -19,10 +19,13 @@ rebuffer pause instead of a series of judders.
   Rejected: a GStreamer `queue`/`min-threshold-buffers` element (device-only,
   untestable on host, murky 0.10 threshold semantics, no UI feedback) and
   tuning the existing byte-based knobs (doesn't express "N frames").
-- **Re-arm points:** `openDual()`, `seekDualTo()`, and
-  `requestVideoData`/`requestAudioData` (appsrc need-data with the default
-  `min-percent=0` fires only when a queue is EMPTY — i.e. it IS the underrun
-  signal).
+- **Re-arm points:** `openDual()`, `seekDualTo()`, and `requestVideoData`
+  ONLY (appsrc need-data with the default `min-percent=0` fires when a queue
+  is EMPTY — i.e. it IS the underrun signal). Audio need-data does NOT
+  re-arm: the flush condition counts VIDEO frames, and an audio-only
+  underrun while the video queue is still full (it holds ~40 s) would hold
+  the refilled audio hostage to a video count that isn't growing. The audio
+  appsrc queue (4 MiB ≈ minutes of AAC) effectively never underruns alone.
 - **Pause only when slow:** need-data also fires in normal steady state
   (the queue drains roughly every window and is refilled from an
   already-prefetched window in the same event turn). If the first burst after

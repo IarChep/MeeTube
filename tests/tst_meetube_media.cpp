@@ -366,6 +366,13 @@ public:
 class tst_meetube_media : public QObject {
     Q_OBJECT
 private slots:
+    // The prebuffer accumulator (MEETUBE_PREBUFFER_FRAMES) defaults to 30 —
+    // way above the 3-sample fixtures. Disable it suite-wide; prebuffer tests
+    // opt in with their own qputenv, and cleanup() restores the off state
+    // after EVERY test (even a failing one).
+    void initTestCase() { qputenv("MEETUBE_PREBUFFER_FRAMES", "0"); }
+    void cleanup()      { qputenv("MEETUBE_PREBUFFER_FRAMES", "0"); }
+
     void seamsCompile() {
         QVERIFY(yt::media::AudioMode == 0);
         QVERIFY(yt::media::VideoMode == 1);
@@ -811,6 +818,77 @@ private slots:
         vsrc->seekedTo = asrc->seekedTo = -1;
         pipe->emitSeekRequested(0);
         QCOMPARE(vsrc->seekedTo, Q_INT64_C(-1));
+    }
+
+    // Prebuffer: with MEETUBE_PREBUFFER_FRAMES=5 the pump holds demuxed
+    // samples until 5 video frames are in hand, then flushes them in decode
+    // order; afterwards it is primed and passes samples straight through.
+    void prebufferHoldsUntilNFrames() {
+        qputenv("MEETUBE_PREBUFFER_FRAMES", "5");
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/135", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFile());                        // moov + 3 samples
+        asrc->emitData(fmp4AudioHeader() + fmp4AudioFragment());// moov + 3 samples
+        QCOMPARE(pipe->esConfigured, 1);       // caps go up regardless
+        QCOMPARE(pipe->videoSamples, 0);       // held: 3 < 5
+        QCOMPARE(pipe->audioSamples, 0);       // audio held alongside
+        vsrc->emitData(fmp4Fragment(9000));    // +3 = 6 >= 5 -> flush
+        QCOMPARE(pipe->videoSamples, 6);
+        QCOMPARE(pipe->audioSamples, 3);
+        // Decode order + DTS stamping survive the hold (last dts: 15000 ticks @90k).
+        QCOMPARE(pipe->lastVideoTs, Q_INT64_C(166666666));
+        vsrc->emitData(fmp4Fragment(18000));   // primed: straight through
+        QCOMPARE(pipe->videoSamples, 9);
+    }
+
+    // A user seek re-arms the accumulator: post-seek delivery waits for N
+    // video frames again. The initial burst (6 >= 4) is the fast path — no
+    // holding at all.
+    void prebufferSeekRearms() {
+        qputenv("MEETUBE_PREBUFFER_FRAMES", "4");
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/136", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFileTwoFrags());               // 6 samples >= 4
+        const QByteArray afrag = fmp4AudioFragment();
+        asrc->emitData(fmp4AudioHeader() + fmp4AudioSidx(afrag.size()) + afrag);
+        QCOMPARE(pipe->videoSamples, 6);       // fast path: no holding
+        QVERIFY(p.seekable());
+        p.seek(150);                           // snaps to moof #2 (100 ms)
+        pipe->emitSeekRequested(Q_INT64_C(100000000));
+        QVERIFY(vsrc->seekedTo >= 0);          // lanes re-anchored
+        vsrc->emitData(fmp4Fragment(9000));    // 3 < 4: held again post-seek
+        QCOMPARE(pipe->videoSamples, 6);
+        vsrc->emitData(fmp4Fragment(18000));   // 6 >= 4 -> flush
+        QCOMPARE(pipe->videoSamples, 12);
+    }
+
+    // A stream shorter than N flushes on EOS, and once the video lane ended
+    // the audio tail is never gated on the (dead) video frame count.
+    void prebufferShortStreamFlushesOnEos() {
+        qputenv("MEETUBE_PREBUFFER_FRAMES", "30");
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/135", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFile());
+        asrc->emitData(fmp4AudioHeader() + fmp4AudioFragment());
+        QCOMPARE(pipe->videoSamples, 0);       // 3 < 30: held
+        vsrc->emitFinished();                  // whole stream shorter than N
+        QCOMPARE(pipe->videoSamples, 3);       // flushed ahead of the EOS
+        QCOMPARE(pipe->audioSamples, 3);
+        QVERIFY(pipe->eos);
+        QVERIFY(!pipe->audioEos);
+        asrc->emitData(fmp4AudioFragment());   // audio tail: video is done
+        QCOMPARE(pipe->audioSamples, 6);       // flows immediately, not held
+        asrc->emitFinished();
+        QVERIFY(pipe->audioEos);
     }
 
     // Re-anchoring at a sidx boundary keeps the header state and resumes with

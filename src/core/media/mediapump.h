@@ -62,6 +62,10 @@ Q_SIGNALS:                      // pump -> StreamPlayer (queued when threaded)
     void videoLaneFinished();   // download EOF (startup gate); the pipeline EOS
     void audioLaneFinished();   // itself is pushed from the pump thread
     void pumpFailed(QString error);
+    // Prebuffer accumulation progress — emitted ONLY when a refill came up
+    // short after draining the available data (the fast path flushes without
+    // involving the player); 100 = the flush happened after a partial report.
+    void prebuffering(int pct);
 private Q_SLOTS:                // source signals (same thread as the pump)
     void onVideoOpened(qint64 total, bool seekable);
     void onVideoData(const QByteArray &chunk);
@@ -73,7 +77,8 @@ private Q_SLOTS:                // source signals (same thread as the pump)
     void onAudioFailed(const QString &e);
 private:
     void maybeEsReady();
-    void drainSamples();
+    void drainSamples(bool fromVideo);
+    void rearmPrebuffer();
     ByteSource *m_video; ByteSource *m_audio;   // owned (children of this)
     IPipeline *m_pipeline;                      // GUI-owned; data entries only
     Fmp4Demuxer m_videoDemux, m_audioDemux;
@@ -81,6 +86,14 @@ private:
     bool m_esSent, m_configured;
     bool m_videoEosPending, m_audioEosPending;  // EOF seen before the config ack
     qint64 m_lastDualSeek;   // dedupe: BOTH appsrcs fire seek-data for one seek
+    // Prebuffer (dual): hold extracted samples until N video frames are in
+    // hand, then flush — playback (re)starts against a full queue instead of
+    // just-in-time frames (the N9 judder). Re-armed at open/seek/underrun.
+    QList<Fmp4Sample> m_vHold, m_aHold;
+    int m_prebufferN;        // MEETUBE_PREBUFFER_FRAMES (default 30, 0 = off)
+    bool m_primed;           // accumulation satisfied — pass samples through
+    bool m_prebufReported;   // a partial prebuffering() went out (slow path)
+    bool m_videoDone;        // video EOS pushed — stop gating on its count
 };
 
 }}
