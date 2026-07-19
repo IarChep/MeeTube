@@ -31,7 +31,7 @@
 - Consumes: `Fmp4Demuxer::takeSamples()`, `IPipeline::pushVideoSample/pushAudioSample/endOfStream/audioEndOfStream`, `ByteSource::requestData` (all existing).
 - Produces: new signal `void MediaPump::prebuffering(int pct)` — emitted ONLY on the slow path; values 0..99 while short, exactly `100` once the flush happened after a partial report. Task 2's `StreamPlayer::onPrebuffering(int)` connects to it. `drainSamples` becomes `drainSamples(bool fromVideo)` (private).
 
-- [ ] **Step 1: Env hygiene for the whole suite**
+- [x] **Step 1: Env hygiene for the whole suite**
 
 The default N=30 would break every existing dual test (3-sample fixtures would be held). Add to `tests/tst_meetube_media.cpp`, as the FIRST private slots of `class tst_meetube_media` (before `seamsCompile`, line ~368):
 
@@ -44,7 +44,7 @@ The default N=30 would break every existing dual test (3-sample fixtures would b
     void cleanup()      { qputenv("MEETUBE_PREBUFFER_FRAMES", "0"); }
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Append after `dualIgnoresSpuriousSeekData()` (line ~814) in `tests/tst_meetube_media.cpp`:
 
@@ -121,7 +121,7 @@ Append after `dualIgnoresSpuriousSeekData()` (line ~814) in `tests/tst_meetube_m
     }
 ```
 
-- [ ] **Step 3: Run the new tests to verify they fail**
+- [x] **Step 3: Run the new tests to verify they fail**
 
 The tests reference no new API yet, so the build succeeds and the tests fail
 at runtime:
@@ -133,7 +133,7 @@ cd /opt/projects/MeeTube && make -C build-sim -j"$(nproc)" 2>&1 | tail -3 \
 
 Expected: FAIL at `QCOMPARE(pipe->videoSamples, 0)` (actual 3 — samples pushed immediately, no accumulator yet).
 
-- [ ] **Step 4: Implement the accumulator in MediaPump**
+- [x] **Step 4: Implement the accumulator in MediaPump**
 
 `src/core/media/mediapump.h` — change the private section:
 
@@ -278,7 +278,7 @@ Update the call sites: `pipelineConfigured()` → `drainSamples(true);`
 `onVideoFinished()` → `if (m_dual) { m_videoEosPending = true; drainSamples(true); }`
 `onAudioFinished()` → `drainSamples(false);` (the existing line keeps its position).
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 ```sh
 make -C build-sim -j"$(nproc)" 2>&1 | tail -3 \
@@ -287,7 +287,7 @@ make -C build-sim -j"$(nproc)" 2>&1 | tail -3 \
 
 Expected: PASS, including all pre-existing dual tests (env off suite-wide).
 
-- [ ] **Step 6: Amend the spec (audio re-arm decision)**
+- [x] **Step 6: Amend the spec (audio re-arm decision)**
 
 In `docs/superpowers/specs/2026-07-19-prebuffer-design.md`, replace the
 re-arm bullet's `requestVideoData`/`requestAudioData` wording with:
@@ -302,7 +302,7 @@ re-arm bullet's `requestVideoData`/`requestAudioData` wording with:
   appsrc queue (4 MiB ≈ minutes of AAC) effectively never underruns alone.
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /opt/projects/MeeTube \
@@ -332,7 +332,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: `MediaPump::prebuffering(int pct)` from Task 1 (0..99 = short refill in progress, 100 = flushed after a partial report; NEVER emitted on the fast path).
 - Produces: no new public API. New private slot `void onPrebuffering(int pct)`, new member `bool m_prebufPaused`.
 
-- [ ] **Step 1: Add the FakePipeline position helper**
+- [x] **Step 1: Add the FakePipeline position helper**
 
 In `tests/tst_meetube_media.cpp`, `class FakePipeline` (line ~289), next to
 `emitDuration`:
@@ -341,7 +341,7 @@ In `tests/tst_meetube_media.cpp`, `class FakePipeline` (line ~289), next to
     void emitPosition(qint64 ms) { emit positionChanged(ms); }
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 Append after `prebufferShortStreamFlushesOnEos()`:
 
@@ -407,7 +407,7 @@ Append after `prebufferShortStreamFlushesOnEos()`:
     }
 ```
 
-- [ ] **Step 3: Run the new tests to verify they fail**
+- [x] **Step 3: Run the new tests to verify they fail**
 
 ```sh
 make -C build-sim -j"$(nproc)" 2>&1 | tail -3 \
@@ -417,7 +417,7 @@ make -C build-sim -j"$(nproc)" 2>&1 | tail -3 \
 
 Expected: FAIL at `QCOMPARE(pipe->paused, paused + 1)` (actual `paused` — no slot connected, nobody pauses).
 
-- [ ] **Step 4: Implement onPrebuffering in StreamPlayer**
+- [x] **Step 4: Implement onPrebuffering in StreamPlayer**
 
 `src/core/media/streamplayer.h` — after the `onSeekRequested` declaration add:
 
@@ -471,7 +471,7 @@ Reset the flag wherever a playback life ends or begins — add
 `m_prebufPaused = false;` next to the existing `m_seekUserPending = false;`
 line in `play()` AND `playDual()`, and to the top of `stop()` and `fail()`.
 
-- [ ] **Step 5: Run the full suite to verify everything passes**
+- [x] **Step 5: Run the full suite to verify everything passes**
 
 ```sh
 make -C build-sim -j"$(nproc)" 2>&1 | tail -3 \
@@ -480,7 +480,7 @@ make -C build-sim -j"$(nproc)" 2>&1 | tail -3 \
 
 Expected: 9/9 tests pass (all `tst_meetube_*`, including every pre-existing media subtest).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /opt/projects/MeeTube \

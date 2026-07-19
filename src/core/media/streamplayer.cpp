@@ -64,7 +64,7 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
     : QObject(parent), m_pipeline(pipeline), m_policy(policy),
       m_state(Idle), m_mode(AudioMode), m_position(0), m_duration(0), m_buffer(0),
       m_seekable(false), m_granted(false),
-      m_dual(false), m_videoFps(0), m_seekUserPending(false),
+      m_dual(false), m_videoFps(0), m_seekUserPending(false), m_prebufPaused(false),
       m_pump(new MediaPump(source, audioSource, pipeline)),
       m_mediaThread(0),
       m_gateVideoNeed(0), m_gateVideoHave(0), m_gateAudioNeed(0), m_gateAudioHave(0),
@@ -94,6 +94,7 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
     connect(m_pump, SIGNAL(videoLaneFinished()),    this, SLOT(onPumpVideoFinished()));
     connect(m_pump, SIGNAL(audioLaneFinished()),    this, SLOT(onPumpAudioFinished()));
     connect(m_pump, SIGNAL(pumpFailed(QString)),    this, SLOT(onPumpFailed(QString)));
+    connect(m_pump, SIGNAL(prebuffering(int)),      this, SLOT(onPrebuffering(int)));
 
     connect(m_pipeline, SIGNAL(needData(qint64)),   this, SLOT(onNeedData(qint64)));
     connect(m_pipeline, SIGNAL(needAudioData(qint64)), this, SLOT(onNeedAudioData(qint64)));
@@ -157,6 +158,7 @@ void StreamPlayer::fail(const QString &e)
     PLOG() << "FAIL:" << qPrintable(e);
     m_error = e;
     m_gateVideoNeed = m_gateAudioNeed = 0;
+    m_prebufPaused = false;
     if (m_pipeline) m_pipeline->stop();
     QMetaObject::invokeMethod(m_pump, "closeAll");
     if (m_policy) m_policy->release();
@@ -177,7 +179,7 @@ void StreamPlayer::play(const QString &url, int mode)
     m_url = url; m_mode = (mode == (int)VideoMode) ? VideoMode : AudioMode;
     emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
-    m_segStarts.clear(); m_seekUserPending = false;
+    m_segStarts.clear(); m_seekUserPending = false; m_prebufPaused = false;
     m_videoFps = 0; m_videoProfile.clear(); emit videoInfoChanged();
     setState(Loading);
     m_policy->acquire(m_mode);        // play only after granted()
@@ -199,7 +201,7 @@ void StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl)
     m_url = videoUrl; m_audioUrl = audioUrl;
     m_mode = VideoMode; emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
-    m_segStarts.clear(); m_seekUserPending = false;
+    m_segStarts.clear(); m_seekUserPending = false; m_prebufPaused = false;
     m_videoFps = 0; m_videoProfile.clear(); emit videoInfoChanged();
     setState(Loading);
     m_policy->acquire(m_mode);
@@ -284,6 +286,29 @@ void StreamPlayer::onSeekRequested(qint64 offset)
         QMetaObject::invokeMethod(m_pump, "seekDualTo", Q_ARG(qint64, offset));
     } else {
         QMetaObject::invokeMethod(m_pump, "seekBytes", Q_ARG(qint64, offset));
+    }
+}
+
+// Prebuffer refill progress from the pump — only emitted when a refill came
+// up short (the fast path flushes without involving us). Pause a playing
+// pipeline until the buffer fills: one clean pause instead of a series of
+// late-frame judders. The startup gate owns the preroll — while it is armed
+// these reports are ignored wholesale.
+void StreamPlayer::onPrebuffering(int pct)
+{
+    if (m_gateVideoNeed > 0 || m_gateAudioNeed > 0) return;
+    if (pct < 100) {
+        if (m_state == Playing) {
+            PLOG() << "prebuffer: short refill — pausing";
+            m_pipeline->pause();
+            m_prebufPaused = true;
+            setState(Buffering);
+        }
+        if (m_state == Buffering && m_buffer != pct) { m_buffer = pct; emit bufferProgressChanged(); }
+    } else if (m_prebufPaused) {
+        m_prebufPaused = false;
+        PLOG() << "prebuffer: refilled — resuming";
+        m_pipeline->resume();      // onPosition flips Buffering -> Playing
     }
 }
 
@@ -412,6 +437,7 @@ void StreamPlayer::stop()
 {
     m_pendingSwitch = false;   // an explicit stop cancels any deferred switch
     m_gateVideoNeed = m_gateAudioNeed = 0;
+    m_prebufPaused = false;
     if (m_pipeline) m_pipeline->stop();
     QMetaObject::invokeMethod(m_pump, "closeAll");
     if (m_policy) m_policy->release();

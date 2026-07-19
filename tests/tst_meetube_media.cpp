@@ -305,6 +305,7 @@ public:
     void emitFinished() { emit finished(); }
     void emitError(const QString &m) { emit error(m); }
     void emitDuration(qint64 ms) { emit durationChanged(ms); }
+    void emitPosition(qint64 ms) { emit positionChanged(ms); }
     int esConfigured = 0; yt::media::EsConfig esCfg;
     int videoSamples = 0, audioSamples = 0;
     qint64 lastVideoTs = -1; bool lastVideoKey = false; bool audioEos = false;
@@ -889,6 +890,66 @@ private slots:
         QCOMPARE(pipe->audioSamples, 6);       // flows immediately, not held
         asrc->emitFinished();
         QVERIFY(pipe->audioEos);
+    }
+
+    // Underrun mid-playback: a ready burst (>= N in one delivery) must flush
+    // with ZERO player involvement (no pause/resume churn every window
+    // boundary); a short refill pauses the pipeline once (Buffering + %),
+    // then resumes when N is reached.
+    void prebufferUnderrunPausesUntilRefilled() {
+        qputenv("MEETUBE_PREBUFFER_FRAMES", "4");
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/136", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFileTwoFrags());
+        const QByteArray afrag = fmp4AudioFragment();
+        asrc->emitData(fmp4AudioHeader() + fmp4AudioSidx(afrag.size()) + afrag);
+        QCOMPARE(pipe->videoSamples, 6);
+        pipe->emitStarted();
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Playing);
+        const int paused = pipe->paused, resumed = pipe->resumed;
+        // Fast path: hunger answered by a full burst — player never involved.
+        pipe->emitNeedData(100);                                   // re-arm
+        vsrc->emitData(fmp4Fragment(18000) + fmp4Fragment(27000)); // 6 >= 4
+        QCOMPARE(pipe->videoSamples, 12);
+        QCOMPARE(pipe->paused, paused);
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Playing);
+        // Slow path: the refill comes up short — one clean pause.
+        pipe->emitNeedData(100);                                   // re-arm
+        vsrc->emitData(fmp4Fragment(36000));                       // 3 < 4
+        QCOMPARE(pipe->videoSamples, 12);                          // held
+        QCOMPARE(pipe->paused, paused + 1);
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Buffering);
+        QCOMPARE(p.bufferProgress(), 75);                          // 3/4
+        vsrc->emitData(fmp4Fragment(45000));                       // 6 >= 4
+        QCOMPARE(pipe->videoSamples, 18);                          // flushed
+        QCOMPARE(pipe->resumed, resumed + 1);
+        pipe->emitPosition(1300);              // clock ticks again
+        QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Playing);
+    }
+
+    // The startup gate owns the preroll: prebuffering reports (including the
+    // 100) must neither clobber the gate's byte-based progress % nor resume
+    // the clock the gate is still holding.
+    void prebufferYieldsToStartupGate() {
+        qputenv("MEETUBE_PREBUFFER_FRAMES", "5");
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        vsrc->target = 1000;                   // arm the startup gate
+        p.playDual("http://v/135", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(5000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFile());       // 3 < 5: slow path reports 60
+        asrc->emitData(fmp4AudioHeader() + fmp4AudioFragment());
+        QCOMPARE(pipe->paused, 1);             // gate preroll pause
+        QCOMPARE(p.bufferProgress(), 0);       // gate %, NOT the prebuffer 60
+        vsrc->emitData(fmp4Fragment(9000));    // 6 >= 5 -> flush + prebuffering(100)
+        QCOMPARE(pipe->videoSamples, 6);
+        QCOMPARE(pipe->resumed, 0);            // gate still holds the clock
+        vsrc->emitProgress(1200);              // gate satisfied -> clock starts
+        QCOMPARE(pipe->resumed, 1);
     }
 
     // Re-anchoring at a sidx boundary keeps the header state and resumes with
