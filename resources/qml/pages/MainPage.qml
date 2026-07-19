@@ -226,9 +226,10 @@ Page {
                 }
             }
         }
-        // Settings entry — a plain ToolIcon (right edge), not a tab.
-        ToolIcon {
-            iconSource: "image://theme/icon-m-content-settings-inverse"
+        // Settings entry — a ToolButton (right edge), not a tab. NOT flat:
+        // a flat ToolButton drops its icon on this SDK build.
+        ToolButton {
+            iconSource: "image://theme/icon-m-toolbar-settings-white"
             onClicked: pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
         }
     }

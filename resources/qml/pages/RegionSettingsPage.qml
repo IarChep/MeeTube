@@ -59,7 +59,7 @@ Page {
             Text {
                 anchors {
                     left: parent.left; leftMargin: UI.DEFAULT_MARGIN
-                    right: tick.left; rightMargin: UI.PADDING_LARGE
+                    right: radio.left; rightMargin: UI.PADDING_LARGE
                     verticalCenter: parent.verticalCenter
                 }
                 text: model.name
@@ -68,10 +68,12 @@ Page {
                 font.family: UI.FONT_FAMILY
                 elide: Text.ElideRight
             }
-            Image {
-                id: tick
-                source: "image://theme/icon-m-common-done"
-                visible: model.gl === page.current
+            // Selection indicator — a stock RadioButton (auto-inverted by the
+            // app-wide theme.inverted). The row's MouseArea sits on top, so the
+            // whole row is one tap target and the radio just displays state.
+            RadioButton {
+                id: radio
+                checked: model.gl === page.current
                 anchors {
                     right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                     verticalCenter: parent.verticalCenter

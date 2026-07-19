@@ -40,12 +40,12 @@ Page {
 
     Column {
         anchors {
-            top: parent.top; topMargin: headerBar.height + UI.PADDING_LARGE
+            top: parent.top; topMargin: headerBar.height
             left: parent.left; right: parent.right
         }
         NavRow {
             id: regionRow
-            iconSource: "image://theme/icon-m-common-location-inverse"
+            iconSource: "image://theme/icon-m-settings-notification"
             label: "Region"
             onClicked: pageStack.push(Qt.resolvedUrl("RegionSettingsPage.qml"))
         }

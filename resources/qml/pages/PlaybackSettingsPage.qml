@@ -42,7 +42,7 @@ Page {
 
     Column {
         anchors {
-            top: parent.top; topMargin: headerBar.height + UI.PADDING_LARGE
+            top: parent.top; topMargin: headerBar.height
             left: parent.left; right: parent.right
         }
         NavRow {
