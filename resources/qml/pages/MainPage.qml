@@ -203,6 +203,14 @@ Page {
         // them momentary — navigation, not a stuck tab selection.
         ButtonRow {
             exclusive: false
+            // Detached from the settings ToolButton: opt out of ToolBarLayout's
+            // stretching (__expanding) AND pin an explicit width — ButtonRow's
+            // own natural width is min(2 x BUTTON_WIDTH, screen) = full screen,
+            // which made the tabs swallow the whole toolbar. One BUTTON_WIDTH
+            // gives the two icon tabs a compact pair on the left, gear on the
+            // right.
+            __expanding: false
+            width: UI.BUTTON_WIDTH
             TabButton {
                 iconSource: "image://theme/icon-m-toolbar-search-white"
                 onClicked: pageStack.push(Qt.resolvedUrl("SearchPage.qml"))
