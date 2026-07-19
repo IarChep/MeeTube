@@ -13,6 +13,11 @@
         <file>qml/pages/ManageSubscriptionsPage.qml</file>
         <file>qml/pages/ChannelPage.qml</file>
         <file>qml/pages/SearchPage.qml</file>
+        <file>qml/pages/SettingsPage.qml</file>
+        <file>qml/pages/RegionSettingsPage.qml</file>
+        <file>qml/pages/PlaybackSettingsPage.qml</file>
+        <file>qml/pages/AboutPage.qml</file>
+        <file>qml/pages/ThanksPage.qml</file>
 
         <!-- components -->
         <file>qml/components/Avatar.qml</file>

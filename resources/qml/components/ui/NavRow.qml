@@ -8,6 +8,7 @@ Item {
 
     property alias iconSource: icon.source
     property alias label: labelText.text
+    property alias value: valueText.text   // optional current-value hint before the chevron
     signal clicked
 
     width: parent ? parent.width : 480
@@ -32,13 +33,24 @@ Item {
         id: labelText
         anchors {
             left: icon.right; leftMargin: UI.PADDING_XLARGE
-            right: chevron.left; rightMargin: UI.PADDING_LARGE
+            right: valueText.left; rightMargin: UI.PADDING_LARGE
             verticalCenter: parent.verticalCenter
         }
         color: UI.COLOR_INVERTED_FOREGROUND
         font.pixelSize: UI.FONT_LARGE
         font.family: UI.FONT_FAMILY
         elide: Text.ElideRight
+    }
+
+    Text {
+        id: valueText
+        anchors {
+            right: chevron.left; rightMargin: UI.PADDING_LARGE
+            verticalCenter: parent.verticalCenter
+        }
+        color: UI.COLOR_INVERTED_SECONDARY_FOREGROUND
+        font.pixelSize: UI.FONT_LSMALL
+        font.family: UI.FONT_FAMILY
     }
 
     Image {

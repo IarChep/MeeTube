@@ -65,6 +65,15 @@ public:
     QStringList searchHistory() const;
     void recordSearch(const QString &query);
 
+    // -- UI preferences (the Settings page) — Q_INVOKABLE: QML reaches this
+    // object via innertube.store() --
+    Q_INVOKABLE QString region() const;              // Innertube gl; "" = YouTube default
+    Q_INVOKABLE void setRegion(const QString &gl);
+    Q_INVOKABLE QString playerOrientation() const;   // "portrait" (default) | "landscape" | "auto"
+    Q_INVOKABLE void setPlayerOrientation(const QString &o);
+    Q_INVOKABLE int defaultQuality() const;          // preferred max height (480/720); 0 = 360p default
+    Q_INVOKABLE void setDefaultQuality(int height);
+
 Q_SIGNALS:
     void accountsChanged();
 

@@ -226,5 +226,10 @@ Page {
                 }
             }
         }
+        // Settings entry — a plain ToolIcon (right edge), not a tab.
+        ToolIcon {
+            iconSource: "image://theme/icon-m-content-settings-inverse"
+            onClicked: pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
+        }
     }
 }

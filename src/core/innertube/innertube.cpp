@@ -39,6 +39,8 @@ Innertube::Innertube(QObject *parent)
     // store the server-issued one the first time it ever arrives. Seeding happens
     // before the first request, so no per-client cache exists yet to go stale.
     m_http->session().visitorData = m_store.visitorData();
+    // Persisted region (Settings page) — same pre-flip window as the line above.
+    if (!m_store.region().isEmpty()) m_http->session().gl = m_store.region();
     // Replaces the old InnertubeClient::visitorDataCaptured signal path: the sink is
     // invoked on the transport's (worker) thread, so its OUTER lambda ONLY posts to the
     // GUI thread via invokeGui — it must NOT touch m_store or any GUI object directly;

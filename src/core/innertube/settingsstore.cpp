@@ -38,6 +38,11 @@ struct SettingsData {
     std::vector<SettingsAccount> accounts;
     std::string visitorData;
     std::vector<std::string> searchHistory;
+    // UI preferences (the Settings page). Missing keys in an older file parse
+    // to these defaults; unknown keys in a newer file are skipped on read.
+    std::string region;             // Innertube gl override; "" = YouTube default
+    std::string playerOrientation;  // "" -> "portrait" | "landscape" | "auto"
+    int defaultQuality = 0;         // preferred max height; 0 = 360p progressive
 };
 
 namespace {
@@ -207,6 +212,30 @@ void SettingsStore::recordSearch(const QString &query) {
         if (h[i] == q) h.erase(h.begin() + i); else ++i;
     h.insert(h.begin(), q);
     if (h.size() > (size_t) kSearchHistoryCap) h.resize((size_t) kSearchHistoryCap);
+    write();
+}
+
+QString SettingsStore::region() const { return toQ(m_d->region); }
+
+void SettingsStore::setRegion(const QString &gl) {
+    m_d->region = toStd(gl);
+    write();
+}
+
+QString SettingsStore::playerOrientation() const {
+    return m_d->playerOrientation.empty() ? QString::fromLatin1("portrait")
+                                          : toQ(m_d->playerOrientation);
+}
+
+void SettingsStore::setPlayerOrientation(const QString &o) {
+    m_d->playerOrientation = toStd(o);
+    write();
+}
+
+int SettingsStore::defaultQuality() const { return m_d->defaultQuality; }
+
+void SettingsStore::setDefaultQuality(int height) {
+    m_d->defaultQuality = height;
     write();
 }
 

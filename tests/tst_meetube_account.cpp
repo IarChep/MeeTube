@@ -63,6 +63,23 @@ private slots:
         QVERIFY(store.isEmpty());
     }
 
+    // ---- UI preferences (Settings pages) persist across store lives ----
+    void storeUiPrefsRoundTrip() {
+        {
+            SettingsStore store(storePath());
+            QCOMPARE(store.region(), QString(""));
+            QCOMPARE(store.playerOrientation(), QString("portrait"));   // default
+            QCOMPARE(store.defaultQuality(), 0);
+            store.setRegion("RU");
+            store.setPlayerOrientation("landscape");
+            store.setDefaultQuality(480);
+        }
+        SettingsStore store(storePath());          // fresh parse of the same file
+        QCOMPARE(store.region(), QString("RU"));
+        QCOMPARE(store.playerOrientation(), QString("landscape"));
+        QCOMPARE(store.defaultQuality(), 480);
+    }
+
     void storeUpdateActiveKeepsToken() {
         SettingsStore store(storePath());
         CT::Account a; a.id = "default"; a.username = "YouTube";

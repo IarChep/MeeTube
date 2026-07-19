@@ -78,6 +78,9 @@ public:
     AccountManager* accountManager() { return &m_manager; }
     // OAuth manager — QML: innertube.auth().signIn()/.signedIn.
     Q_INVOKABLE QObject* auth()      { return &m_manager; }
+    // Settings file — QML: innertube.store().region()/.setRegion() etc.
+    // (the Settings pages; GUI-thread affine, same as this object).
+    Q_INVOKABLE QObject* store()     { return &m_store; }
 
     // The API tree. Internal typed accessors (C++: models/detail objects obtain their
     // requests here) + QML-facing wrappers that return QObject* — a Q_INVOKABLE that
