@@ -63,7 +63,10 @@ public:
     // and pushed as timestamped elementary streams through two appsrc branches
     // of one pipeline (shared clock = A/V sync). Time seeks re-anchor both
     // lanes at sidx subsegments (seekable once both lanes carry an index).
-    Q_INVOKABLE void playDual(const QString &videoUrl, const QString &audioUrl);
+    // height: the picked track's pixel height — the sizing planner's quality
+    // hint (720p gets a deeper startup buffer). 0 = unknown.
+    Q_INVOKABLE void playDual(const QString &videoUrl, const QString &audioUrl,
+                              int height = 0);
     Q_INVOKABLE void pause();
     Q_INVOKABLE void resume();
     Q_INVOKABLE void stop();
@@ -101,6 +104,7 @@ private:
     qint64 m_position, m_duration; int m_buffer; bool m_seekable;
     bool m_granted;   // first grant seen (distinguish initial grant from re-grant)
     QString m_audioUrl;
+    int m_height;     // the picked track's height (planner quality hint); 0 single/unknown
     bool m_dual;
     double m_videoFps; QString m_videoProfile;   // dual metadata for the UI
     QList<qint64> m_segStarts;   // sidx subsegment starts (ns) — the seek-snap table
@@ -114,7 +118,7 @@ private:
     qint64 m_gateVideoNeedMs, m_gateVideoHaveMs, m_gateAudioNeedMs, m_gateAudioHaveMs;
     // A quality switch tapped while the pipeline is still prerolling is stashed
     // here and applied by setState once preroll ends (Playing/Stopped/Error).
-    bool m_pendingSwitch, m_pendingDual; int m_pendingMode;
+    bool m_pendingSwitch, m_pendingDual; int m_pendingMode; int m_pendingHeight;
     QString m_pendingUrl, m_pendingAudioUrl;
 };
 }}

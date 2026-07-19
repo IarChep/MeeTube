@@ -42,7 +42,9 @@ public:
     bool hasAudioLane() const { return m_audio != 0; }
 public Q_SLOTS:                 // GUI -> pump (queued when threaded)
     void openSingle(const QString &url);   // progressive/HLS: container bytes -> pushData
-    void openDual(const QString &videoUrl, const QString &audioUrl);
+    // height = the picked track's pixel height, handed to the video source's
+    // sizing planner as the quality hint before open() (0 = unknown).
+    void openDual(const QString &videoUrl, const QString &audioUrl, int height);
     void pipelineConfigured();  // GUI ack: appsrc caps are set — draining may begin
     void requestVideoData(qint64 maxBytes);
     void requestAudioData(qint64 maxBytes);

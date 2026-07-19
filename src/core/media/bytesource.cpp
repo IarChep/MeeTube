@@ -213,5 +213,7 @@ bool RoutingSource::seek(qint64 byteOffset)      { return m_active ? m_active->s
 void RoutingSource::close()                      { if (m_active) m_active->close(); }
 qint64 RoutingSource::startupTargetMs() const    { return m_active ? m_active->startupTargetMs() : 0; }
 qint64 RoutingSource::bufferedMs() const         { return m_active ? m_active->bufferedMs() : 0; }
+// Pre-open the active child is not chosen yet — hand the hint to both.
+void RoutingSource::setQualityHint(int h)        { m_hls->setQualityHint(h); m_prog->setQualityHint(h); }
 
 }} // namespace yt::media

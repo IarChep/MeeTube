@@ -23,6 +23,8 @@ public:
     virtual void requestData(qint64 maxBytes) = 0;
     virtual bool seek(qint64 byteOffset) = 0;
     virtual void close() = 0;
+    // Quality hint (pixel height) for the sizing planner; set BEFORE open().
+    virtual void setQualityHint(int height) { Q_UNUSED(height); }
     // Startup buffering, MEDIA-TIME denominated: how many ms of playback must
     // be buffered before the clock starts lag-free (0 = the source has no
     // opinion — start immediately), and how many ms the downloaded bytes cover
@@ -55,6 +57,7 @@ public:
     void requestData(qint64 maxBytes);
     bool seek(qint64 byteOffset);
     void close();
+    void setQualityHint(int height) { m_plan.setQualityHint(height); }
     qint64 startupTargetMs() const { return m_startupMs; }
     qint64 bufferedMs() const { return m_plan.bufferedMsFor(m_fetchOffset); }
 private slots:
@@ -91,6 +94,7 @@ public:
     void requestData(qint64 maxBytes);
     bool seek(qint64 byteOffset);
     void close();
+    void setQualityHint(int height);
     qint64 startupTargetMs() const;
     qint64 bufferedMs() const;
 private:

@@ -59,10 +59,13 @@ void MediaPump::openSingle(const QString &url)
     m_dual = false; m_videoOpen = m_audioOpen = false;
     m_esSent = m_configured = false;
     m_videoEosPending = m_audioEosPending = false;
+    // The video source is shared between modes — a stale dual quality hint
+    // must not inflate this stream's startup buffer.
+    m_video->setQualityHint(0);
     m_video->open(url);
 }
 
-void MediaPump::openDual(const QString &videoUrl, const QString &audioUrl)
+void MediaPump::openDual(const QString &videoUrl, const QString &audioUrl, int height)
 {
     m_dual = true; m_videoOpen = m_audioOpen = false;
     m_esSent = m_configured = false;
@@ -72,6 +75,7 @@ void MediaPump::openDual(const QString &videoUrl, const QString &audioUrl)
     m_vHold.clear(); m_aHold.clear();
     m_videoDone = false;
     rearmPrebuffer();
+    m_video->setQualityHint(height);
     m_video->open(videoUrl);
     m_audio->open(audioUrl);
 }

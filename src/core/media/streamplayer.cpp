@@ -64,11 +64,11 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
     : QObject(parent), m_pipeline(pipeline), m_policy(policy),
       m_state(Idle), m_mode(AudioMode), m_position(0), m_duration(0), m_buffer(0),
       m_seekable(false), m_granted(false),
-      m_dual(false), m_videoFps(0), m_seekUserPending(false), m_prebufPaused(false),
+      m_height(0), m_dual(false), m_videoFps(0), m_seekUserPending(false), m_prebufPaused(false),
       m_pump(new MediaPump(source, audioSource, pipeline)),
       m_mediaThread(0),
       m_gateVideoNeedMs(0), m_gateVideoHaveMs(0), m_gateAudioNeedMs(0), m_gateAudioHaveMs(0),
-      m_pendingSwitch(false), m_pendingDual(false), m_pendingMode(0)
+      m_pendingSwitch(false), m_pendingDual(false), m_pendingMode(0), m_pendingHeight(0)
 {
     if (m_pipeline) m_pipeline->setParent(this);
     if (m_policy) m_policy->setParent(this);
@@ -148,7 +148,7 @@ void StreamPlayer::setState(State s)
     if (m_pendingSwitch && (s == Playing || s == Stopped || s == Error)) {
         m_pendingSwitch = false;
         PLOG() << "applying deferred switch";
-        if (m_pendingDual) playDual(m_pendingUrl, m_pendingAudioUrl);
+        if (m_pendingDual) playDual(m_pendingUrl, m_pendingAudioUrl, m_pendingHeight);
         else play(m_pendingUrl, m_pendingMode);
     }
 }
@@ -185,20 +185,20 @@ void StreamPlayer::play(const QString &url, int mode)
     m_policy->acquire(m_mode);        // play only after granted()
 }
 
-void StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl)
+void StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl, int height)
 {
-    PLOG() << "playDual video=" << qPrintable(videoUrl.left(90))
+    PLOG() << "playDual h=" << height << "video=" << qPrintable(videoUrl.left(90))
            << "audio=" << qPrintable(audioUrl.left(90));
     if (!m_pump->hasAudioLane()) { fail(QString::fromLatin1("dual playback needs an audio source")); return; }
     if (m_state == Loading || m_state == Buffering) {   // mid-preroll: defer (see setState)
         PLOG() << "switch deferred until preroll completes";
         m_pendingSwitch = true; m_pendingDual = true;
-        m_pendingUrl = videoUrl; m_pendingAudioUrl = audioUrl;
+        m_pendingUrl = videoUrl; m_pendingAudioUrl = audioUrl; m_pendingHeight = height;
         return;
     }
     if (m_state != Idle && m_state != Stopped && m_state != Error) stop();
     m_dual = true;
-    m_url = videoUrl; m_audioUrl = audioUrl;
+    m_url = videoUrl; m_audioUrl = audioUrl; m_height = height;
     m_mode = VideoMode; emit modeChanged();
     m_granted = false; m_position = 0; m_duration = 0; m_buffer = 0;
     m_segStarts.clear(); m_seekUserPending = false; m_prebufPaused = false;
@@ -213,8 +213,8 @@ void StreamPlayer::onGranted()
         PLOG() << "policy granted (initial) — opening source";
         m_granted = true;
         if (m_dual)
-            QMetaObject::invokeMethod(m_pump, "openDual",
-                                      Q_ARG(QString, m_url), Q_ARG(QString, m_audioUrl));
+            QMetaObject::invokeMethod(m_pump, "openDual", Q_ARG(QString, m_url),
+                                      Q_ARG(QString, m_audioUrl), Q_ARG(int, m_height));
         else
             QMetaObject::invokeMethod(m_pump, "openSingle", Q_ARG(QString, m_url));
     } else if (m_state == Paused) {   // re-grant after preemption: resume

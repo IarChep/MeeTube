@@ -35,6 +35,7 @@ Page {
     // Each list is index-parallel to its dialog's rows.
     property variant vidUrls: []      // video dialog: stream url per row
     property variant vidModes: []     // video dialog: 1 = muxed video, 2 = dual per row
+    property variant vidHeights: []   // video dialog: pixel height per row (planner quality hint)
     property variant audUrls: []      // audio dialog: stream url per row (always mode 0)
     property variant subUrls: []      // subtitles dialog: timedtext url per row (row 0 = "Off" = "")
     property string  activeSubtitle: ""   // selected timedtext url ("" = off)
@@ -63,7 +64,7 @@ Page {
     // the adaptive audio tracks labelled by bitrate. Each list stays index-parallel
     // to its dialog's rows so selectedIndex maps straight to a url (+ mode).
     function buildMenus() {
-        var vUrls = []; var vModes = []; var vRows = [];
+        var vUrls = []; var vModes = []; var vHeights = []; var vRows = [];
         var vs = streams ? streams.videoStreams : [];
         var i;
         for (i = 0; i < vs.length; i++) {
@@ -72,6 +73,7 @@ Page {
             if (!vs[i].hasAudio && streams.audioUrl == "") continue;
             vUrls.push(vs[i].url);
             vModes.push(vs[i].hasAudio ? 1 : 2);
+            vHeights.push(vs[i].height);
             vRows.push({ name: vs[i].label });
         }
         var aUrls = []; var aRows = [];
@@ -88,7 +90,8 @@ Page {
             sRows.push({ name: subs[i].title != "" ? subs[i].title : subs[i].language });
             sUrls.push(subs[i].url);
         }
-        vidUrls = vUrls; vidModes = vModes; audUrls = aUrls; subUrls = sUrls;
+        vidUrls = vUrls; vidModes = vModes; vidHeights = vHeights;
+        audUrls = aUrls; subUrls = sUrls;
         assignModel(videoDialog, vRows);
         assignModel(audioDialog, aRows);
         assignModel(subtitlesDialog, sRows);
@@ -113,7 +116,7 @@ Page {
     function playVideo(i) {
         if (i < 0 || i >= vidUrls.length) return;
         console.log("[player] video row", i, "mode", vidModes[i]);
-        if (vidModes[i] === 2) player.playDual(vidUrls[i], streams.audioUrl);
+        if (vidModes[i] === 2) player.playDual(vidUrls[i], streams.audioUrl, vidHeights[i]);
         else player.play(vidUrls[i], vidModes[i]);
     }
     function playAudio(i) {

@@ -357,6 +357,8 @@ public:
     bool seek(qint64 o) { seekedTo = o; return true; }
     void close() { closed = true; }
     qint64 startupTargetMs() const { return target; }
+    int hint = -1;                        // last setQualityHint (-1 = never called)
+    void setQualityHint(int h) { hint = h; }
     void emitOpened(qint64 t) { emit opened(t, false); }
     void emitData(const QByteArray &c) { emit data(c); }
     void emitProgress(qint64 h) { emit progress(h); }
@@ -1035,6 +1037,23 @@ private slots:
         QCOMPARE(yt::media::BufferPlanner::queueBytesFor(1000000, true), Q_INT64_C(12582912)); // video cap
         QCOMPARE(yt::media::BufferPlanner::queueBytesFor(16000, false), Q_INT64_C(524288));    // audio floor
         QCOMPARE(yt::media::BufferPlanner::queueBytesFor(200000, false), Q_INT64_C(4194304));  // audio cap
+    }
+
+    // The dual quality hint reaches the VIDEO lane's source before open();
+    // a later single-mode play clears it (the video source is shared between
+    // modes — a stale 720 hint must not inflate an itag-18 startup).
+    void dualQualityHintReachesVideoSource() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/136", "http://a/140", 720);
+        pol->emitGranted();
+        QCOMPARE(vsrc->hint, 720);
+        QCOMPARE(asrc->hint, -1);                        // audio lane: no hint
+        p.stop();
+        p.play("http://v/18", 1);
+        pol->emitGranted();
+        QCOMPARE(vsrc->hint, 0);                         // single mode clears it
     }
 
     // Re-anchoring at a sidx boundary keeps the header state and resumes with
