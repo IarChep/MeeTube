@@ -198,47 +198,53 @@ Page {
 
     ToolBarLayout {
         id: mainTools
-        // A segmented TabButton pair (the SDK's replacement for the deprecated TabBarLayout):
-        // search opens the search page, account opens the account page. exclusive:false keeps
-        // them momentary — navigation, not a stuck tab selection.
-        ButtonRow {
-            exclusive: false
-            // Detached from the settings ToolButton: opt out of ToolBarLayout's
-            // stretching (__expanding) AND pin an explicit width — ButtonRow's
-            // own natural width is min(2 x BUTTON_WIDTH, screen) = full screen,
-            // which made the tabs swallow the whole toolbar. One BUTTON_WIDTH
-            // gives the two icon tabs a compact pair on the left, gear on the
-            // right.
-            __expanding: false
-            width: UI.BUTTON_WIDTH
-            TabButton {
-                iconSource: "image://theme/icon-m-toolbar-search-white"
-                onClicked: pageStack.push(Qt.resolvedUrl("SearchPage.qml"))
-            }
-            TabButton {
-                id: accountButton
-                // Signed out: the contact glyph. Signed in: the glyph is cleared and a
-                // squircle Avatar (below) is overlaid, so the toolbar shows the user's avatar.
-                iconSource: appWindow.signedIn
-                            ? ""
-                            : "image://theme/icon-m-toolbar-contact-white"
-                onClicked: appWindow.openAccount()
+        // ONE group: [tab pair][settings button] in a plain Row, so ToolBarLayout
+        // has nothing to stretch or spread — the ButtonRow keeps its pinned
+        // width and the settings button sits right after it, as its own button.
+        Row {
+            spacing: UI.DEFAULT_MARGIN
+            // A segmented TabButton pair (the SDK's replacement for the deprecated
+            // TabBarLayout): search opens the search page, account the account
+            // page. exclusive:false keeps them momentary — navigation, not a
+            // stuck tab selection.
+            ButtonRow {
+                exclusive: false
+                // ButtonRow's own natural width is min(2 x BUTTON_WIDTH, screen)
+                // = full screen — pin it, and opt out of ToolBarLayout expansion.
+                __expanding: false
+                width: UI.BUTTON_WIDTH
+                TabButton {
+                    iconSource: "image://theme/icon-m-toolbar-search-white"
+                    onClicked: pageStack.push(Qt.resolvedUrl("SearchPage.qml"))
+                }
+                TabButton {
+                    id: accountButton
+                    // Signed out: the contact glyph. Signed in: the glyph is cleared and a
+                    // squircle Avatar (below) is overlaid, so the toolbar shows the user's avatar.
+                    iconSource: appWindow.signedIn
+                                ? ""
+                                : "image://theme/icon-m-toolbar-contact-white"
+                    onClicked: appWindow.openAccount()
 
-                Avatar {
-                    anchors.centerIn: parent
-                    width: UI.SIZE_ICON_LARGE
-                    height: UI.SIZE_ICON_LARGE
-                    visible: appWindow.signedIn
-                    interactive: false
-                    source: page.accountDetails ? page.accountDetails.avatarUrl : ""
+                    Avatar {
+                        anchors.centerIn: parent
+                        width: UI.SIZE_ICON_LARGE
+                        height: UI.SIZE_ICON_LARGE
+                        visible: appWindow.signedIn
+                        interactive: false
+                        source: page.accountDetails ? page.accountDetails.avatarUrl : ""
+                    }
                 }
             }
-        }
-        // Settings entry — a ToolButton (right edge), not a tab. NOT flat:
-        // a flat ToolButton drops its icon on this SDK build.
-        ToolButton {
-            iconSource: "image://theme/icon-m-toolbar-settings-white"
-            onClicked: pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
+            // Settings — a standalone ToolButton, SQUARE: its implicitWidth is
+            // platformStyle.buttonWidth (a full text-button), which stretched
+            // the press overlay far beyond the gear. NOT flat: a flat
+            // ToolButton drops its icon on this SDK build.
+            ToolButton {
+                width: height
+                iconSource: "image://theme/icon-m-toolbar-settings-white"
+                onClicked: pageStack.push(Qt.resolvedUrl("SettingsPage.qml"))
+            }
         }
     }
 }
