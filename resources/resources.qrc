@@ -42,6 +42,7 @@
         <file>qml/components/ui/CategoryChips.qml</file>
         <file>qml/components/ui/LoginPrompt.qml</file>
         <file>qml/components/ui/CategoryFeedView.qml</file>
+        <file>qml/components/ui/SettledPager.qml</file>
 
         <!-- components: sheets -->
         <file>qml/components/sheets/CommentsSheet.qml</file>

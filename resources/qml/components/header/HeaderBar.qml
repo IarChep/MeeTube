@@ -26,9 +26,9 @@ Item {
 
     // Длительности. Сворачивание высоты держим равным смене содержимого, чтобы при
     // уходе на страницу без заголовка всё заканчивалось одновременно (без обрезки).
-    property int contentTransitionDuration: 400
-    property int visibilityTransitionDuration: 400
-    property int backgroundTransitionDuration: 400
+    property int contentTransitionDuration: Ui.ANIM_SLOW
+    property int visibilityTransitionDuration: Ui.ANIM_SLOW
+    property int backgroundTransitionDuration: Ui.ANIM_SLOW
 
     // Высота: полная пока есть что показывать, иначе 0 (сворачивается, как тулбар).
     states: [
@@ -46,6 +46,18 @@ Item {
     transitions: Transition {
         from: ""; to: "hidden"; reversible: true
         PropertyAnimation { properties: "height"; easing.type: Easing.InOutExpo; duration: root.visibilityTransitionDuration }
+    }
+
+    // Страница может попросить другую высоту заголовка (полоса категорий Home ниже
+    // стандартного бара). Плавно перетикиваем в неё, а не прыгаем: root.height (в
+    // состоянии ""), слой фона и хост содержимого — все привязаны к contentHeight, так
+    // что его анимация разом меняет размер бара, фон и содержимое. Ограничено состоянием
+    // "": анимируем только между двумя ВИДИМЫМИ заголовками — сворачивание/разворачивание
+    // делает переход состояний выше, а мгновенная смена contentHeight в скрытом состоянии
+    // не даёт развороту гнаться за движущейся целью.
+    Behavior on contentHeight {
+        enabled: root.state == ""
+        NumberAnimation { duration: root.visibilityTransitionDuration; easing.type: Easing.InOutExpo }
     }
 
     // Слой фона (снизу). Высота не следует за root.height — не сжимается при

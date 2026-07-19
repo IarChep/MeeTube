@@ -12,7 +12,6 @@ Page {
     id: page
     orientationLock: PageOrientation.LockPortrait
 
-    property string channelId: ""   // retained: AccountPage still passes it (unused here)
     property variant playlists
 
     tools: playlistTools

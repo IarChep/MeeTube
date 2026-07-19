@@ -11,7 +11,8 @@ Button {
     id: btn
     property bool subscribed: false
     text: subscribed ? "Unsubscribe" : "Subscribe"
-    // Always size for the wider "Unsubscribe" so it never jumps on toggle.
+    // Default: size for the wider "Unsubscribe" so it never jumps on toggle. A caller
+    // can override `width` (e.g. a full-width pill); the background follows btn.width.
     width: subMetrics.paintedWidth + UI.PADDING_XXLARGE * 2
 
     Text {
@@ -24,7 +25,7 @@ Button {
     }
 
     platformStyle: ButtonStyle {
-        buttonWidth: subMetrics.paintedWidth + UI.PADDING_XXLARGE * 2
+        buttonWidth: btn.width
         buttonHeight: 46
         fontPixelSize: UI.FONT_SMALL
         fontWeight: Font.Bold

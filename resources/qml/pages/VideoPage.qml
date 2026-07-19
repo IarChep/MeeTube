@@ -8,19 +8,15 @@ import "../components/ui"
 import "../js/UIConstants.js" as UI
 import "../js/Status.js" as Status
 
-// Video detail page. NO global header: pageHeader/pageHeaderBackground are null so the
-// HeaderBar collapses (back navigation lives in the toolbar). Body is a scrolled Column:
-// preview, expandable title/description, action row, author row, comments, related —
-// separated by 1px dividers.
+// Video detail page. NO global header: no pageHeader is declared, so main.qml reads it as
+// null and the HeaderBar collapses (back navigation lives in the toolbar). Body is a
+// scrolled Column: preview, expandable title/description, action row, author row, comments,
+// related — separated by 1px dividers.
 Page {
     id: page
     orientationLock: PageOrientation.LockPortrait
 
     property variant videoData
-
-    // Null header -> the global HeaderBar animates to height 0 on this page.
-    property variant pageHeader: null
-    property variant pageHeaderBackground: null
 
     tools: videoTools
 
@@ -271,7 +267,7 @@ Page {
                     width: parent.width / 4
                     height: parent.height
                     // Liked (likeStatus === 1) tints the icon + label brand-red.
-                    property bool liked: (details && details.likeStatus === 1) ? true : false
+                    property bool liked: (details && details.likeStatus === 1)
                     MouseArea {
                         id: likeMouse
                         anchors.fill: parent
@@ -310,7 +306,7 @@ Page {
                     width: parent.width / 4
                     height: parent.height
                     // Disliked (likeStatus === 2) tints the glyph brand-red.
-                    property bool disliked: (details && details.likeStatus === 2) ? true : false
+                    property bool disliked: (details && details.likeStatus === 2)
                     MouseArea {
                         id: dislikeMouse
                         anchors.fill: parent
@@ -386,7 +382,7 @@ Page {
                     width: parent.width / 4
                     height: parent.height
                     // Saved (details.saved) tints the glyph + label brand-red.
-                    property bool isSaved: (details && details.saved) ? true : false
+                    property bool isSaved: (details && details.saved)
                     // Tap opens the destination sheet (Watch Later + playlists); the
                     // sheet lives at page scope.
                     MouseArea {
@@ -481,7 +477,7 @@ Page {
                 // on toggle. State + action are on VideoDetails (from the authed /next owner).
                 SubscribeButton {
                     id: subscribeButton
-                    subscribed: (details && details.subscribed) ? true : false
+                    subscribed: (details && details.subscribed)
                     anchors {
                         right: parent.right; rightMargin: UI.DEFAULT_MARGIN
                         verticalCenter: parent.verticalCenter

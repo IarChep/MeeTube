@@ -76,34 +76,17 @@ Page {
         appWindow.currentCategoryId = c.id;
         appWindow.currentCategoryLabel = c.label;
     }
-    // Move the pager to a category by id (chip tap, initial load, auth transitions). When the
-    // index is already current, still sync so currentCategoryId is seeded. Keeps wantedIndex
-    // in step so the launch-settling guard never fights a real selection.
+    // Move the pager to a category by id (chip tap, auth transitions). SettledPager.select
+    // handles the already-current case and the launch-settling guard.
     function selectCategoryId(id) {
         var i = page.indexOfId(id);
         if (i < 0) return;
-        page.wantedIndex = i;
-        if (pager.currentIndex === i) page.syncCategoryFromPager();
-        else pager.currentIndex = i;
+        pager.select(i);
     }
 
-    // Gate the pager's move animation: false during the initial positioning (so launch does
-    // not visibly scroll from Home to News), true afterwards so real taps/swipes animate.
-    property bool ready: false
-
-    // Launch settling: while the window/ListView geometry is churning (width goes
-    // 0 → interim → final in QtQuick 1.1), the strict range enforcement recomputes
-    // currentIndex from stale contentX and vice versa — chip and content desync in
-    // either direction. Until the churn is over (readyTimer, restarted by every width
-    // change), the pager is held to wantedIndex as a fixed point: index flaps snap
-    // back, contentX is re-glued to the index on every width change. page.ready then
-    // unlocks normal interaction (animations, free enforcement).
-    property int wantedIndex: 0
-    Timer {
-        id: readyTimer
-        interval: UI.ANIM_SLOW
-        onTriggered: page.ready = true
-    }
+    // Gates the chip strip's auto-scroll animation (off during the launch settle so the
+    // strip doesn't visibly slide on launch); mirrors the pager — see SettledPager.
+    property bool ready: pager.ready
 
     Component.onCompleted: {
         page.feedCache = ({});
@@ -113,11 +96,8 @@ Page {
         var startId = innertube.auth().signedIn
                       ? "FEwhat_to_watch"
                       : innertube.navEntries()[0].id;
-        page.wantedIndex = Math.max(0, page.indexOfId(startId));
-        pager.currentIndex = page.wantedIndex;
-        page.syncCategoryFromPager();
-        pager.pin();
-        readyTimer.restart();
+        pager.resetTo(Math.max(0, page.indexOfId(startId)));
+        page.syncCategoryFromPager();   // seed currentCategoryId even when the index is 0
     }
 
     // --- The Home header IS the CategoryChips strip, hosted by the global HeaderBar
@@ -151,7 +131,7 @@ Page {
     // --- Swipeable pager: one full-width CategoryFeedView per category, snapping one page at
     // a time. Horizontal drags flip categories; the inner vertical lists scroll independently.
     // currentIndex is the selected category, mirrored to appWindow.currentCategoryId.
-    ListView {
+    SettledPager {
         id: pager
         anchors {
             top: parent.top
@@ -160,30 +140,8 @@ Page {
             right: parent.right
             bottom: parent.bottom
         }
-        clip: true
-        orientation: ListView.Horizontal
-        snapMode: ListView.SnapOneItem
-        highlightRangeMode: ListView.StrictlyEnforceRange
-        preferredHighlightBegin: 0
-        preferredHighlightEnd: 0
-        highlightMoveDuration: page.ready ? UI.ANIM_DEFAULT : 0
-        boundsBehavior: Flickable.StopAtBounds
-        cacheBuffer: 0
         model: page.allCategories
-
-        onCurrentIndexChanged: {
-            // Launch guard: enforcement-driven flaps snap back to the wanted page.
-            if (!page.ready && currentIndex !== page.wantedIndex) {
-                currentIndex = page.wantedIndex;
-                return;
-            }
-            page.syncCategoryFromPager();
-        }
-
-        // Content exactly on the wanted page for the CURRENT width — consistent at any
-        // interim size, so the range enforcement has nothing to "correct".
-        function pin() { if (width > 0) contentX = page.wantedIndex * width; }
-        onWidthChanged: if (!page.ready) { pin(); readyTimer.restart(); }
+        onSettled: page.syncCategoryFromPager()
 
         delegate: CategoryFeedView {
             width: pager.width

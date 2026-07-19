@@ -56,10 +56,8 @@ Page {
     }
 
     // No global header — the banner + identity block are the channel's own header, so
-    // the shared HeaderBar collapses (null, like VideoPage) and the banner reaches the
-    // top of the page.
-    property variant pageHeader: null
-    property variant pageHeaderBackground: null
+    // the shared HeaderBar collapses (no pageHeader declared -> main.qml reads null, like
+    // VideoPage) and the banner reaches the top of the page.
 
     Component { id: videoDelegateComponent; RelatedDelegate {} }
     Component { id: playlistDelegateComponent; PlaylistDelegate {} }
@@ -165,28 +163,13 @@ Page {
                 width: parent.width
                 height: subscribeButton.height + UI.PADDING_LARGE
 
-                Button {
+                SubscribeButton {
                     id: subscribeButton
-                    property bool subscribed: (page.details && page.details.subscribed) ? true : false
-                    anchors {
-                        left: parent.left; leftMargin: UI.DEFAULT_MARGIN
-                        right: parent.right; rightMargin: UI.DEFAULT_MARGIN
-                        top: parent.top
-                    }
-                    text: subscribed ? "Unsubscribe" : "Subscribe"
-                    platformStyle: ButtonStyle {
-                        buttonHeight: 46
-                        fontPixelSize: UI.FONT_SMALL
-                        fontWeight: Font.Bold
-                        textColor: UI.COLOR_INVERTED_FOREGROUND
-                        pressedTextColor: UI.COLOR_INVERTED_FOREGROUND
-                        background: subscribeButton.subscribed
-                            ? "image://theme/meegotouch-button-inverted-background"
-                            : "image://theme/meegotouch-button-negative-background"
-                        pressedBackground: subscribeButton.subscribed
-                            ? "image://theme/meegotouch-button-inverted-background-pressed"
-                            : "image://theme/meegotouch-button-negative-background-pressed"
-                    }
+                    subscribed: (page.details && page.details.subscribed)
+                    // Full-width pill (inset by the page margin) — overrides the
+                    // component's fixed default width used in the compact rows.
+                    width: parent.width - UI.DEFAULT_MARGIN * 2
+                    anchors { horizontalCenter: parent.horizontalCenter; top: parent.top }
                     onClicked: {
                         if (!page.details) return;
                         if (page.details.subscribed) page.details.unsubscribe();

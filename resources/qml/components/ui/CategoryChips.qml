@@ -15,6 +15,13 @@ Item {
     // When true, an auto-scroll to the current chip animates; false snaps instantly (used
     // for the initial positioning so the strip doesn't slide on launch).
     property bool animated: true
+    // Fill the full width with equal-width cells (tab style) instead of the default
+    // content-sized, left-packed, scrollable strip. For a small fixed set (search result
+    // types) rather than the long, scrollable Home category list.
+    property bool fillWidth: false
+    // Draw the navbar-panel background + bottom separator. Turn OFF where the host already
+    // paints them (the SearchPage header) so a second gradient doesn't seam mid-bar.
+    property bool showBackground: true
     signal selected(string id, bool requiresAuth, string label)
 
     // Background: the N9 navigation-bar panel (a subtle inverted gradient) so the strip reads
@@ -23,6 +30,7 @@ Item {
     // to black at its foot).
     Image {
         anchors.fill: parent
+        visible: root.showBackground
         source: "image://theme/meegotouch-navigationbar-portrait-inverted-background"
         fillMode: Image.Stretch
         smooth: true
@@ -46,12 +54,12 @@ Item {
         flickableDirection: Flickable.HorizontalFlick
         // Edge padding for the first/last chip — half of DEFAULT_MARGIN so the strip sits
         // tighter to the screen edges.
-        contentWidth: strip.width + UI.PADDING_LARGE * 2
+        contentWidth: root.fillWidth ? flick.width : strip.width + UI.PADDING_LARGE * 2
         contentHeight: height
 
         Row {
             id: strip
-            x: UI.PADDING_LARGE
+            x: root.fillWidth ? 0 : UI.PADDING_LARGE
             height: parent.height
             spacing: 0
 
@@ -61,7 +69,8 @@ Item {
                 Item {
                     id: cell
                     property bool current: root.currentId === modelData.id
-                    width: cellLabel.paintedWidth + UI.PADDING_XLARGE * 2
+                    width: root.fillWidth ? flick.width / root.categories.length
+                          : cellLabel.paintedWidth + UI.PADDING_XLARGE * 2
                     height: strip.height
 
                     // Thin vertical divider between this delegate and the previous one.
@@ -98,6 +107,8 @@ Item {
                     // after a pager swipe to an off-screen category like Sports), scroll the
                     // strip so it is centred/visible.
                     onCurrentChanged: {
+                        // Fill-width tabs never scroll — nothing to reposition.
+                        if (root.fillWidth) return;
                         // Skip until geometry is laid out (flick.width 0 during init would
                         // mis-position the strip); the next current-change corrects it.
                         if (!current || flick.width <= 0 || width <= 0) return;
@@ -117,8 +128,6 @@ Item {
             }
         }
 
-        ScrollDecorator { flickableItem: flick }
-
         // Smoothly animates the auto-scroll-to-current-chip (started from a cell's
         // onCurrentChanged). A dedicated animation — NOT a Behavior on contentX — so
         // manually flicking the strip stays 1:1 with the finger.
@@ -135,6 +144,7 @@ Item {
     // delimited from the list below (the navbar panel alone fades to black at its foot).
     Image {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        visible: root.showBackground
         height: 2
         source: "image://theme/meegotouch-separator-inverted-background-horizontal"
         fillMode: Image.Stretch

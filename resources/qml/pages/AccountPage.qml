@@ -223,8 +223,7 @@ Page {
                 visible: page.details ? page.details.channelId !== "" : false
                 iconSource: "image://theme/icon-m-content-playlist-inverse"
                 label: "Playlists"
-                onClicked: pageStack.push(Qt.resolvedUrl("PlaylistsPage.qml"),
-                                          { channelId: page.details.channelId })
+                onClicked: pageStack.push(Qt.resolvedUrl("PlaylistsPage.qml"))
             }
             NavRow {
                 iconSource: "image://theme/icon-m-content-settings-inverse"
