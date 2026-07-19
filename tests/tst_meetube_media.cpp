@@ -362,6 +362,7 @@ public:
     void emitOpened(qint64 t) { emit opened(t, false); }
     void emitData(const QByteArray &c) { emit data(c); }
     void emitProgress(qint64 h) { emit progress(h); }
+    void emitLoading(int pct) { emit loading(pct); }
     void emitFinished() { emit finished(); }
     void emitFailed(const QString &e) { emit failed(e); }
 };
@@ -370,7 +371,7 @@ public:
 class tst_meetube_media : public QObject {
     Q_OBJECT
 private slots:
-    // The prebuffer accumulator (MEETUBE_PREBUFFER_FRAMES) defaults to 30 —
+    // The prebuffer accumulator (MEETUBE_PREBUFFER_FRAMES) defaults to ~60 —
     // way above the 3-sample fixtures. Disable it suite-wide; prebuffer tests
     // opt in with their own qputenv, and cleanup() restores the off state
     // after EVERY test (even a failing one).
@@ -412,6 +413,23 @@ private slots:
         src.requestData(2 * 1024 * 1024);
         QTRY_COMPARE(got.count(), 1);
         QCOMPARE(got.at(0).at(0).toByteArray().size(), 2 * 1024 * 1024);  // one 2 MiB window
+    }
+
+    // The in-flight window emits loading(pct) — byte progress for the loading UI,
+    // the gradient the startup gate can't give (its fat probe overshoots). Loopback
+    // hands the 2 MiB body over many curl write-callbacks, so ticks accumulate and
+    // the last one is 100 (whole window received). Confirms the real CurlNetworkReply
+    // populates Content-Length + grows bytesAvailable() before we readAll().
+    void windowEmitsByteLoadingProgress() {
+        RangeServer srv; srv.body = QByteArray(2 * 1024 * 1024, 'A');   // exactly one probe window
+        yt::net::CurlNetworkAccessManager nam;
+        yt::media::ProgressiveSource src(&nam);
+        QSignalSpy load(&src, SIGNAL(loading(int)));
+        QSignalSpy opened(&src, SIGNAL(opened(qint64,bool)));
+        src.open(QString("http://127.0.0.1:%1/v").arg(srv.port()));
+        QTRY_COMPARE(opened.count(), 1);
+        QVERIFY(load.count() >= 1);                          // at least one progress tick
+        QCOMPARE(load.last().at(0).toInt(), 100);            // final tick = window fully received
     }
 
     // Qt 4.7 QUrl(QString) double-encodes existing %-escapes (%2C -> %252C), which
@@ -504,6 +522,43 @@ private slots:
         QCOMPARE(player.state(), (int)yt::media::StreamPlayer::Playing);
     }
 
+    // Display phase subdivides loading for the UI. Single mode: Connecting on
+    // play -> Buffering_ once the gate arms (grant) -> NoPhase on Playing
+    // (LoadingWindow/Demuxing are dual-only, driven by the moov hunt).
+    void phaseTracksSingleFlow() {
+        FakeSource *src = new FakeSource; FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer player(src, pipe, pol);
+        player.play(QString("http://x/v"), yt::media::AudioMode);
+        QCOMPARE(player.phase(), (int)yt::media::StreamPlayer::Connecting);
+        pol->emitGranted();
+        QCOMPARE(player.phase(), (int)yt::media::StreamPlayer::Buffering_);
+        pipe->emitStarted();
+        QCOMPARE(player.phase(), (int)yt::media::StreamPlayer::NoPhase);
+    }
+
+    // Window loading %: the in-flight window's BYTE progress drives LoadingWindow
+    // + bufferProgress while loading. The startup gate overshoots on the fat 2 MiB
+    // probe (>> the ~3 s target), so the gate % alone is invisible; the byte %
+    // is the gradual, watchable one. Load-only: a read-ahead loading() past
+    // preroll is ignored (gate/prebuffer own the % from then).
+    void windowLoadingDrivesLoadPercent() {
+        ManualSource *src = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer player(src, pipe, pol);
+        player.play(QString("http://x/v"), yt::media::VideoMode);
+        pol->emitGranted();                     // opens src (ManualSource: no opened() yet)
+        QCOMPARE(player.phase(), (int)yt::media::StreamPlayer::Connecting);
+        src->emitLoading(40);                   // probe window 40% downloaded
+        QCOMPARE(player.phase(), (int)yt::media::StreamPlayer::LoadingWindow);
+        QCOMPARE(player.bufferProgress(), 40);
+        src->emitLoading(90);
+        QCOMPARE(player.bufferProgress(), 90);
+        src->emitOpened(1000);                  // probe done -> ungated -> Buffering/Playing
+        int b = player.bufferProgress();
+        src->emitLoading(20);                   // read-ahead window, past Loading -> ignored
+        QCOMPARE(player.bufferProgress(), b);
+    }
+
     // Preemption: lost() pauses; the next granted() resumes.
     void preemptionPausesThenResumes() {
         FakeSource *src = new FakeSource; FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
@@ -573,10 +628,12 @@ private slots:
         FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
         yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
         p.playDual("http://v/135", "http://a/140");
+        QCOMPARE((int)p.phase(), (int)yt::media::StreamPlayer::Connecting);
         pol->emitGranted();
         QCOMPARE(vsrc->openedUrl, QString("http://v/135"));
         QCOMPARE(asrc->openedUrl, QString("http://a/140"));
         vsrc->emitOpened(1000); asrc->emitOpened(200);
+        QCOMPARE((int)p.phase(), (int)yt::media::StreamPlayer::LoadingWindow);  // moov hunt
         QCOMPARE(pipe->esConfigured, 0);              // no moov fed yet
         vsrc->emitData(fmp4VideoFile());              // video moov + 3-sample fragment
         QCOMPARE(pipe->esConfigured, 0);              // audio moov still missing
@@ -600,6 +657,7 @@ private slots:
         QCOMPARE(pipe->lastVideoTs, Q_INT64_C(66666666));
         QCOMPARE(pipe->played, 1);
         QCOMPARE((int)p.state(), (int)yt::media::StreamPlayer::Buffering);
+        QCOMPARE((int)p.phase(), (int)yt::media::StreamPlayer::Buffering_);  // through Demuxing -> gate
         QVERIFY(!p.seekable());
         // Per-lane hunger routes to the right source; per-lane EOS forwards.
         int v = vsrc->dataRequests, a = asrc->dataRequests;
@@ -1020,10 +1078,10 @@ private slots:
 
     void plannerPrebufferFramesFromFps() {
         qputenv("MEETUBE_PREBUFFER_FRAMES", "");         // default path (cleanup() restores "0")
-        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(24.0), 24);
-        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(60.0), 48);   // cap
-        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(5.0), 12);    // floor
-        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(0.0), 30);    // unknown fps
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(24.0), 48);   // ~2 s of frames
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(60.0), 120);  // cap
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(5.0), 24);    // floor
+        QCOMPARE(yt::media::BufferPlanner::prebufferFrames(0.0), 60);    // unknown fps
         qputenv("MEETUBE_PREBUFFER_FRAMES", "7");
         QCOMPARE(yt::media::BufferPlanner::prebufferFrames(24.0), 7);    // absolute override
         qputenv("MEETUBE_PREBUFFER_FRAMES", "0");
@@ -1076,7 +1134,7 @@ private slots:
     }
 
     // Without the env override the prebuffer N derives from the stream's fps
-    // (fixture: 90000/3000 ticks = 30 fps -> 30 frames): 6 samples get held.
+    // (fixture: 90000/3000 ticks = 30 fps -> 60 frames): 6 samples get held.
     void prebufferDefaultsFromStreamFps() {
         qputenv("MEETUBE_PREBUFFER_FRAMES", "");   // default path (cleanup restores "0")
         ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;

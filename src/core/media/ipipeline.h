@@ -61,6 +61,13 @@ public:
     virtual void resume() = 0;
     virtual void stop() = 0;
     virtual void seek(qint64 ms) = 0;
+    // The scene GL context was destroyed+recreated under a texture-streaming
+    // sink (the N9 app was minimized then restored — meego's graphicssystem
+    // drops the scene's GL context on a visibility switch). Rebuild the
+    // decode/render graph against the new context, reusing the cached caps.
+    // Default: no-op (host fake / non-GL sinks). The player then re-anchors the
+    // feed via seek(). See StreamPlayer::onGlContextLost.
+    virtual void rebuild() {}
 Q_SIGNALS:
     void needData(qint64 maxBytes);
     void needAudioData(qint64 maxBytes);    // the dual audio appsrc is hungry
@@ -68,11 +75,17 @@ Q_SIGNALS:
     // BYTES in single mode (qtdemux computed it), TIME ns in dual mode.
     void seekRequested(qint64 offset);
     void started();                 // first decoded frames -> Playing
+    void prerolled();               // async state change done (PAUSED-prerolled) — seek-while-paused is safe now
     void buffering(int percent);    // 0..100
     void positionChanged(qint64 ms);
     void durationChanged(qint64 ms);
     void finished();                // EOS
     void error(const QString &message);
+    // A texture-streaming sink's GL context was recreated (minimize/restore):
+    // the player rebuilds the pipeline and re-anchors the feed to the current
+    // position. Emitted only by GL sinks; queued so the rebuild runs off the
+    // scene paint that detected it.
+    void glContextLost();
 };
 }}
 Q_DECLARE_METATYPE(yt::media::EsConfig)   // queued esReady payload (media thread)

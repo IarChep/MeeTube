@@ -18,6 +18,15 @@ Page {
     property variant streams: null
     property bool controlsShown: true
 
+    // Default player orientation (Settings > Playback); evaluated when the
+    // page is created — a changed setting applies from the next player open.
+    orientationLock: {
+        var o = innertube.store().playerOrientation();
+        if (o == "landscape") return PageOrientation.LockLandscape;
+        if (o == "auto") return PageOrientation.Automatic;
+        return PageOrientation.LockPortrait;
+    }
+
     // Immersive player: no phone status bar and no rounded window corners while
     // this page is on top; both restored when leaving (Deactivating fires for
     // pop and for a page pushed above us alike).
@@ -28,6 +37,23 @@ Page {
         } else if (status === PageStatus.Deactivating) {
             appWindow.showStatusBar = true;
             appWindow.platformStyle.cornersVisible = true;
+        }
+    }
+
+    // Pause playback while the app is backgrounded (minimized), resume when it returns — no
+    // point decoding/fetching video the user can't see. Qt.application.active flips on the
+    // foreground/background transition; only auto-resume what WE paused (leave a manual pause).
+    property bool __resumeOnForeground: false
+    Connections {
+        target: Qt.application
+        onActiveChanged: {
+            if (!Qt.application.active) {
+                root.__resumeOnForeground = (player.state === 3 || player.state === 2); // Playing/Buffering
+                if (root.__resumeOnForeground) player.pause();
+            } else if (root.__resumeOnForeground) {
+                root.__resumeOnForeground = false;
+                player.resume();
+            }
         }
     }
 
@@ -45,6 +71,16 @@ Page {
     // and audio-only adaptive (itag-140, the IOS SABR fallback) stay audio (mode 0).
     function tryPlay() {
         if (!streams) return;
+        // Default-quality preference (Settings > Playback): pick the best
+        // picker row at or below the preferred height — rows are height-desc,
+        // so the first match wins; playVideo() routes muxed vs dual. Falls
+        // through to the stock chain when unset or nothing matches.
+        var pref = innertube.store().defaultQuality();
+        if (pref > 0) {
+            for (var q = 0; q < vidUrls.length; q++) {
+                if (vidHeights[q] <= pref) { playVideo(q); return; }
+            }
+        }
         var url = "";
         var kind = "";
         var mode = 0;   // 0 = audio, 1 = video
@@ -59,6 +95,14 @@ Page {
         }
     }
 
+    // StreamPlayer.Phase (int) -> overlay text, indexed NoPhase..Ended (mirrors the C++
+    // enum). Phases 2/4/5 carry a % from bufferProgress; the rest are bare.
+    function phaseLabel(p, pct) {
+        var names = ["", "Connecting…", "Loading video", "Processing…", "Buffering",
+                     "Rebuffering", "Seeking…", "Interrupted", "Ended"];
+        var suffix = (p == 2 || p == 4 || p == 5) && pct > 0 && pct < 100 ? " " + pct + "%" : "";
+        return (names[p] || "") + suffix;
+    }
     // Fill the Video and Audio pickers from the resolved stream catalog. The video
     // dialog lists muxed + dual-stream tracks (best-first); the audio dialog lists
     // the adaptive audio tracks labelled by bitrate. Each list stays index-parallel
@@ -144,13 +188,16 @@ Page {
 
     Component.onCompleted: {
         subtitles.clear();                               // start with subtitles off
+        screenSaver.preventBlanking(true);               // keep the screen awake on this page
         streams = innertube.video().streams(videoId);   // async: fetches /player
-        streams.loaded.connect(tryPlay);                 // play once the URL resolves
+        // buildMenus BEFORE tryPlay (signal order = connect order): tryPlay's
+        // default-quality pick reads the picker arrays buildMenus fills.
         streams.loaded.connect(buildMenus);              // fill the video/audio/subtitle pickers
+        streams.loaded.connect(tryPlay);                 // play once the URL resolves
         tryPlay();                                       // in case it resolved synchronously
     }
-    // Stop the caption fetch/render when leaving the player.
-    Component.onDestruction: subtitles.clear()
+    // Stop the caption fetch/render + let the screen dim/blank again when leaving.
+    Component.onDestruction: { subtitles.clear(); screenSaver.preventBlanking(false); }
 
     // Feed the subtitle track the playback clock so it can pick the current cue.
     Connections {
@@ -249,7 +296,8 @@ Page {
             id: busy
             anchors.centerIn: parent
             platformStyle: BusyIndicatorStyle { size: "large" }
-            running: player.state == 1 || player.state == 2   // Loading | Buffering
+            // Spin for the working phases (Connecting..Seeking); not for Interrupted/Ended.
+            running: player.phase >= 1 && player.phase <= 6
         }
     }
 
@@ -258,7 +306,7 @@ Page {
     // start target downloaded) on a translucent plate, lifted above the controls
     // bar while it's shown.
     Rectangle {
-        visible: busy.running
+        visible: player.phase != 0   // any phase but NoPhase (incl. Interrupted/Ended)
         color: UI.COLOR_SCRIM
         radius: UI.PADDING_SMALL
         width: bufferLabel.paintedWidth + UI.PADDING_LARGE * 2
@@ -270,9 +318,7 @@ Page {
         Label {
             id: bufferLabel
             anchors.centerIn: parent
-            text: player.bufferProgress > 0 && player.bufferProgress < 100
-                  ? "Buffering " + player.bufferProgress + "%"
-                  : "Buffering"
+            text: root.phaseLabel(player.phase, player.bufferProgress)
             color: UI.COLOR_INVERTED_FOREGROUND
             font { family: UI.FONT_FAMILY; pixelSize: UI.FONT_LSMALL }
         }

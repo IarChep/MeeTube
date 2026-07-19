@@ -37,6 +37,9 @@ add_executable(meetube
     # quads inside the QML scene (canon QtMultimediaKit protocol; see
     # media/meegovideotexture.h for the hand-declared interface).
     harmattan/eglvideoitem.cpp
+    # Display-blanking control: keeps the screen awake on the player page via
+    # libqmsystem2's QmDisplayState (device-only #if BUILD_N9; host no-op). From cuteTube2.
+    harmattan/screensaver.cpp
     # QML resources (main.qml + pages/components + avatar-mask.png) baked into the
     # binary; main.cpp loads qrc:/qml/main.qml. Compiled via the target's AUTORCC.
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
@@ -115,6 +118,13 @@ if(BUILD_N9)
     pkg_check_modules(RESOURCEQT libresourceqt1 REQUIRED)
     target_include_directories(meetube PRIVATE ${RESOURCEQT_INCLUDE_DIRS})
     target_link_libraries(meetube PRIVATE ${RESOURCEQT_LIBRARIES})
+
+    # Display-blanking control (harmattan/screensaver.cpp): QmDisplayState from
+    # libqmsystem2 pauses MCE blanking on the player page. Device-only (host no-op);
+    # qmsystem2.pc from the device sysroot.
+    pkg_check_modules(QMSYSTEM qmsystem2 REQUIRED)
+    target_include_directories(meetube PRIVATE ${QMSYSTEM_INCLUDE_DIRS})
+    target_link_libraries(meetube PRIVATE ${QMSYSTEM_LIBRARIES})
 
     # GStreamer 0.10 appsrc pipeline (GstAppPipeline) for media playback. From the
     # device sysroot via PKG_CONFIG_SYSROOT_DIR. gstreamer-app-0.10 provides appsrc;

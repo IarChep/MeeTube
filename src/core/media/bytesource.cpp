@@ -76,7 +76,22 @@ void ProgressiveSource::issueWindow(qint64 start, const char *slot)
     req.setRawHeader("User-Agent", streamUserAgent());   // generic desktop UA, NOT the app UA
     m_fetchClock.start();
     m_reply = m_nam->get(req);
+    connect(m_reply, SIGNAL(readyRead()), this, SLOT(onWindowReadyRead()));
     connect(m_reply, SIGNAL(finished()), this, slot);
+}
+
+// Emit the in-flight window's byte progress for the loading readout. The body
+// accumulates in the reply until we readAll() at finish, so bytesAvailable() is
+// "received so far"; Content-Length is the window's size. This is the gradual
+// percentage the startup gate can't give (its fat 2 MiB probe overshoots the
+// small startup target and pins at 100).
+void ProgressiveSource::onWindowReadyRead()
+{
+    if (!m_reply) return;
+    const qint64 total = m_reply->rawHeader("Content-Length").toLongLong();
+    if (total <= 0) return;
+    const qint64 recv = m_reply->bytesAvailable();
+    emit loading((int)qBound<qint64>(0, 100 * recv / total, 100));
 }
 
 // Start a prefetch if nothing is in flight and we're under the read-ahead target.
@@ -191,6 +206,7 @@ RoutingSource::RoutingSource(ByteSource *hls, ByteSource *progressive, QObject *
         connect(kids[i], SIGNAL(opened(qint64,bool)), this, SIGNAL(opened(qint64,bool)));
         connect(kids[i], SIGNAL(data(QByteArray)),    this, SIGNAL(data(QByteArray)));
         connect(kids[i], SIGNAL(progress(qint64)),    this, SIGNAL(progress(qint64)));
+        connect(kids[i], SIGNAL(loading(int)),        this, SIGNAL(loading(int)));
         connect(kids[i], SIGNAL(finished()),          this, SIGNAL(finished()));
         connect(kids[i], SIGNAL(failed(QString)),     this, SIGNAL(failed(QString)));
     }

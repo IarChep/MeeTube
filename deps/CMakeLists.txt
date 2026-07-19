@@ -290,7 +290,9 @@ if(BUILD_N9)
     # CURLOPT_CAINFO the core::Http seeds. The rpath LDFLAGS mirror the meetube
     # target so libcurl.so finds its bundled OpenSSL 3 at load on device.
     set(CURL_INSTALL ${CMAKE_BINARY_DIR}/curl-install CACHE INTERNAL "")
-    set(CURL_SO      ${CURL_INSTALL}/lib/libcurl.so CACHE INTERNAL "")
+    # Renamed soname (see the INSTALL_COMMAND patchelf below) — meetube links THIS so its
+    # DT_NEEDED is the unique name, dodging the stock /usr/lib/libcurl.so.4 collision.
+    set(CURL_SO      ${CURL_INSTALL}/lib/libcurl-meetube.so CACHE INTERNAL "")
     set(CURL_INCLUDE ${CURL_INSTALL}/include CACHE INTERNAL "")
     string(REGEX REPLACE "g\\+\\+$" "gcc" CURL_CC "${CMAKE_CXX_COMPILER}")
     ExternalProject_Add(libcurl_build
@@ -317,7 +319,16 @@ if(BUILD_N9)
                           --without-zstd
                           --disable-dependency-tracking
         BUILD_COMMAND     make
+        # Rename the bundled libcurl's SONAME so it cannot collide with the device's stock
+        # /usr/lib/libcurl.so.4 (an ancient 7.x linked to the THREAD-UNSAFE OpenSSL 0.9.8).
+        # Under applauncherd the booster PRELOADS that stock libcurl.so.4, and ld.so reuses
+        # the first-loaded soname process-wide — so our DT_RPATH got NO say and the app ran
+        # on OpenSSL 0.9.8, which SIGSEGVs in ERR_clear_error/lh_retrieve when the worker-
+        # thread CurlEngine touches it concurrently (device-confirmed via crash backtrace
+        # 2026-07-19). A unique soname forces ld.so to SEARCH -> DT_RPATH -> OUR libcurl ->
+        # OUR OpenSSL 3. Same soname-collision dodge already applied to zlib/nghttp2 above.
         INSTALL_COMMAND   make install
+                  COMMAND sh -c "real=$(readlink -f ${CURL_INSTALL}/lib/libcurl.so) && patchelf --set-soname libcurl-meetube.so.4 $real && ln -sf $(basename $real) ${CURL_INSTALL}/lib/libcurl-meetube.so.4 && ln -sf $(basename $real) ${CURL_INSTALL}/lib/libcurl-meetube.so"
         BUILD_BYPRODUCTS  ${CURL_SO}
     )
 
@@ -365,7 +376,7 @@ if(BUILD_N9)
             PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE
             PATTERN "engines-3" EXCLUDE PATTERN "ossl-modules" EXCLUDE)
     install(DIRECTORY ${CURL_INSTALL}/lib/ DESTINATION /opt/meetube/lib
-            FILES_MATCHING PATTERN "libcurl.so*"
+            FILES_MATCHING PATTERN "libcurl.so*" PATTERN "libcurl-meetube.so*"
             PATTERN "cmake" EXCLUDE PATTERN "pkgconfig" EXCLUDE)
     # libatomic.so.1 (+ its versioned real file) from the cross-toolchain — see
     # the OpenSSL 3 block above. DIRECTORY install preserves the .so.1 -> .so.1.x

@@ -37,6 +37,7 @@ Q_SIGNALS:
     void opened(qint64 totalSize, bool seekable);   // totalSize<0 = unknown
     void data(const QByteArray &chunk);
     void progress(qint64 bufferedMs);               // fetch advanced (startup gate, media ms)
+    void loading(int pct);                          // in-flight window byte progress 0..100 (loading UI)
     void finished();
     void failed(const QString &error);
 protected:
@@ -63,6 +64,7 @@ public:
 private slots:
     void onProbeFinished();
     void onWindowFinished();
+    void onWindowReadyRead();   // in-flight bytes -> loading(pct)
 private:
     void issueWindow(qint64 start, const char *slot);
     void topUp();            // start a prefetch if under the read-ahead target

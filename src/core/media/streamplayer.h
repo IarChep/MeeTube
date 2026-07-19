@@ -16,8 +16,13 @@ class ByteSource; class IPolicy; class MediaPump;
 // time); main.cpp exposes it as the `player` context property.
 class StreamPlayer : public QObject {
     Q_OBJECT
-    Q_ENUMS(State)
+    Q_ENUMS(State Phase)
     Q_PROPERTY(int     state          READ state          NOTIFY stateChanged)
+    // Display-only sub-state: subdivides Loading/Buffering into user-meaningful
+    // steps for the UI (Connecting/LoadingWindow/Demuxing/Buffering/…). Does NOT
+    // drive the State machine — it rides alongside it. bufferProgress carries the
+    // % where a phase has one. QML maps the int to text.
+    Q_PROPERTY(int     phase          READ phase          NOTIFY phaseChanged)
     Q_PROPERTY(qint64  position       READ position       NOTIFY positionChanged)
     Q_PROPERTY(qint64  duration       READ duration       NOTIFY durationChanged)
     Q_PROPERTY(int     bufferProgress READ bufferProgress NOTIFY bufferProgressChanged)
@@ -34,6 +39,11 @@ class StreamPlayer : public QObject {
     Q_PROPERTY(QString videoProfile   READ videoProfile   NOTIFY videoInfoChanged)
 public:
     enum State { Idle, Loading, Buffering, Playing, Paused, Stopped, Error };
+    // Display sub-state (int-mapped to text in QML). NoPhase, not None: X11's
+    // <X.h> #defines None on device. Buffering_ trails an underscore: unscoped
+    // enumerators share the class scope, and State::Buffering owns the bare name.
+    enum Phase { NoPhase, Connecting, LoadingWindow, Demuxing, Buffering_,
+                 Rebuffering, Seeking, Interrupted, Ended };
     StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *policy,
                  ByteSource *audioSource = 0, QObject *parent = 0);
     ~StreamPlayer();
@@ -47,6 +57,7 @@ public:
     void shutdownMediaThread();
 
     int     state()          const { return m_state; }
+    int     phase()          const { return m_phase; }
     qint64  position()       const { return m_position; }
     qint64  duration()       const { return m_duration; }
     int     bufferProgress() const { return m_buffer; }
@@ -74,7 +85,7 @@ public:
 Q_SIGNALS:
     void stateChanged(); void positionChanged(); void durationChanged();
     void bufferProgressChanged(); void seekableChanged(); void modeChanged();
-    void videoInfoChanged();
+    void videoInfoChanged(); void phaseChanged();
     void playbackFinished();
 private slots:
     void onGranted(); void onLost(); void onDenied(); void onReleasedByManager();
@@ -84,22 +95,33 @@ private slots:
     void onEsReady(yt::media::EsConfig cfg, qint64 videoTarget, qint64 videoHave,
                    qint64 audioTarget, qint64 audioHave, bool seekable);
     void onPumpVideoFinished(); void onPumpAudioFinished();
+    void onDemuxing();          // pump parsed both moovs -> Demuxing phase (flash)
     void onPumpFailed(const QString &e);
     void onSeekRequested(qint64 offset);   // appsrc flush-seek -> pump re-anchor
     void onPrebuffering(int pct);          // pump refill progress (slow path only)
     // Startup-gate progress straight from the sources (stateless numbers).
     void onProgress(qint64 have); void onAudioProgress(qint64 have);
+    void onWindowLoading(int pct);   // in-flight window byte % -> LoadingWindow readout
     void onNeedData(qint64 n); void onNeedAudioData(qint64 n);
     void onStarted(); void onBuffering(int pct);
+    void onPrerolled();   // pipeline PAUSED-prerolled -> apply the deferred rebuild-reseek
     void onPosition(qint64 ms); void onDuration(qint64 ms);
     void onPipelineFinished(); void onPipelineError(const QString &e);
+    void onGlContextLost();   // scene GL context recreated -> rebuild + re-anchor
 private:
     void setState(State s);
+    void setPhase(Phase p);
     void fail(const QString &e);
     void startOrGate();         // preroll paused until the startup buffer is in
     void updateStartupGate();   // progress -> buffer % -> resume when both lanes hit target
+    void doRawSeek(qint64 ms);  // the actual gst flush seek (no rebuild) — dual seeks + the deferred restore seek
+    // Rebuild the pipeline and re-seek to targetMs via the deferred (onStarted)
+    // path. Used by the GL-context restore AND by single/progressive user seeks
+    // (the Nokia DSP AAC decoder can't survive an in-place flush seek — a fresh
+    // pipeline can, which is why a minimize/restore "fixes" seeking).
+    void rebuildAndReseek(qint64 targetMs, bool wasPlaying);
     IPipeline *m_pipeline; IPolicy *m_policy;
-    State m_state; PlaybackMode m_mode;
+    State m_state; Phase m_phase; PlaybackMode m_mode;
     QString m_url, m_error;
     qint64 m_position, m_duration; int m_buffer; bool m_seekable;
     bool m_granted;   // first grant seen (distinguish initial grant from re-grant)
@@ -109,6 +131,9 @@ private:
     double m_videoFps; QString m_videoProfile;   // dual metadata for the UI
     QList<qint64> m_segStarts;   // sidx subsegment starts (ns) — the seek-snap table
     bool m_seekUserPending;      // a user seek is armed; the next appsrc seek-data is real, not spurious
+    qint64 m_pendingSeekNs;      // the armed seek's exact target (ns) — dual onSeekRequested honors only
+                                 // a seek-data matching it, so a fresh appsrc's preroll seek-data(0)
+                                 // (or an underrun re-issue) can't be mistaken for the real seek
     bool m_prebufPaused;         // Buffering pause issued by the prebuffer (not the gate)
     MediaPump *m_pump;          // parentless (must be movable); deleted in dtor
     QThread *m_mediaThread;     // 0 = inline mode (tests)
@@ -120,6 +145,11 @@ private:
     // here and applied by setState once preroll ends (Playing/Stopped/Error).
     bool m_pendingSwitch, m_pendingDual; int m_pendingMode; int m_pendingHeight;
     QString m_pendingUrl, m_pendingAudioUrl;
+    // GL-context-loss restore, single/progressive mode only: the fresh
+    // decodebin2 must typefind + parse the moov from byte 0 before it can seek,
+    // so onGlContextLost re-anchors the source to 0 and stashes the resume
+    // target here; onStarted (qtdemux prerolled) applies it. -1 = none pending.
+    qint64 m_restoreSeekMs; bool m_restoreWasPlaying;
 };
 }}
 #endif

@@ -20,6 +20,7 @@ void GstAppPipeline::pause() {}
 void GstAppPipeline::resume(){}
 void GstAppPipeline::stop()  {}
 void GstAppPipeline::seek(qint64) {}
+void GstAppPipeline::rebuild() {}
 void GstAppPipeline::setGlContext(QGLContext *) {}
 void *GstAppPipeline::glSink() const { return 0; }
 bool GstAppPipeline::currentGlFrame(int *) { return false; }
@@ -470,9 +471,25 @@ GstBusSyncReply GstAppPipeline::onSyncMsg(GstBus *, GstMessage *msg, gpointer us
 void GstAppPipeline::setGlContext(QGLContext *ctx)
 {
     if (m_glCtx == ctx) return;
+    QGLContext *prev = m_glCtx;
     m_glCtx = ctx;
-    PLOG() << "gst: scene GL context received" << (void *) ctx;
+    PLOG() << "gst: scene GL context received" << (void *) ctx << "(prev" << (void *) prev << ")";
+    // A CHANGE from one live context to another, with a pipeline already built,
+    // means the scene GL context was destroyed+recreated (app minimized then
+    // restored): the gltexturesink baked eglGetCurrentContext() at buildPipeline
+    // time, so its per-frame EGLImages are now stranded in the DEAD share-group
+    // and never reach the new context — the video goes black. Ask the player to
+    // rebuild (queued, so the heavy teardown/build runs off this scene paint).
+    if (prev && ctx && m_pipeline)
+        emit glContextLost();
 }
+
+// Re-create the decode/render graph against the current m_glCtx. teardown()
+// inside buildPipeline() drops the stale gltexturesink; the new one bakes the
+// live context (buildPipeline makeCurrent's m_glCtx). Caps are cached (m_es /
+// m_mode/m_seekable/m_total survive teardown), so no re-negotiation is needed —
+// the player re-anchors the feed with a seek() afterward.
+void GstAppPipeline::rebuild() { buildPipeline(); }
 
 void *GstAppPipeline::glSink() const { return m_glSink; }
 
@@ -539,6 +556,12 @@ gboolean GstAppPipeline::onBusCb(GstBus *, GstMessage *msg, gpointer user)
                    << "->" << gst_element_state_get_name(news);
             if (news == GST_STATE_PLAYING) emit self->started();
         }
+        break;
+    case GST_MESSAGE_ASYNC_DONE:
+        // The pipeline finished an async state change — it is PREROLLED. The
+        // player uses this to seek a rebuilt pipeline while it is still PAUSED
+        // (no audio/video of the primed start leaks out before the resume-seek).
+        if (GST_MESSAGE_SRC(msg) == GST_OBJECT(self->m_pipeline)) emit self->prerolled();
         break;
     default: break;
     }

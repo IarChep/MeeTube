@@ -30,7 +30,7 @@ static const double kStartupHqFactor = 1.5;              // height >= 720
 static const double kStartupMaxSec   = 20.0;
 static const int    kReadAheadMin    = 2;
 static const int    kReadAheadMax    = 6;
-static const double kPrebufferSec    = 1.0;
+static const double kPrebufferSec    = 2.0;   // frames held in appsrc before the clock starts
 static const int    kQueueSec        = 30;               // appsrc depth in MEDIA seconds
 
 void BufferPlanner::noteFetch(qint64 bytes, qint64 elapsedMs)
@@ -89,9 +89,10 @@ int BufferPlanner::readAheadWindows() const
     return (int)qBound<qint64>(kReadAheadMin, (t + w - 1) / w, kReadAheadMax);
 }
 
-// The ONE frame-denominated buffer: ~1 s of frames at the stream's rate.
-// MEETUBE_PREBUFFER_FRAMES is the absolute on-device calibration override
-// (0 disables).
+// The ONE frame-denominated buffer: ~2 s of frames at the stream's rate — a
+// deeper appsrc cushion at start/seek/underrun so the sink rides out network &
+// decode hiccups without the N9 judder. MEETUBE_PREBUFFER_FRAMES is the absolute
+// on-device calibration override (0 disables).
 int BufferPlanner::prebufferFrames(double fps)
 {
     const QByteArray e = qgetenv("MEETUBE_PREBUFFER_FRAMES");
@@ -100,8 +101,8 @@ int BufferPlanner::prebufferFrames(double fps)
         const int n = e.toInt(&ok);
         if (ok && n >= 0) return n;
     }
-    if (fps <= 0) return 30;
-    return qBound(12, (int)(fps * kPrebufferSec + 0.5), 48);
+    if (fps <= 0) return 60;
+    return qBound(24, (int)(fps * kPrebufferSec + 0.5), 120);
 }
 
 // appsrc queue caps: the same MEDIA depth for both lanes (the hardcoded

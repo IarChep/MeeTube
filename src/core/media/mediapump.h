@@ -65,6 +65,10 @@ Q_SIGNALS:                      // pump -> StreamPlayer (queued when threaded)
     void videoLaneFinished();   // download EOF (startup gate); the pipeline EOS
     void audioLaneFinished();   // itself is pushed from the pump thread
     void pumpFailed(QString error);
+    // Both moovs are in hand and the container is being parsed into EsConfig.
+    // Fired once, right before esReady — a separate queued event so the GUI
+    // gets a chance to surface the (near-instant) "Demuxing" phase.
+    void demuxing();
     // Prebuffer accumulation progress — emitted ONLY when a refill came up
     // short after draining the available data (the fast path flushes without
     // involving the player); 100 = the flush happened after a partial report.

@@ -30,6 +30,7 @@ public:
     void pushData(const QByteArray &chunk);
     void endOfStream();
     void play(); void pause(); void resume(); void stop(); void seek(qint64 ms);
+    void rebuild();   // re-create the graph against the current m_glCtx (see setGlContext)
     void configureDualEs(const EsConfig &cfg);
     void pushVideoSample(const QByteArray &data, qint64 tsNs, qint64 durNs, bool keyframe);
     void pushAudioSample(const QByteArray &data, qint64 tsNs, qint64 durNs);

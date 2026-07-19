@@ -134,6 +134,13 @@ void EglVideoItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QW
     if (cur && m_givenCtx != cur) {
         pipe->setGlContext(const_cast<QGLContext *>(cur));
         m_givenCtx = cur;
+        // The shader program lives in the OLD context's object namespace; after the meego
+        // graphicssystem recreates the scene context (un-minimize), its stale id is invalid
+        // in the new one -> every draw throws GL_INVALID_VALUE (glErr 1281) and the video
+        // stops rendering. Drop our reference so ensureProgram() rebuilds it against the live
+        // context below. We do NOT delete the old program here (its dtor would touch the
+        // just-destroyed context) — it stays parented to `this` and frees on page-leave.
+        m_program = 0;
     }
 
     void *sinkVoid = pipe->glSink();
@@ -160,9 +167,23 @@ void EglVideoItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QW
 
     ensureProgram();
 
+    // The scene GL context can lose its paint device MID-TEARDOWN: device-confirmed that
+    // minimizing during playback tears down the meego graphicssystem context, and a paint
+    // fired during the minimize animation hit QGLContext::currentContext()->device() == null
+    // -> SIGSEGV in QPaintDevice::width() (crash pc in libQtGui, lr in this frame, fault
+    // addr 0x4 = null deref). Bail out of this frame safely when the device is gone; the
+    // next real paint (context recreated) resumes normally.
+    const QGLContext *glctx = QGLContext::currentContext();
+    QPaintDevice *dev = glctx ? glctx->device() : 0;
+    if (!dev) {
+        painter->endNativePainting();
+        painter->fillRect(boundingRect(), QBrush(Qt::black));
+        return;
+    }
+
     // canon positionMatrix — qeglimagetexturesurface.cpp verbatim.
-    const int width  = QGLContext::currentContext()->device()->width();
-    const int height = QGLContext::currentContext()->device()->height();
+    const int width  = dev->width();
+    const int height = dev->height();
     const QTransform transform = painter->deviceTransform();
     const GLfloat wfactor = 2.0 / width;
     const GLfloat hfactor = -2.0 / height;

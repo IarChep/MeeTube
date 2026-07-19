@@ -9,6 +9,12 @@
 #include <QNetworkProxy>
 #include <QUrl>
 #include <curl/curl.h>
+#include <execinfo.h>
+#include <csignal>
+#include <unistd.h>
+#include <ucontext.h>
+#include <fcntl.h>
+#include <cstring>
 
 #include "qmlapplicationviewer/qmlapplicationviewer.h"
 #include <QtDeclarative/qdeclarative.h>
@@ -24,6 +30,7 @@
 #include "harmattan/qrimageprovider.h"
 #include "harmattan/shareui.h"
 #include "harmattan/eglvideoitem.h"
+#include "harmattan/screensaver.h"
 #if defined(BUILD_N9)
 #include <X11/Xlib.h>   // XInitThreads — required for gltexturesink (Nokia docs)
 #endif
@@ -36,8 +43,66 @@
 #include "media/policyguard.h"
 #include "net/curlnetworkaccessmanager.h"
 
+// Async-signal-safe hex writer: appends "0x" + hex(v) into *pp.
+static void meetubeHexAppend(char **pp, unsigned long v)
+{
+    char *p = *pp; *p++ = '0'; *p++ = 'x';
+    char tmp[16]; int i = 0;
+    if (!v) tmp[i++] = '0';
+    while (v) { int d = (int)(v & 0xf); tmp[i++] = d < 10 ? char('0' + d) : char('a' + d - 10); v >>= 4; }
+    while (i) *p++ = tmp[--i];
+    *pp = p;
+}
+
+// Crash diagnostics (device debug aid). backtrace() alone is NOT enough for the minimize
+// crash: it is deep in the SGX GL driver, whose frames carry no unwind info, so backtrace()
+// itself faults before printing (and gdb/ptrace is aegis-blocked, core dumps policy-disabled
+// -> core_pattern=/dev/null). So write the faulting PC + LR (caller) + fault address FIRST,
+// straight from the signal ucontext with NO unwinding, then dump /proc/self/maps so those
+// runtime addresses resolve to lib+offset off-device (addr2line vs the RelWithDebInfo binary
+// / the sysroot .so). backtrace() is only a best-effort tail. Re-raise so the process dies.
+static void meetubeCrashHandler(int sig, siginfo_t *info, void *ucv)
+{
+    char buf[128];
+    char *p = buf;
+    const char *h = "\n=== MeeTube CRASH pc=";
+    while (*h) *p++ = *h++;
+#if defined(__arm__)
+    const mcontext_t &mc = ((ucontext_t *) ucv)->uc_mcontext;
+    meetubeHexAppend(&p, mc.arm_pc);
+    const char *l = " lr="; while (*l) *p++ = *l++;
+    meetubeHexAppend(&p, mc.arm_lr);
+#else
+    (void) ucv; meetubeHexAppend(&p, 0);
+#endif
+    const char *a = " addr="; while (*a) *p++ = *a++;
+    meetubeHexAppend(&p, (unsigned long) (info ? info->si_addr : (void *) 0));
+    *p++ = '\n';
+    (void) write(STDERR_FILENO, buf, (size_t) (p - buf));
+
+    int fd = open("/proc/self/maps", O_RDONLY);
+    if (fd >= 0) {
+        char m[2048]; ssize_t r;
+        while ((r = read(fd, m, sizeof m)) > 0) (void) write(STDERR_FILENO, m, (size_t) r);
+        close(fd);
+    }
+    void *frames[64];
+    int n = backtrace(frames, 64);
+    backtrace_symbols_fd(frames, n, STDERR_FILENO);
+
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 Q_DECL_EXPORT int main(int argc, char *argv[])
 {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = meetubeCrashHandler;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sa, (struct sigaction *) 0);
+    sigaction(SIGABRT, &sa, (struct sigaction *) 0);
+
     // MUST be the first statement: curl_global_init() is not thread-safe and every
     // per-thread CurlEngine's curl handles (GUI image loader + the backend's worker
     // thread) depend on the process-global curl/OpenSSL state it sets up. Run it once
@@ -171,6 +236,11 @@ Q_DECL_EXPORT int main(int argc, char *argv[])
         // 2026-07-17). The NAM is reparented into the pump so it rides along.
         player->startMediaThread(playerNam);
         viewer.rootContext()->setContextProperty("player", player);
+        // Keep the display awake while the user is on the player page (device: MCE
+        // blanking pause via QmDisplayState; host: no-op). PlayerPage toggles it in
+        // Component.onCompleted / onDestruction.
+        ScreenSaver *screenSaver = new ScreenSaver;
+        viewer.rootContext()->setContextProperty("screenSaver", screenSaver);
         // Subtitles: fetches the selected timedtext track over its own libcurl NAM
         // (Qt does no TLS) and exposes the caption line for the current position.
         // Exposed to QML as `subtitles`; PlayerPage binds a text overlay to it.

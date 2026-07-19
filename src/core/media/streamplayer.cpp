@@ -59,16 +59,33 @@ static const char *stateName(int s)
     }
 }
 
+static const char *phaseName(int p)
+{
+    switch (p) {
+    case StreamPlayer::NoPhase:       return "NoPhase";
+    case StreamPlayer::Connecting:    return "Connecting";
+    case StreamPlayer::LoadingWindow: return "LoadingWindow";
+    case StreamPlayer::Demuxing:      return "Demuxing";
+    case StreamPlayer::Buffering_:    return "Buffering";
+    case StreamPlayer::Rebuffering:   return "Rebuffering";
+    case StreamPlayer::Seeking:       return "Seeking";
+    case StreamPlayer::Interrupted:   return "Interrupted";
+    case StreamPlayer::Ended:         return "Ended";
+    default:                          return "?";
+    }
+}
+
 StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *policy,
                            ByteSource *audioSource, QObject *parent)
     : QObject(parent), m_pipeline(pipeline), m_policy(policy),
-      m_state(Idle), m_mode(AudioMode), m_position(0), m_duration(0), m_buffer(0),
+      m_state(Idle), m_phase(NoPhase), m_mode(AudioMode), m_position(0), m_duration(0), m_buffer(0),
       m_seekable(false), m_granted(false),
-      m_height(0), m_dual(false), m_videoFps(0), m_seekUserPending(false), m_prebufPaused(false),
+      m_height(0), m_dual(false), m_videoFps(0), m_seekUserPending(false), m_pendingSeekNs(-1), m_prebufPaused(false),
       m_pump(new MediaPump(source, audioSource, pipeline)),
       m_mediaThread(0),
       m_gateVideoNeedMs(0), m_gateVideoHaveMs(0), m_gateAudioNeedMs(0), m_gateAudioHaveMs(0),
-      m_pendingSwitch(false), m_pendingDual(false), m_pendingMode(0), m_pendingHeight(0)
+      m_pendingSwitch(false), m_pendingDual(false), m_pendingMode(0), m_pendingHeight(0),
+      m_restoreSeekMs(-1), m_restoreWasPlaying(false)
 {
     if (m_pipeline) m_pipeline->setParent(this);
     if (m_policy) m_policy->setParent(this);
@@ -82,6 +99,7 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
     // started); only the stateless startup-gate progress numbers come here
     // directly (auto-queued across threads).
     connect(source, SIGNAL(progress(qint64)),       this, SLOT(onProgress(qint64)));
+    connect(source, SIGNAL(loading(int)),           this, SLOT(onWindowLoading(int)));
     if (audioSource)
         connect(audioSource, SIGNAL(progress(qint64)), this, SLOT(onAudioProgress(qint64)));
 
@@ -95,16 +113,23 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
     connect(m_pump, SIGNAL(audioLaneFinished()),    this, SLOT(onPumpAudioFinished()));
     connect(m_pump, SIGNAL(pumpFailed(QString)),    this, SLOT(onPumpFailed(QString)));
     connect(m_pump, SIGNAL(prebuffering(int)),      this, SLOT(onPrebuffering(int)));
+    connect(m_pump, SIGNAL(demuxing()),             this, SLOT(onDemuxing()));
 
     connect(m_pipeline, SIGNAL(needData(qint64)),   this, SLOT(onNeedData(qint64)));
     connect(m_pipeline, SIGNAL(needAudioData(qint64)), this, SLOT(onNeedAudioData(qint64)));
     connect(m_pipeline, SIGNAL(seekRequested(qint64)), this, SLOT(onSeekRequested(qint64)));
     connect(m_pipeline, SIGNAL(started()),          this, SLOT(onStarted()));
+    connect(m_pipeline, SIGNAL(prerolled()),        this, SLOT(onPrerolled()));
     connect(m_pipeline, SIGNAL(buffering(int)),     this, SLOT(onBuffering(int)));
     connect(m_pipeline, SIGNAL(positionChanged(qint64)), this, SLOT(onPosition(qint64)));
     connect(m_pipeline, SIGNAL(durationChanged(qint64)), this, SLOT(onDuration(qint64)));
     connect(m_pipeline, SIGNAL(finished()),         this, SLOT(onPipelineFinished()));
     connect(m_pipeline, SIGNAL(error(QString)),     this, SLOT(onPipelineError(QString)));
+    // Queued: glContextLost fires from inside the EglVideoItem's paint (via
+    // setGlContext); deferring keeps the rebuild's blocking NULL transition out
+    // of the scene paint that detected the change.
+    connect(m_pipeline, SIGNAL(glContextLost()),    this, SLOT(onGlContextLost()),
+            Qt::QueuedConnection);
 }
 
 StreamPlayer::~StreamPlayer()
@@ -137,11 +162,21 @@ void StreamPlayer::shutdownMediaThread()
     PLOG() << "media thread joined";
 }
 
+void StreamPlayer::setPhase(Phase p)
+{
+    if (m_phase == p) return;
+    PLOG() << "phase" << phaseName(m_phase) << "->" << phaseName(p);
+    m_phase = p; emit phaseChanged();
+}
+
 void StreamPlayer::setState(State s)
 {
     if (m_state == s) return;
     PLOG() << "state" << stateName(m_state) << "->" << stateName(s);
     m_state = s; emit stateChanged();
+    // Reaching steady playback clears any transient phase overlay — the single
+    // auto-link between the two (all three Playing transitions route here).
+    if (s == Playing) setPhase(NoPhase);
     // Apply a quality switch that arrived mid-preroll now that the pipeline has
     // left it — tearing down a still-prerolling pipeline aborts the process (the
     // DSP codec dies when its setup is cancelled; device-observed 2026-07-16).
@@ -159,6 +194,7 @@ void StreamPlayer::fail(const QString &e)
     m_error = e;
     m_gateVideoNeedMs = m_gateAudioNeedMs = 0;
     m_prebufPaused = false;
+    setPhase(NoPhase);   // Error UI owns the readout past here
     if (m_pipeline) m_pipeline->stop();
     QMetaObject::invokeMethod(m_pump, "closeAll");
     if (m_policy) m_policy->release();
@@ -182,6 +218,7 @@ void StreamPlayer::play(const QString &url, int mode)
     m_segStarts.clear(); m_seekUserPending = false; m_prebufPaused = false;
     m_videoFps = 0; m_videoProfile.clear(); emit videoInfoChanged();
     setState(Loading);
+    setPhase(Connecting);             // acquire + probe, before the first byte
     m_policy->acquire(m_mode);        // play only after granted()
 }
 
@@ -204,6 +241,7 @@ void StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl, in
     m_segStarts.clear(); m_seekUserPending = false; m_prebufPaused = false;
     m_videoFps = 0; m_videoProfile.clear(); emit videoInfoChanged();
     setState(Loading);
+    setPhase(Connecting);
     m_policy->acquire(m_mode);
 }
 
@@ -233,7 +271,8 @@ void StreamPlayer::onPumpVideoOpened(qint64 total, bool seekable,
     PLOG() << "source opened total=" << total << "seekable=" << seekable;
     m_gateVideoNeedMs = startupTarget;
     m_gateVideoHaveMs = downloaded;
-    if (m_dual) { updateStartupGate(); return; }   // pipeline configured at esReady
+    if (m_dual) { setPhase(LoadingWindow);   // moov window fetch (bufferProgress live)
+                  updateStartupGate(); return; }   // pipeline configured at esReady
     m_seekable = seekable; emit seekableChanged();
     m_pipeline->configure(m_mode, seekable, total);
     m_gateAudioNeedMs = m_gateAudioHaveMs = 0;
@@ -278,7 +317,12 @@ void StreamPlayer::onSeekRequested(qint64 offset)
         // back to the start mid-playback (device-observed: the stream jumped to
         // 0 after ~1 min). The pump's own dedup can't catch it — the offset
         // differs from the last real seek. Drop it unless we asked for it.
-        if (!m_seekUserPending) {
+        // Honor only the seek-data whose offset matches the armed target. A
+        // fresh appsrc (after a rebuild) posts a preroll seek-data(0), and
+        // GStreamer re-issues seek-data(0) on underrun/one-lane EOS; without the
+        // offset check either could consume m_seekUserPending and yank both lanes
+        // to 0 (device-observed: dual restore snapped to 00:00).
+        if (!m_seekUserPending || offset != m_pendingSeekNs) {
             PLOG() << "ignoring spurious dual seek-data offset=" << offset;
             return;
         }
@@ -303,6 +347,7 @@ void StreamPlayer::onPrebuffering(int pct)
             m_pipeline->pause();
             m_prebufPaused = true;
             setState(Buffering);
+            setPhase(Rebuffering);   // mid-play underrun, distinct from startup
         }
         if (m_state == Buffering && m_buffer != pct) { m_buffer = pct; emit bufferProgressChanged(); }
     } else if (m_prebufPaused) {
@@ -327,6 +372,7 @@ void StreamPlayer::startOrGate()
         m_pipeline->play();
     }
     setState(Buffering);
+    setPhase(Buffering_);     // startup-gate fill (bufferProgress %)
     updateStartupGate();      // the probe window may already satisfy the target
 }
 
@@ -337,7 +383,10 @@ void StreamPlayer::updateStartupGate()
     const qint64 have = qMin(m_gateVideoHaveMs, m_gateVideoNeedMs)
                       + qMin(m_gateAudioHaveMs, m_gateAudioNeedMs);
     const int pct = need > 0 ? (int)(100 * have / need) : 100;
-    if (pct != m_buffer) { m_buffer = pct; emit bufferProgressChanged(); }
+    // Only surface the gate % during the Buffering preroll. While still Loading
+    // (the moov hunt) the window-download % owns bufferProgress — and the gate
+    // % is uninformative there anyway (the fat 2 MiB probe pins it at 100).
+    if (m_state == Buffering && pct != m_buffer) { m_buffer = pct; emit bufferProgressChanged(); }
     if (m_gateVideoHaveMs >= m_gateVideoNeedMs && m_gateAudioHaveMs >= m_gateAudioNeedMs) {
         // The gate can fill while the moovs are still being hunted (Loading, no
         // pipeline yet) — only the Buffering preroll gets resumed; startOrGate
@@ -363,6 +412,17 @@ void StreamPlayer::onAudioProgress(qint64 have)
     updateStartupGate();
 }
 
+// In-flight window byte progress (0..100), the gradual "окно загружается %".
+// Only while still loading (before preroll): the first real bytes promote
+// Connecting -> LoadingWindow (works for single and dual), and drive the
+// readout. Once playing the gate/prebuffer own bufferProgress.
+void StreamPlayer::onWindowLoading(int pct)
+{
+    if (m_state != Loading) return;
+    setPhase(LoadingWindow);
+    if (pct != m_buffer) { m_buffer = pct; emit bufferProgressChanged(); }
+}
+
 void StreamPlayer::onNeedData(qint64 n)
 { QMetaObject::invokeMethod(m_pump, "requestVideoData", Q_ARG(qint64, n)); }
 void StreamPlayer::onNeedAudioData(qint64 n)
@@ -378,13 +438,32 @@ void StreamPlayer::onPumpAudioFinished()     { PLOG() << "audio source EOS";
                                                    m_gateAudioHaveMs = m_gateAudioNeedMs;
                                                    updateStartupGate();
                                                } }
+void StreamPlayer::onDemuxing() { if (m_state == Loading) setPhase(Demuxing); }
 void StreamPlayer::onPumpFailed(const QString &e) { fail(e); }
 
-void StreamPlayer::onStarted()               { setState(Playing); }
+void StreamPlayer::onStarted()
+{
+    setState(Playing);
+}
+
+// The rebuilt pipeline finished prerolling PAUSED (primed from the start). Seek
+// to the real target NOW, while still paused, so none of the primed start ever
+// plays out — the ~1 s of start-of-video audio a play-then-seek leaked. Then
+// resume (or hold the frame if we were paused before the seek).
+void StreamPlayer::onPrerolled()
+{
+    if (m_restoreSeekMs < 0) return;   // only during a rebuild-reseek (spurious async-done otherwise)
+    const qint64 t = m_restoreSeekMs; m_restoreSeekMs = -1;
+    PLOG() << "restore: prerolled (paused) — seeking to" << t << "ms";
+    doRawSeek(t);                                   // seek while PAUSED — no primed-start output
+    if (m_restoreWasPlaying) m_pipeline->resume();  // play from the target once the seek prerolls
+    else { setState(Paused); setPhase(NoPhase); }   // was paused pre-seek: hold the target frame
+}
 void StreamPlayer::onBuffering(int pct)      { m_buffer = pct; emit bufferProgressChanged();
-                                               if (pct < 100 && m_state == Playing) setState(Buffering);
+                                               if (pct < 100 && m_state == Playing) { setState(Buffering); setPhase(Rebuffering); }
                                                else if (pct >= 100 && m_state == Buffering) setState(Playing); }
-void StreamPlayer::onPosition(qint64 ms)     { m_position = ms; emit positionChanged();
+void StreamPlayer::onPosition(qint64 ms)     { if (m_restoreSeekMs >= 0) return;   // priming from 0 pre-restore-seek: ignore the 00:00 ticks
+                                               m_position = ms; emit positionChanged();
                                                // Post-seek refill done: the clock moves again.
                                                // (Never during the startup gate: the pipeline
                                                // is paused then and produces no ticks.)
@@ -403,24 +482,74 @@ void StreamPlayer::onPipelineFinished()      { PLOG() << "pipeline finished (pla
                                                // the whole file in the background. No-op after a normal EOS.
                                                QMetaObject::invokeMethod(m_pump, "closeAll");
                                                if (m_policy) m_policy->release();
-                                               setState(Stopped); emit playbackFinished(); }
+                                               setState(Stopped); setPhase(Ended); emit playbackFinished(); }
 void StreamPlayer::onPipelineError(const QString &e) { fail(e); }
 
-void StreamPlayer::onLost()                  { PLOG() << "policy LOST — pausing"; if (m_pipeline) m_pipeline->pause(); setState(Paused); }
+void StreamPlayer::onLost()                  { PLOG() << "policy LOST — pausing"; if (m_pipeline) m_pipeline->pause(); setState(Paused); setPhase(Interrupted); }
 void StreamPlayer::onDenied()                { fail(QString::fromLatin1("playback resource unavailable")); }
-void StreamPlayer::onReleasedByManager()     { PLOG() << "policy released by manager — stopping"; if (m_pipeline) m_pipeline->stop(); setState(Stopped); }
+void StreamPlayer::onReleasedByManager()     { PLOG() << "policy released by manager — stopping"; if (m_pipeline) m_pipeline->stop(); setState(Stopped); setPhase(NoPhase); }
+
+// The scene GL context was destroyed and recreated (the N9 app was minimized
+// then restored: meego's graphicssystem drops the scene's GL context on a
+// visibility switch). A texture-streaming gltexturesink baked the old context at
+// build time, so its frames are stranded in the dead share-group and the video
+// goes black. Rebuild against the new context, re-anchoring to where we were.
+void StreamPlayer::onGlContextLost()
+{
+    if (m_state != Playing && m_state != Paused && m_state != Buffering) return;
+    PLOG() << "scene GL context recreated — rebuilding at" << m_position << "ms dual=" << m_dual;
+    rebuildAndReseek(m_position, m_state != Paused);
+}
+
+// Rebuild the pipeline and re-seek to targetMs. A fresh pipeline can't be seeked
+// while NULL (rebuild() leaves it there and the flush seek is dropped), and a
+// mid-stream re-anchor feeds PTS=target samples a 0-based-segment pipeline stalls
+// on. So PRIME the feed from the START — the pump serves an aligned PTS=0 keyframe
+// (dual: moof #1 via sidx; single: byte 0 / moov+ftyp so typefind succeeds), the
+// pipeline prerolls to PLAYING, and doRawSeek(targetMs) runs from onStarted on the
+// now-live pipeline. Used by the GL restore AND by single/progressive user seeks:
+// the Nokia DSP AAC decoder survives a flush seek only right after a fresh preroll
+// (an in-place seek on a long-running pipeline dies "Could not decode stream").
+void StreamPlayer::rebuildAndReseek(qint64 targetMs, bool wasPlaying)
+{
+    m_restoreSeekMs = m_seekable ? targetMs : -1;   // onStarted applies it once PLAYING
+    m_restoreWasPlaying = wasPlaying;
+    // Spinner NOW: the rebuild + preroll is a second or two of black; without this
+    // the UI looks frozen until onStarted flips to Seeking.
+    setState(Buffering); setPhase(Buffering_);
+    m_pipeline->rebuild();       // teardown the old appsrc FIRST, then fresh sink in the live share-group
+    // Prime from the start, queued BEFORE play()'s need-data so the pump serves
+    // the aligned keyframe first (not the stale mid-stream cursor).
+    if (m_dual) QMetaObject::invokeMethod(m_pump, "seekDualTo", Q_ARG(qint64, Q_INT64_C(0)));
+    else        QMetaObject::invokeMethod(m_pump, "seekBytes",  Q_ARG(qint64, Q_INT64_C(0)));
+    m_pipeline->pause();         // preroll from the start PAUSED (silent) -> onPrerolled -> doRawSeek(targetMs)
+}
 
 void StreamPlayer::pause()  { if (m_state == Playing) { m_pipeline->pause();  setState(Paused); } }
 void StreamPlayer::resume() { if (m_state == Paused)  { m_pipeline->resume(); setState(Playing); } }
 void StreamPlayer::seek(qint64 ms)
 {
     if (!m_seekable || !m_pipeline) return;
-    // Dual: snap to the sidx subsegment start at or before the target. The
-    // flushed segment then begins exactly at a moof/IDR, so the DSP decodes
-    // nothing the sinks would clip (an unsnapped mid-subsegment seek costs up
-    // to ~7 s of decode-and-discard per YouTube subsegment). Ceil the ns->ms
-    // conversion: a floor could land the pipeline target a hair BEFORE the
-    // subsegment start and re-anchor the lanes one whole subsegment early.
+    if (!m_dual) {
+        // Single/progressive: an in-place flush seek kills the Nokia DSP AAC
+        // decoder ("nokiaaacdec: Could not decode stream"). Only a fresh preroll
+        // survives one — the same reason a minimize/restore "fixes" seeking. So
+        // rebuild and re-seek. Heavier than a dual seek, but 360p is the fallback.
+        m_position = ms; emit positionChanged();   // scrubber lands on the target immediately
+        rebuildAndReseek(ms, m_state != Paused);
+        return;
+    }
+    doRawSeek(ms);   // dual: an in-place flush seek — the DSP handles it (separate AAC ES, sidx re-anchor)
+}
+
+// The actual gst flushing seek. Dual snaps to the sidx subsegment start at or
+// before the target so the flushed segment begins exactly at a moof/IDR (an
+// unsnapped mid-subsegment seek costs up to ~7 s of decode-and-discard). Ceil the
+// ns->ms conversion: a floor could land a hair BEFORE the subsegment start and
+// re-anchor the lanes one whole subsegment early.
+void StreamPlayer::doRawSeek(qint64 ms)
+{
+    if (!m_seekable || !m_pipeline) return;
     if (m_dual && !m_segStarts.isEmpty()) {
         int i = 0;
         while (i + 1 < m_segStarts.size()
@@ -428,9 +557,10 @@ void StreamPlayer::seek(qint64 ms)
         ms = (m_segStarts.at(i) + Q_INT64_C(999999)) / Q_INT64_C(1000000);
     }
     m_seekUserPending = true;   // the appsrc seek-data that follows is ours (see onSeekRequested)
+    m_pendingSeekNs = ms * Q_INT64_C(1000000);   // its exact offset — the spurious-0 filter keys on this
     m_pipeline->seek(ms);
     m_position = ms; emit positionChanged();      // scrubber lands on the snap
-    if (m_state == Playing) setState(Buffering);  // flushed queues refill now
+    if (m_state == Playing) { setState(Buffering); setPhase(Seeking); }  // flushed queues refill now
 }
 
 void StreamPlayer::stop()
@@ -441,7 +571,7 @@ void StreamPlayer::stop()
     if (m_pipeline) m_pipeline->stop();
     QMetaObject::invokeMethod(m_pump, "closeAll");
     if (m_policy) m_policy->release();
-    setState(Stopped);
+    setState(Stopped); setPhase(NoPhase);
 }
 
 }} // namespace yt::media

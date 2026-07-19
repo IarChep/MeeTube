@@ -203,6 +203,7 @@ void MediaPump::maybeEsReady()
     if (m_esSent || !m_videoOpen || !m_audioOpen) return;
     if (!m_videoDemux.headerReady() || !m_audioDemux.headerReady()) return;
     m_esSent = true;
+    emit demuxing();   // container parse begins (see MediaPump::demuxing docs)
     EsConfig cfg;
     cfg.videoCodecData = m_videoDemux.codecData();
     cfg.width  = m_videoDemux.width();
