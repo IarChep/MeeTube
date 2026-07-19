@@ -246,7 +246,12 @@ static void playerTry(IHttp &http, const QString &videoId,
                            << "ciphered=" << pr.cipheredOnly << "sabr=" << pr.sabr
                            << "reason=" << qPrintable(pr.reason);
                 }
-                if (!acc->haveCaptions) { acc->haveCaptions = true; acc->captions = pr.captions; }
+                // Take captions from the first response that ACTUALLY has them — not merely
+                // the first transport-ok one. Signed in, TVHTML5 is tried first (the bearer
+                // rides TV only) but its /player carries no captionTracks; without the
+                // emptiness guard that empty list latches and shadows the mobile clients' real
+                // caption tracks (bug: the Subtitles menu item vanished once signed in).
+                if (!acc->haveCaptions && !pr.captions.isEmpty()) { acc->haveCaptions = true; acc->captions = pr.captions; }
 
                 // ---- streams side (streamsrequest.cpp:44-54) ----
                 if (pr.playable) {

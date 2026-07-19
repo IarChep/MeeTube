@@ -144,6 +144,9 @@ void ChannelModel::applyUsers(const core::Outcome<core::UserPage> &r) {
     m_rows = r.value.items;
     endResetModel();
     emitCountChanged();
-    setNext(r.value.next);
+    // Channels don't paginate (no fetchMore, and neither search nor the subscriptions list
+    // carries a usable page token) — keep canFetchMore false so the ListFooter collapses and
+    // nothing calls the missing fetchMore().
+    setNext(QString());
     setStatus(core::Ready);
 }

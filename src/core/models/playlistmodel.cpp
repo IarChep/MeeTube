@@ -138,6 +138,8 @@ void PlaylistModel::applyList(const core::Outcome<core::PlaylistPage> &r) {
         endInsertRows();
         emitCountChanged();
     }
-    setNext(r.value.next);
+    // Feeds page (m_canPage); search has no page token in the contract — only keep a
+    // continuation we can actually fetch, so a search result doesn't spin the footer forever.
+    setNext(m_canPage ? r.value.next : QString());
     setStatus(core::Ready);
 }

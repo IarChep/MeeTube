@@ -60,11 +60,19 @@ struct Thumb {
 struct ThumbSet {
     std::optional<std::vector<Thumb>> thumbnails;
 };
+// YouTube channel avatars come back protocol-relative ("//yt3.ggpht.com/..."); Qt's image
+// loader rejects the missing scheme ("Unsupported protocol"). Force it to https.
+inline std::string withScheme(std::string u)
+{
+    if (u.size() >= 2 && u[0] == '/' && u[1] == '/')
+        u.insert(0, "https:");
+    return u;
+}
 // Largest (= last) thumbnail url, "" when absent — mirrors lastThumb()/lastOf().
 inline std::string lastThumbUrl(const ThumbSet &s)
 {
     if (s.thumbnails && !s.thumbnails->empty() && s.thumbnails->back().url)
-        return *s.thumbnails->back().url;
+        return withScheme(*s.thumbnails->back().url);
     return std::string();
 }
 inline std::string lastThumbUrl(const std::optional<ThumbSet> &s)
@@ -83,13 +91,13 @@ struct Sources {
 inline std::string lastSourceUrl(const std::optional<Sources> &s)
 {
     if (s && s->sources && !s->sources->empty() && s->sources->back().url)
-        return *s->sources->back().url;
+        return withScheme(*s->sources->back().url);
     return std::string();
 }
 inline std::string firstSourceUrl(const std::optional<Sources> &s)
 {
     if (s && s->sources && !s->sources->empty() && s->sources->front().url)
-        return *s->sources->front().url;
+        return withScheme(*s->sources->front().url);
     return std::string();
 }
 
