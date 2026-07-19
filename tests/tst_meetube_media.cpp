@@ -350,13 +350,13 @@ class ManualSource : public yt::media::ByteSource {
 public:
     ManualSource() : ByteSource(0) {}
     QString openedUrl; int dataRequests = 0; bool closed = false;
-    qint64 target = 0;                    // startup gate opt-in for tests
+    qint64 target = 0;                    // startup gate opt-in for tests (media ms)
     qint64 seekedTo = -1;                 // last byte offset re-anchored to (-1 = none)
     void open(const QString &u) { openedUrl = u; }
     void requestData(qint64) { ++dataRequests; }
     bool seek(qint64 o) { seekedTo = o; return true; }
     void close() { closed = true; }
-    qint64 startupTarget() const { return target; }
+    qint64 startupTargetMs() const { return target; }
     void emitOpened(qint64 t) { emit opened(t, false); }
     void emitData(const QByteArray &c) { emit data(c); }
     void emitProgress(qint64 h) { emit progress(h); }

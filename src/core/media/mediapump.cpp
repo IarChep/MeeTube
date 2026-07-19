@@ -149,7 +149,7 @@ void MediaPump::rearmPrebuffer()
 void MediaPump::onVideoOpened(qint64 total, bool seekable)
 {
     emit videoOpened(total, seekable,
-                     m_video->startupTarget(), m_video->downloadedBytes());
+                     m_video->startupTargetMs(), m_video->bufferedMs());
     if (!m_dual) return;
     PLOG() << "pump: video source opened total=" << total;
     m_videoOpen = true;
@@ -160,7 +160,7 @@ void MediaPump::onAudioOpened(qint64 total, bool)
 {
     if (!m_dual) return;
     PLOG() << "pump: audio source opened total=" << total;
-    emit audioOpened(total, m_audio->startupTarget(), m_audio->downloadedBytes());
+    emit audioOpened(total, m_audio->startupTargetMs(), m_audio->bufferedMs());
     m_audioOpen = true;
     m_audio->requestData(1 << 20);     // hunt the moov
 }
@@ -215,8 +215,8 @@ void MediaPump::maybeEsReady()
     cfg.avcProfile = m_videoDemux.avcProfile();
     cfg.avcLevel   = m_videoDemux.avcLevel();
     cfg.videoSegStartsNs = m_videoDemux.segmentStartsNs();
-    emit esReady(cfg, m_video->startupTarget(), m_video->downloadedBytes(),
-                 m_audio->startupTarget(), m_audio->downloadedBytes(),
+    emit esReady(cfg, m_video->startupTargetMs(), m_video->bufferedMs(),
+                 m_audio->startupTargetMs(), m_audio->bufferedMs(),
                  m_videoDemux.seekIndexReady() && m_audioDemux.seekIndexReady());
 }
 

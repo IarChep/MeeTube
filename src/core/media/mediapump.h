@@ -52,13 +52,14 @@ public Q_SLOTS:                 // GUI -> pump (queued when threaded)
     void closeAll();
 Q_SIGNALS:                      // pump -> StreamPlayer (queued when threaded)
     // Lane opened: single mode configures the pipeline off this; dual mode uses
-    // the startup-gate numbers so buffering progress is live from the start.
-    void videoOpened(qint64 total, bool seekable, qint64 startupTarget, qint64 downloaded);
-    void audioOpened(qint64 total, qint64 startupTarget, qint64 downloaded);
-    // Dual: both moovs parsed — codec config + per-lane startup-gate numbers.
-    // seekable = both lanes carry a sidx (time->byte map for seekDualTo).
-    void esReady(yt::media::EsConfig cfg, qint64 videoTarget, qint64 videoHave,
-                 qint64 audioTarget, qint64 audioHave, bool seekable);
+    // the startup-gate numbers (MEDIA ms) so buffering progress is live from
+    // the start.
+    void videoOpened(qint64 total, bool seekable, qint64 startupTargetMs, qint64 bufferedMs);
+    void audioOpened(qint64 total, qint64 startupTargetMs, qint64 bufferedMs);
+    // Dual: both moovs parsed — codec config + per-lane startup-gate numbers
+    // (media ms). seekable = both lanes carry a sidx (map for seekDualTo).
+    void esReady(yt::media::EsConfig cfg, qint64 videoTargetMs, qint64 videoHaveMs,
+                 qint64 audioTargetMs, qint64 audioHaveMs, bool seekable);
     void videoLaneFinished();   // download EOF (startup gate); the pipeline EOS
     void audioLaneFinished();   // itself is pushed from the pump thread
     void pumpFailed(QString error);

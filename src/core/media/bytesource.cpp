@@ -23,8 +23,7 @@ static QByteArray streamUserAgent()
 ProgressiveSource::ProgressiveSource(QNetworkAccessManager *nam, QObject *parent)
     : ByteSource(nam, parent), m_total(-1), m_fetchOffset(0), m_seekable(false),
       m_eof(false), m_waiting(false), m_reply(0),
-      m_durationSec(0), m_netBps(0), m_startupTarget(0),
-      m_windowBytes(kWindow), m_readAhead(kReadAhead) {}
+      m_durationSec(0), m_startupMs(0) {}
 
 ProgressiveSource::~ProgressiveSource() { close(); }
 
@@ -47,7 +46,8 @@ void ProgressiveSource::open(const QString &url)
 {
     PLOG() << "ByteSource: open" << qPrintable(url);
     m_url = url; m_fetchOffset = 0; m_eof = false; m_waiting = false; m_ready.clear();
-    m_netBps = 0; m_startupTarget = 0; m_windowBytes = kWindow; m_readAhead = kReadAhead;
+    m_startupMs = 0;
+    m_plan.reset();   // stream + net facts die with the old stream
     // Media length rides in the videoplayback URL itself (&dur=249.219&) — with
     // the Content-Length that gives the stream's average media rate for the
     // startup-buffer resolver, no extra plumbing. Absent/foreign URL -> 0.
@@ -60,65 +60,17 @@ void ProgressiveSource::open(const QString &url)
     issueWindow(0, SLOT(onProbeFinished()));
 }
 
-// EWMA the download rate from the fetch that just landed (one fetch in flight
-// at a time, so m_fetchClock spans exactly this window).
-void ProgressiveSource::measureFetch(qint64 bytes)
-{
-    const qint64 ms = m_fetchClock.elapsed();
-    if (bytes <= 0 || ms <= 0) return;
-    const double bps = bytes * 1000.0 / ms;
-    m_netBps = (m_netBps > 0) ? 0.7 * m_netBps + 0.3 * bps : bps;
-}
-
-// Startup-buffer resolver: pick how many bytes must be down before playback
-// starts lag-free, from (1) quality = the stream's average media rate
-// (Content-Length / URL dur=), (2) size = the file caps the target, (3) the
-// measured download rate. A link comfortably faster than the media rate needs
-// ~3 s of media; a slower link needs proportionally deeper water, capped by
-// kMaxStartup. Also deepens the read-ahead so the prefetch actually fills the
-// target instead of idling at the 2-window floor.
-void ProgressiveSource::resolveStartup()
-{
-    const double mediaBps = (m_durationSec > 0.5 && m_total > 0)
-                          ? m_total / m_durationSec : 0;
-    // Size the fetch window by MEDIA TIME, not a fixed byte count: a low-bitrate
-    // lane (audio) and a high-bitrate one (video) then buffer the same number of
-    // SECONDS per window. With fixed 2 MiB windows a 4 MB audio track was one
-    // read-ahead deep — after every seek it downloaded end-to-end, hogging a
-    // slow shared link and starving the video lane into judder (device
-    // 2026-07-17). Unknown rate (tests, no dur=) keeps the 2 MiB fallback.
-    m_windowBytes = (mediaBps > 0)
-        ? qBound<qint64>(kMinWindow, (qint64)(mediaBps * kWindowSecs), kWindow)
-        : kWindow;
-    qint64 t;
-    if (mediaBps <= 0 || m_netBps <= 0) {
-        t = 2 * kWindow;                       // no metadata: fixed 4 MiB
-    } else {
-        double secs = 3.0 * qMax(1.0, 1.5 * mediaBps / m_netBps);
-        if (secs > 20.0) secs = 20.0;
-        t = (qint64)(mediaBps * secs);
-    }
-    // Floor the startup buffer at ONE window (not a fixed 2 MiB): for a
-    // low-bitrate lane 2 MiB is a minute-plus of media, which needlessly delayed
-    // the startup gate and over-deepened read-ahead.
-    if (t < m_windowBytes) t = m_windowBytes;
-    if (t > kMaxStartup) t = kMaxStartup;
-    if (m_total >= 0 && t > m_total) t = m_total;
-    m_startupTarget = t;
-    m_readAhead = (int)qBound<qint64>(kReadAhead, (t + m_windowBytes - 1) / m_windowBytes, 6);
-    PLOG() << "ByteSource: startup target" << t << "B (media" << (qint64)mediaBps
-           << "B/s, net" << (qint64)m_netBps << "B/s, window" << m_windowBytes
-           << "readAhead" << m_readAhead << ")";
-}
-
 void ProgressiveSource::issueWindow(qint64 start, const char *slot)
 {
     // fromEncoded, NOT QUrl(QString): Qt 4.7's QUrl(QString) re-encodes the '%' of
     // existing escapes (%3D -> %253D, %2C -> %252C), corrupting the sig-covered
     // googlevideo params -> HTTP 403 (device-verified 2026-07-13; raw libcurl 206).
     QNetworkRequest req(QUrl::fromEncoded(m_url.toUtf8()));
+    // The planner's window is re-read on EVERY fetch — continuous adaptation:
+    // the EWMA moved, the window moved (clamped, so no oscillation).
+    const qint64 windowBytes = m_plan.windowBytes();
     const QByteArray range = "bytes=" + QByteArray::number(start) + "-"
-                           + QByteArray::number(start + m_windowBytes - 1);
+                           + QByteArray::number(start + windowBytes - 1);
     PLOG() << "ByteSource: GET Range" << range.constData();
     req.setRawHeader("Range", range);
     req.setRawHeader("User-Agent", streamUserAgent());   // generic desktop UA, NOT the app UA
@@ -133,7 +85,7 @@ void ProgressiveSource::topUp()
     if (m_url.isEmpty()) return;                 // closed — dead until open()
     if (m_reply || m_eof) return;
     if (m_total >= 0 && m_fetchOffset >= m_total) { m_eof = true; return; }
-    if (m_ready.size() >= m_readAhead) return;   // enough buffered already
+    if (m_ready.size() >= m_plan.readAheadWindows()) return;   // enough buffered already
     issueWindow(m_fetchOffset, SLOT(onWindowFinished()));
 }
 
@@ -157,12 +109,16 @@ void ProgressiveSource::onProbeFinished()
     m_total = (slash >= 0) ? cr.mid(slash + 1).trimmed().toLongLong() : -1;
     const QByteArray w = r->readAll();
     if (!w.isEmpty()) { m_ready << w; m_fetchOffset += w.size(); } else m_eof = true;
-    measureFetch(w.size());
-    resolveStartup();                            // target known BEFORE opened()
+    m_plan.noteFetch(w.size(), m_fetchClock.elapsed());
+    m_plan.setMedia(m_total, m_durationSec);
+    m_startupMs = m_plan.startupMs();            // frozen: the gate arms once
+    PLOG() << "ByteSource: startup" << m_startupMs << "ms (media" << (qint64)m_plan.mediaBps()
+           << "B/s, net" << (qint64)m_plan.netBps() << "B/s, window" << m_plan.windowBytes()
+           << "readAhead" << m_plan.readAheadWindows() << ")";
     PLOG() << "ByteSource: probe OK http=" << http << "total=" << m_total
            << "seekable=" << m_seekable << "firstWindow=" << w.size();
     emit opened(m_total, m_seekable);
-    emit progress(m_fetchOffset);
+    emit progress(bufferedMs());
     topUp();                                     // begin reading ahead
 }
 
@@ -202,9 +158,9 @@ void ProgressiveSource::onWindowFinished()
         return;
     }
     m_fetchOffset += w.size();
-    measureFetch(w.size());
+    m_plan.noteFetch(w.size(), m_fetchClock.elapsed());
     PLOG() << "ByteSource: window +" << w.size() << "bytes (fetchOffset now" << m_fetchOffset << ")";
-    emit progress(m_fetchOffset);
+    emit progress(bufferedMs());
     if (m_waiting) { m_waiting = false; emit data(w); }   // consumer was blocked on this
     else m_ready << w;
     topUp();                                     // keep the buffer full
@@ -255,7 +211,7 @@ void RoutingSource::open(const QString &url)
 void RoutingSource::requestData(qint64 maxBytes) { if (m_active) m_active->requestData(maxBytes); }
 bool RoutingSource::seek(qint64 byteOffset)      { return m_active ? m_active->seek(byteOffset) : false; }
 void RoutingSource::close()                      { if (m_active) m_active->close(); }
-qint64 RoutingSource::startupTarget() const      { return m_active ? m_active->startupTarget() : 0; }
-qint64 RoutingSource::downloadedBytes() const    { return m_active ? m_active->downloadedBytes() : 0; }
+qint64 RoutingSource::startupTargetMs() const    { return m_active ? m_active->startupTargetMs() : 0; }
+qint64 RoutingSource::bufferedMs() const         { return m_active ? m_active->bufferedMs() : 0; }
 
 }} // namespace yt::media

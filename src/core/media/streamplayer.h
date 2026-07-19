@@ -108,9 +108,10 @@ private:
     bool m_prebufPaused;         // Buffering pause issued by the prebuffer (not the gate)
     MediaPump *m_pump;          // parentless (must be movable); deleted in dtor
     QThread *m_mediaThread;     // 0 = inline mode (tests)
-    // Startup gate: the pipeline prerolls PAUSED until each gated lane has its
-    // source-resolved startup buffer downloaded (0 need = lane not gated).
-    qint64 m_gateVideoNeed, m_gateVideoHave, m_gateAudioNeed, m_gateAudioHave;
+    // Startup gate, MEDIA-ms denominated: the pipeline prerolls PAUSED until
+    // each gated lane has its source-resolved startup buffer downloaded
+    // (0 need = lane not gated). Units come from the sources' BufferPlanner.
+    qint64 m_gateVideoNeedMs, m_gateVideoHaveMs, m_gateAudioNeedMs, m_gateAudioHaveMs;
     // A quality switch tapped while the pipeline is still prerolling is stashed
     // here and applied by setState once preroll ends (Playing/Stopped/Error).
     bool m_pendingSwitch, m_pendingDual; int m_pendingMode;

@@ -67,7 +67,7 @@ StreamPlayer::StreamPlayer(ByteSource *source, IPipeline *pipeline, IPolicy *pol
       m_dual(false), m_videoFps(0), m_seekUserPending(false), m_prebufPaused(false),
       m_pump(new MediaPump(source, audioSource, pipeline)),
       m_mediaThread(0),
-      m_gateVideoNeed(0), m_gateVideoHave(0), m_gateAudioNeed(0), m_gateAudioHave(0),
+      m_gateVideoNeedMs(0), m_gateVideoHaveMs(0), m_gateAudioNeedMs(0), m_gateAudioHaveMs(0),
       m_pendingSwitch(false), m_pendingDual(false), m_pendingMode(0)
 {
     if (m_pipeline) m_pipeline->setParent(this);
@@ -157,7 +157,7 @@ void StreamPlayer::fail(const QString &e)
 {
     PLOG() << "FAIL:" << qPrintable(e);
     m_error = e;
-    m_gateVideoNeed = m_gateAudioNeed = 0;
+    m_gateVideoNeedMs = m_gateAudioNeedMs = 0;
     m_prebufPaused = false;
     if (m_pipeline) m_pipeline->stop();
     QMetaObject::invokeMethod(m_pump, "closeAll");
@@ -231,20 +231,20 @@ void StreamPlayer::onPumpVideoOpened(qint64 total, bool seekable,
                                      qint64 startupTarget, qint64 downloaded)
 {
     PLOG() << "source opened total=" << total << "seekable=" << seekable;
-    m_gateVideoNeed = startupTarget;
-    m_gateVideoHave = downloaded;
+    m_gateVideoNeedMs = startupTarget;
+    m_gateVideoHaveMs = downloaded;
     if (m_dual) { updateStartupGate(); return; }   // pipeline configured at esReady
     m_seekable = seekable; emit seekableChanged();
     m_pipeline->configure(m_mode, seekable, total);
-    m_gateAudioNeed = m_gateAudioHave = 0;
+    m_gateAudioNeedMs = m_gateAudioHaveMs = 0;
     startOrGate();
 }
 
 void StreamPlayer::onPumpAudioOpened(qint64, qint64 startupTarget, qint64 downloaded)
 {
     if (!m_dual) return;
-    m_gateAudioNeed = startupTarget;
-    m_gateAudioHave = downloaded;
+    m_gateAudioNeedMs = startupTarget;
+    m_gateAudioHaveMs = downloaded;
     updateStartupGate();
 }
 
@@ -260,8 +260,8 @@ void StreamPlayer::onEsReady(yt::media::EsConfig cfg, qint64 videoTarget, qint64
     m_videoProfile = avcProfileString(cfg.avcProfile, cfg.avcLevel);
     emit videoInfoChanged();
     m_pipeline->configureDualEs(cfg);
-    m_gateVideoNeed = videoTarget; m_gateVideoHave = videoHave;
-    m_gateAudioNeed = audioTarget; m_gateAudioHave = audioHave;
+    m_gateVideoNeedMs = videoTarget; m_gateVideoHaveMs = videoHave;
+    m_gateAudioNeedMs = audioTarget; m_gateAudioHaveMs = audioHave;
     startOrGate();
     QMetaObject::invokeMethod(m_pump, "pipelineConfigured");
 }
@@ -296,7 +296,7 @@ void StreamPlayer::onSeekRequested(qint64 offset)
 // these reports are ignored wholesale.
 void StreamPlayer::onPrebuffering(int pct)
 {
-    if (m_gateVideoNeed > 0 || m_gateAudioNeed > 0) return;
+    if (m_gateVideoNeedMs > 0 || m_gateAudioNeedMs > 0) return;
     if (pct < 100) {
         if (m_state == Playing) {
             PLOG() << "prebuffer: short refill — pausing";
@@ -319,8 +319,8 @@ void StreamPlayer::onPrebuffering(int pct)
 // (startupTarget 0: HLS, tests) start immediately, as before.
 void StreamPlayer::startOrGate()
 {
-    if (m_gateVideoNeed > 0 || m_gateAudioNeed > 0) {
-        PLOG() << "startup gate: video" << m_gateVideoNeed << "audio" << m_gateAudioNeed << "bytes";
+    if (m_gateVideoNeedMs > 0 || m_gateAudioNeedMs > 0) {
+        PLOG() << "startup gate: video" << m_gateVideoNeedMs << "audio" << m_gateAudioNeedMs << "ms";
         m_buffer = 0; emit bufferProgressChanged();
         m_pipeline->pause();
     } else {
@@ -332,34 +332,34 @@ void StreamPlayer::startOrGate()
 
 void StreamPlayer::updateStartupGate()
 {
-    if (m_gateVideoNeed <= 0 && m_gateAudioNeed <= 0) return;
-    const qint64 need = m_gateVideoNeed + m_gateAudioNeed;
-    const qint64 have = qMin(m_gateVideoHave, m_gateVideoNeed)
-                      + qMin(m_gateAudioHave, m_gateAudioNeed);
+    if (m_gateVideoNeedMs <= 0 && m_gateAudioNeedMs <= 0) return;
+    const qint64 need = m_gateVideoNeedMs + m_gateAudioNeedMs;
+    const qint64 have = qMin(m_gateVideoHaveMs, m_gateVideoNeedMs)
+                      + qMin(m_gateAudioHaveMs, m_gateAudioNeedMs);
     const int pct = need > 0 ? (int)(100 * have / need) : 100;
     if (pct != m_buffer) { m_buffer = pct; emit bufferProgressChanged(); }
-    if (m_gateVideoHave >= m_gateVideoNeed && m_gateAudioHave >= m_gateAudioNeed) {
+    if (m_gateVideoHaveMs >= m_gateVideoNeedMs && m_gateAudioHaveMs >= m_gateAudioNeedMs) {
         // The gate can fill while the moovs are still being hunted (Loading, no
         // pipeline yet) — only the Buffering preroll gets resumed; startOrGate
         // re-runs this once the pipeline exists.
         if (m_state != Buffering) return;
         PLOG() << "startup gate passed — starting the clock";
-        m_gateVideoNeed = m_gateAudioNeed = 0;
+        m_gateVideoNeedMs = m_gateAudioNeedMs = 0;
         m_pipeline->resume();
     }
 }
 
 void StreamPlayer::onProgress(qint64 have)
 {
-    if (m_gateVideoNeed <= 0) return;
-    m_gateVideoHave = have;
+    if (m_gateVideoNeedMs <= 0) return;
+    m_gateVideoHaveMs = have;
     updateStartupGate();
 }
 
 void StreamPlayer::onAudioProgress(qint64 have)
 {
-    if (m_gateAudioNeed <= 0) return;
-    m_gateAudioHave = have;
+    if (m_gateAudioNeedMs <= 0) return;
+    m_gateAudioHaveMs = have;
     updateStartupGate();
 }
 
@@ -369,13 +369,13 @@ void StreamPlayer::onNeedAudioData(qint64 n)
 { QMetaObject::invokeMethod(m_pump, "requestAudioData", Q_ARG(qint64, n)); }
 
 void StreamPlayer::onPumpVideoFinished()     { PLOG() << "source EOS";
-                                               if (m_gateVideoNeed > 0) {   // EOF satisfies the gate by definition
-                                                   m_gateVideoHave = m_gateVideoNeed;
+                                               if (m_gateVideoNeedMs > 0) {   // EOF satisfies the gate by definition
+                                                   m_gateVideoHaveMs = m_gateVideoNeedMs;
                                                    updateStartupGate();
                                                } }
 void StreamPlayer::onPumpAudioFinished()     { PLOG() << "audio source EOS";
-                                               if (m_gateAudioNeed > 0) {   // EOF satisfies the gate
-                                                   m_gateAudioHave = m_gateAudioNeed;
+                                               if (m_gateAudioNeedMs > 0) {   // EOF satisfies the gate
+                                                   m_gateAudioHaveMs = m_gateAudioNeedMs;
                                                    updateStartupGate();
                                                } }
 void StreamPlayer::onPumpFailed(const QString &e) { fail(e); }
@@ -389,7 +389,7 @@ void StreamPlayer::onPosition(qint64 ms)     { m_position = ms; emit positionCha
                                                // (Never during the startup gate: the pipeline
                                                // is paused then and produces no ticks.)
                                                if (m_state == Buffering
-                                                   && m_gateVideoNeed <= 0 && m_gateAudioNeed <= 0)
+                                                   && m_gateVideoNeedMs <= 0 && m_gateAudioNeedMs <= 0)
                                                    setState(Playing); }
 void StreamPlayer::onDuration(qint64 ms)     { if (ms <= 0) return;   // a 0/unknown from the pipeline is noise —
                                                // in dual ES-push the pipeline never learns the length (it comes
@@ -436,7 +436,7 @@ void StreamPlayer::seek(qint64 ms)
 void StreamPlayer::stop()
 {
     m_pendingSwitch = false;   // an explicit stop cancels any deferred switch
-    m_gateVideoNeed = m_gateAudioNeed = 0;
+    m_gateVideoNeedMs = m_gateAudioNeedMs = 0;
     m_prebufPaused = false;
     if (m_pipeline) m_pipeline->stop();
     QMetaObject::invokeMethod(m_pump, "closeAll");
