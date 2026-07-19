@@ -22,8 +22,13 @@ struct EsConfig {
     // table: UI seeks quantize to these so the flushed segment begins at an
     // IDR and the DSP decodes nothing it will throw away.
     QList<qint64> videoSegStartsNs;
+    // appsrc queue caps resolved by BufferPlanner at esReady (the same MEDIA
+    // depth for both lanes); 0 = the pipeline keeps its built-in default.
+    qint64 videoQueueBytes;
+    qint64 audioQueueBytes;
     EsConfig() : width(0), height(0), rate(0), channels(0), durationNs(0),
-                 fpsN(0), fpsD(0), avcProfile(0), avcLevel(0) {}
+                 fpsN(0), fpsD(0), avcProfile(0), avcLevel(0),
+                 videoQueueBytes(0), audioQueueBytes(0) {}
 };
 
 // Decode/render seam. The real impl (GstAppPipeline, src/app/media/) is a

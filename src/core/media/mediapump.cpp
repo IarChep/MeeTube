@@ -16,27 +16,19 @@
 
 #include "media/mediapump.h"
 #include "media/bytesource.h"
+#include "media/bufferplanner.h"
 #include "core/debuglog.h"
 
 namespace yt { namespace media {
-
-// ~1 s @ 30 fps by default; a device-tunable knob (no rebuild), 0 disables.
-static int prebufferFramesFromEnv()
-{
-    const QByteArray e = qgetenv("MEETUBE_PREBUFFER_FRAMES");
-    if (e.isEmpty()) return 30;
-    bool ok = false;
-    const int n = e.toInt(&ok);
-    return (ok && n >= 0) ? n : 30;
-}
 
 MediaPump::MediaPump(ByteSource *video, ByteSource *audio, IPipeline *pipeline)
     : QObject(0), m_video(video), m_audio(audio), m_pipeline(pipeline),
       m_dual(false), m_videoOpen(false), m_audioOpen(false),
       m_esSent(false), m_configured(false),
       m_videoEosPending(false), m_audioEosPending(false),
-      m_lastDualSeek(-1),
-      m_prebufferN(prebufferFramesFromEnv()), m_primed(true),
+      m_lastDualSeek(-1), m_videoTotal(-1), m_audioTotal(-1),
+      // env override or 30 until esReady refines it from the real fps
+      m_prebufferN(BufferPlanner::prebufferFrames(0.0)), m_primed(true),
       m_prebufReported(false), m_videoDone(false)
 {
     qRegisterMetaType<EsConfig>("yt::media::EsConfig");   // queued esReady payload
@@ -59,6 +51,7 @@ void MediaPump::openSingle(const QString &url)
     m_dual = false; m_videoOpen = m_audioOpen = false;
     m_esSent = m_configured = false;
     m_videoEosPending = m_audioEosPending = false;
+    m_videoTotal = m_audioTotal = -1;
     // The video source is shared between modes — a stale dual quality hint
     // must not inflate this stream's startup buffer.
     m_video->setQualityHint(0);
@@ -71,6 +64,7 @@ void MediaPump::openDual(const QString &videoUrl, const QString &audioUrl, int h
     m_esSent = m_configured = false;
     m_videoEosPending = m_audioEosPending = false;
     m_lastDualSeek = -1;
+    m_videoTotal = m_audioTotal = -1;
     m_videoDemux.reset(); m_audioDemux.reset();
     m_vHold.clear(); m_aHold.clear();
     m_videoDone = false;
@@ -139,6 +133,7 @@ void MediaPump::closeAll()
     m_esSent = m_configured = false;
     m_videoEosPending = m_audioEosPending = false;
     m_lastDualSeek = -1;
+    m_videoTotal = m_audioTotal = -1;
     m_vHold.clear(); m_aHold.clear();
     m_videoDone = false;
     rearmPrebuffer();
@@ -152,6 +147,7 @@ void MediaPump::rearmPrebuffer()
 
 void MediaPump::onVideoOpened(qint64 total, bool seekable)
 {
+    m_videoTotal = total;
     emit videoOpened(total, seekable,
                      m_video->startupTargetMs(), m_video->bufferedMs());
     if (!m_dual) return;
@@ -164,6 +160,7 @@ void MediaPump::onAudioOpened(qint64 total, bool)
 {
     if (!m_dual) return;
     PLOG() << "pump: audio source opened total=" << total;
+    m_audioTotal = total;
     emit audioOpened(total, m_audio->startupTargetMs(), m_audio->bufferedMs());
     m_audioOpen = true;
     m_audio->requestData(1 << 20);     // hunt the moov
@@ -219,6 +216,21 @@ void MediaPump::maybeEsReady()
     cfg.avcProfile = m_videoDemux.avcProfile();
     cfg.avcLevel   = m_videoDemux.avcLevel();
     cfg.videoSegStartsNs = m_videoDemux.segmentStartsNs();
+    // Per-lane appsrc caps from (opened total, demuxer duration) — the sidx/
+    // mehd duration beats the URL param. Same 0.5 s guard as the planner.
+    const double vDur = m_videoDemux.durationNs() / 1e9;
+    const double aDur = m_audioDemux.durationNs() / 1e9;
+    cfg.videoQueueBytes = BufferPlanner::queueBytesFor(
+        (m_videoTotal > 0 && vDur > 0.5) ? m_videoTotal / vDur : 0.0, true);
+    cfg.audioQueueBytes = BufferPlanner::queueBytesFor(
+        (m_audioTotal > 0 && aDur > 0.5) ? m_audioTotal / aDur : 0.0, false);
+    // The prebuffer N is frame-denominated; refine it from the real fps now
+    // that moof #1 parsed (no drain can have happened — the configured ack
+    // hasn't been sent). The env override stays absolute.
+    m_prebufferN = BufferPlanner::prebufferFrames(m_videoDemux.frameRate());
+    rearmPrebuffer();
+    PLOG() << "pump: es sizing — queues" << cfg.videoQueueBytes << "/"
+           << cfg.audioQueueBytes << "B, prebuffer" << m_prebufferN << "frames";
     emit esReady(cfg, m_video->startupTargetMs(), m_video->bufferedMs(),
                  m_audio->startupTargetMs(), m_audio->bufferedMs(),
                  m_videoDemux.seekIndexReady() && m_audioDemux.seekIndexReady());

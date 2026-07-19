@@ -31,7 +31,7 @@
 **Interfaces:**
 - Produces (later tasks consume): `BufferPlanner()` / `reset()` (clears media+net facts, PRESERVES the quality hint) / `setMedia(qint64 totalBytes, double durationSec)` / `setQualityHint(int height)` / `noteFetch(qint64 bytes, qint64 elapsedMs)` / `double mediaBps() const` / `double netBps() const` / `qint64 windowBytes() const` / `int readAheadWindows() const` / `qint64 startupMs() const` / `qint64 bufferedMsFor(qint64 bytes) const` / `static int prebufferFrames(double fps)` / `static qint64 queueBytesFor(double mediaBps, bool video)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add `#include "media/bufferplanner.h"` next to the other media includes at the top of `tests/tst_meetube_media.cpp`, and append after `prebufferYieldsToStartupGate()`:
 
@@ -121,7 +121,7 @@ Add `#include "media/bufferplanner.h"` next to the other media includes at the t
     }
 ```
 
-- [ ] **Step 2: Run to verify the build fails (header does not exist)**
+- [x] **Step 2: Run to verify the build fails (header does not exist)**
 
 ```sh
 cd /opt/projects/MeeTube && make -C build-sim -j"$(nproc)" 2>&1 | grep -m1 "bufferplanner.h"
@@ -129,7 +129,7 @@ cd /opt/projects/MeeTube && make -C build-sim -j"$(nproc)" 2>&1 | grep -m1 "buff
 
 Expected: `fatal error: media/bufferplanner.h: No such file or directory` (or equivalent).
 
-- [ ] **Step 3: Implement the planner**
+- [x] **Step 3: Implement the planner**
 
 `src/core/media/bufferplanner.h` (GPL header comment like `mediapump.h`, then):
 
@@ -294,7 +294,7 @@ qint64 BufferPlanner::queueBytesFor(double mediaBps, bool video)
 
 In `src/core/CMakeLists.txt` add `media/bufferplanner.cpp` beside `media/bytesource.cpp` in the source list (grep for `media/bytesource.cpp` to find the list).
 
-- [ ] **Step 4: Build + run the planner tests**
+- [x] **Step 4: Build + run the planner tests**
 
 ```sh
 make -C build-sim -j"$(nproc)" 2>&1 | tail -2 && source simulator_env.sh \
@@ -303,7 +303,7 @@ make -C build-sim -j"$(nproc)" 2>&1 | tail -2 && source simulator_env.sh \
 
 Expected: all listed subtests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/core/media/bufferplanner.h src/core/media/bufferplanner.cpp \
@@ -327,7 +327,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: Task 1's `BufferPlanner` (per-lane instance).
 - Produces: `ByteSource::startupTargetMs()`/`bufferedMs()` (replace `startupTarget()`/`downloadedBytes()`), `progress(qint64 bufferedMs)` semantics. `StreamPlayer` gate fields `m_gateVideoNeedMs`/`m_gateVideoHaveMs`/`m_gateAudioNeedMs`/`m_gateAudioHaveMs`.
 
-- [ ] **Step 1: Switch ByteSource + ProgressiveSource to the planner (ms API)**
+- [x] **Step 1: Switch ByteSource + ProgressiveSource to the planner (ms API)**
 
 `bytesource.h`: include `media/bufferplanner.h`; in `ByteSource` replace the `startupTarget`/`downloadedBytes` block with:
 
@@ -368,17 +368,17 @@ Signal comment: `void progress(qint64 bufferedMs);          // fetch advanced (s
 - `onWindowFinished()`: `m_plan.noteFetch(w.size(), m_fetchClock.elapsed());` and `emit progress(bufferedMs());`.
 - `RoutingSource` impls renamed accordingly.
 
-- [ ] **Step 2: Rename the pump/player plumbing to ms**
+- [x] **Step 2: Rename the pump/player plumbing to ms**
 
 `mediapump.cpp`: `onVideoOpened`/`onAudioOpened`/`maybeEsReady` call `startupTargetMs()`/`bufferedMs()` instead of `startupTarget()`/`downloadedBytes()`. `mediapump.h`: signal params renamed `startupTargetMs`/`bufferedMs` in the comments and declarations (`videoOpened(qint64 total, bool seekable, qint64 startupTargetMs, qint64 bufferedMs)` etc. — shapes unchanged).
 
 `streamplayer.h/.cpp`: mechanical rename `m_gateVideoNeed`→`m_gateVideoNeedMs`, `m_gateVideoHave`→`m_gateVideoHaveMs`, `m_gateAudioNeed`→`m_gateAudioNeedMs`, `m_gateAudioHave`→`m_gateAudioHaveMs` everywhere (ctor, fail, onPumpVideoOpened, onPumpAudioOpened, onEsReady, startOrGate, updateStartupGate, onProgress, onAudioProgress, onPumpVideoFinished, onPumpAudioFinished, onPosition, onPrebuffering, stop). Update the two PLOGs: `"startup gate: video" << ... << "audio" << ... << "ms"`. Comments: gate is media-ms.
 
-- [ ] **Step 3: Update the tests**
+- [x] **Step 3: Update the tests**
 
 `tests/tst_meetube_media.cpp`: in `ManualSource` rename the override `startupTarget()` → `startupTargetMs()` (the `target` member keeps its name; its unit is now media ms). Update comments in `startupGateHoldsPlaybackUntilBuffered` and `prebufferYieldsToStartupGate` to say ms (numbers unchanged — the math is unit-agnostic).
 
-- [ ] **Step 4: Build + full suite**
+- [x] **Step 4: Build + full suite**
 
 ```sh
 make -C build-sim -j"$(nproc)" 2>&1 | tail -2 && source simulator_env.sh \
@@ -387,7 +387,7 @@ make -C build-sim -j"$(nproc)" 2>&1 | tail -2 && source simulator_env.sh \
 
 Expected: 9/9 (includes `progressiveSizesWindowByBitrate` — the window formula is unchanged, ported verbatim).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/core/media/bytesource.h src/core/media/bytesource.cpp \
@@ -414,7 +414,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 - Consumes: `BufferPlanner::setQualityHint(int)` (Task 1), ms plumbing (Task 2).
 - Produces: `ByteSource::setQualityHint(int)` no-op virtual; `StreamPlayer::playDual(const QString &videoUrl, const QString &audioUrl, int height = 0)`; `MediaPump::openSingle(url)` clears the hint, `openDual(videoUrl, audioUrl, int height)` sets it.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append after `plannerQueueBytesClamped()`:
 
@@ -439,7 +439,7 @@ Append after `plannerQueueBytesClamped()`:
 
 In `ManualSource` add: `int hint = -1;` and `void setQualityHint(int h) { hint = h; }`.
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 ```sh
 make -C build-sim -j"$(nproc)" 2>&1 | grep -m1 -E "error|playDual"
@@ -447,7 +447,7 @@ make -C build-sim -j"$(nproc)" 2>&1 | grep -m1 -E "error|playDual"
 
 Expected: compile error — `playDual` takes 2 arguments (no 3-arg overload yet).
 
-- [ ] **Step 3: Implement the plumbing**
+- [x] **Step 3: Implement the plumbing**
 
 `bytesource.h`, in `ByteSource` after `seek`: `virtual void setQualityHint(int height) { Q_UNUSED(height); }`; in `ProgressiveSource`: `void setQualityHint(int height) { m_plan.setQualityHint(height); }`; in `RoutingSource`: declaration `void setQualityHint(int height);`.
 `bytesource.cpp`, with the other RoutingSource impls: `void RoutingSource::setQualityHint(int h) { m_hls->setQualityHint(h); m_prog->setQualityHint(h); }` (pre-open, the active child is not chosen yet — set both).
@@ -458,11 +458,11 @@ Expected: compile error — `playDual` takes 2 arguments (no 3-arg overload yet)
 `mediapump.h`: `void openDual(const QString &videoUrl, const QString &audioUrl, int height);`
 `mediapump.cpp`: `openSingle` starts with `m_video->setQualityHint(0);`; `openDual(videoUrl, audioUrl, height)` calls `m_video->setQualityHint(height);` right before `m_video->open(videoUrl);`.
 
-- [ ] **Step 4: Update PlayerPage.qml — INVOKE THE nokia-n9-qml SKILL FIRST**
+- [x] **Step 4: Update PlayerPage.qml — INVOKE THE nokia-n9-qml SKILL FIRST**
 
 Invoke the `nokia-n9-qml` skill (hard project rule for any .qml edit). Then in `resources/qml/pages/PlayerPage.qml`: alongside the existing `vModes.push(...)` collection add a parallel `vHeights.push(vs[i].height)` array stored next to `vidModes` (e.g. `property variant vidHeights: []`), and change the dual call to `player.playDual(vidUrls[i], streams.audioUrl, vidHeights[i]);`. Old-JS only (`var`, no arrow functions). Run the skill's `validate_qml.py` — 0 ERROR required.
 
-- [ ] **Step 5: Build + full suite + commit**
+- [x] **Step 5: Build + full suite + commit**
 
 ```sh
 make -C build-sim -j"$(nproc)" 2>&1 | tail -2 && source simulator_env.sh \
@@ -493,7 +493,7 @@ Expected: 9/9 before the commit runs.
 - Consumes: `BufferPlanner::prebufferFrames(double fps)`, `BufferPlanner::queueBytesFor(double mediaBps, bool video)` (Task 1); `Fmp4Demuxer::durationNs()/frameRate()` (existing).
 - Produces: `EsConfig.videoQueueBytes`/`EsConfig.audioQueueBytes` (qint64, 0 = pipeline default).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append after `dualQualityHintReachesVideoSource()`:
 
@@ -536,7 +536,7 @@ Append after `dualQualityHintReachesVideoSource()`:
     }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 ```sh
 make -C build-sim -j"$(nproc)" 2>&1 | grep -m1 "videoQueueBytes"
@@ -544,7 +544,7 @@ make -C build-sim -j"$(nproc)" 2>&1 | grep -m1 "videoQueueBytes"
 
 Expected: compile error — `EsConfig` has no member `videoQueueBytes`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `ipipeline.h`, in `EsConfig` after `videoSegStartsNs`:
 
@@ -588,7 +588,7 @@ and in the ctor: `..., videoQueueBytes(0), audioQueueBytes(0)`.
 
 `CLAUDE.md`: in the `media/` bullet, mention `bufferplanner` (`ByteSource`/`ProgressiveSource` + `bufferplanner` (all block/buffer sizing, media-time accounting) + `streamplayer` ...) — one line.
 
-- [ ] **Step 4: Build + full suite**
+- [x] **Step 4: Build + full suite**
 
 ```sh
 make -C build-sim -j"$(nproc)" 2>&1 | tail -2 && source simulator_env.sh \
@@ -597,7 +597,7 @@ make -C build-sim -j"$(nproc)" 2>&1 | tail -2 && source simulator_env.sh \
 
 Expected: 9/9. The pre-existing prebuffer tests (env 4/5/30) still pass — the env override is absolute and esReady's refinement returns it unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/core/media/ipipeline.h src/core/media/mediapump.h src/core/media/mediapump.cpp \

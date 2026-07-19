@@ -1056,6 +1056,43 @@ private slots:
         QCOMPARE(vsrc->hint, 0);                         // single mode clears it
     }
 
+    // esReady resolves the appsrc queue caps from each lane's media rate
+    // (total bytes from opened + duration from mehd/sidx): 30 s of media,
+    // clamped. A lane without a usable duration keeps the pipeline default (0).
+    void dualEsCarriesQueueCaps() {
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/135", "http://a/140", 480);
+        pol->emitGranted();
+        vsrc->emitOpened(8431100);                 // mehd 84.311 s -> ~100000 B/s
+        asrc->emitOpened(200);                     // audio moov: no duration -> 0
+        vsrc->emitData(fmp4VideoFile());
+        asrc->emitData(fmp4AudioHeader());
+        QCOMPARE(pipe->esConfigured, 1);
+        QVERIFY(pipe->esCfg.videoQueueBytes > Q_INT64_C(2999000)
+                && pipe->esCfg.videoQueueBytes < Q_INT64_C(3001000));   // ~100 kB/s * 30 s
+        QCOMPARE(pipe->esCfg.audioQueueBytes, Q_INT64_C(0));
+    }
+
+    // Without the env override the prebuffer N derives from the stream's fps
+    // (fixture: 90000/3000 ticks = 30 fps -> 30 frames): 6 samples get held.
+    void prebufferDefaultsFromStreamFps() {
+        qputenv("MEETUBE_PREBUFFER_FRAMES", "");   // default path (cleanup restores "0")
+        ManualSource *vsrc = new ManualSource; ManualSource *asrc = new ManualSource;
+        FakePipeline *pipe = new FakePipeline; FakePolicy *pol = new FakePolicy;
+        yt::media::StreamPlayer p(vsrc, pipe, pol, asrc);
+        p.playDual("http://v/136", "http://a/140");
+        pol->emitGranted(); vsrc->emitOpened(1000); asrc->emitOpened(200);
+        vsrc->emitData(fmp4VideoFileTwoFrags());   // 6 samples < 30
+        const QByteArray afrag = fmp4AudioFragment();
+        asrc->emitData(fmp4AudioHeader() + fmp4AudioSidx(afrag.size()) + afrag);
+        QCOMPARE(pipe->esConfigured, 1);
+        QCOMPARE(pipe->videoSamples, 0);           // held by the fps-derived N
+        vsrc->emitFinished();                      // EOS flushes
+        QCOMPARE(pipe->videoSamples, 6);
+    }
+
     // Re-anchoring at a sidx boundary keeps the header state and resumes with
     // tfdt-correct absolute timestamps — the dual-seek core.
     void fmp4ReanchorResumesAtFragment() {

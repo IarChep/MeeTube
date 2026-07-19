@@ -89,6 +89,7 @@ private:
     bool m_esSent, m_configured;
     bool m_videoEosPending, m_audioEosPending;  // EOF seen before the config ack
     qint64 m_lastDualSeek;   // dedupe: BOTH appsrcs fire seek-data for one seek
+    qint64 m_videoTotal, m_audioTotal;   // opened totals (esReady queue-cap math)
     // Prebuffer (dual): hold extracted samples until N video frames are in
     // hand, then flush — playback (re)starts against a full queue instead of
     // just-in-time frames (the N9 judder). Re-armed at open/seek/underrun.

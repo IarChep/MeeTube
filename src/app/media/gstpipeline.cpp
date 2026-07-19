@@ -238,7 +238,11 @@ void GstAppPipeline::buildPipeline()
                  "block", m_dual ? FALSE : TRUE, NULL);
     g_signal_connect(m_appsrc, "seek-data", G_CALLBACK(&GstAppPipeline::onSeekDataCb), this);
     if (m_dual) {
-        g_object_set(G_OBJECT(m_appsrc), "max-bytes", (guint64)(8 * 1024 * 1024), NULL);
+        // Queue caps: BufferPlanner sized both lanes to the same MEDIA depth
+        // at esReady (0 = keep the old fixed default).
+        g_object_set(G_OBJECT(m_appsrc), "max-bytes",
+                     (guint64)(m_es.videoQueueBytes > 0 ? m_es.videoQueueBytes
+                                                        : 8 * 1024 * 1024), NULL);
         GstBuffer *cd = gst_buffer_new_and_alloc(m_es.videoCodecData.size());
         memcpy(GST_BUFFER_DATA(cd), m_es.videoCodecData.constData(), m_es.videoCodecData.size());
         GstCaps *caps = gst_caps_new_simple("video/x-h264",
@@ -256,7 +260,8 @@ void GstAppPipeline::buildPipeline()
         gst_app_src_set_caps(GST_APP_SRC(m_appsrc), caps);
         PLOG() << "gst: video ES caps" << m_es.width << "x" << m_es.height
                << "avcC=" << m_es.videoCodecData.size()
-               << "fps=" << m_es.fpsN << "/" << m_es.fpsD;
+               << "fps=" << m_es.fpsN << "/" << m_es.fpsD
+               << "queue=" << m_es.videoQueueBytes;
         gst_caps_unref(caps);
     }
     if (m_total >= 0) gst_app_src_set_size(GST_APP_SRC(m_appsrc), (gint64)m_total);
@@ -280,7 +285,9 @@ void GstAppPipeline::buildPipeline()
                          "format", GST_FORMAT_TIME,
                          "is-live", FALSE,
                          "block", FALSE,   // see the video appsrc comment
-                         "max-bytes", (guint64)(4 * 1024 * 1024), NULL);
+                         "max-bytes", (guint64)(m_es.audioQueueBytes > 0
+                                                    ? m_es.audioQueueBytes
+                                                    : 4 * 1024 * 1024), NULL);
             g_signal_connect(m_audiosrc, "seek-data",
                              G_CALLBACK(&GstAppPipeline::onSeekDataCb), this);
             GstBuffer *cd = gst_buffer_new_and_alloc(m_es.audioCodecData.size());
@@ -294,7 +301,8 @@ void GstAppPipeline::buildPipeline()
             gst_buffer_unref(cd);
             gst_app_src_set_caps(GST_APP_SRC(m_audiosrc), caps);
             PLOG() << "gst: audio ES caps" << m_es.rate << "Hz ch=" << m_es.channels
-                   << "ASC=" << m_es.audioCodecData.size();
+                   << "ASC=" << m_es.audioCodecData.size()
+                   << "queue=" << m_es.audioQueueBytes;
             gst_caps_unref(caps);
             g_signal_connect(m_audiosrc, "need-data", G_CALLBACK(&GstAppPipeline::onAudioNeedDataCb), this);
             // Same pad router as the main decodebin: the audio file's one pad -> aconv.

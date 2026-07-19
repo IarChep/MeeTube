@@ -198,7 +198,9 @@ in dependency order, each with its own CMakeLists:
   the `JobToken` gate (dtor + `cancel()` cancel the token — the cross-thread safety protocol).
   Registered as `qmlRegisterType<VideoModel>("MeeTube",1,0,"VideoModel")`.
 - **`media/`** — the playback backend. `bytesource` (`ByteSource`/`ProgressiveSource`: libcurl
-  ranged-window fetch of the stream) + `streamplayer` (the `StreamPlayer` QObject state machine) +
+  ranged-window fetch of the stream) + `bufferplanner` (ALL block/buffer sizing — fetch windows,
+  media-ms startup gate, prebuffer frames, appsrc queue caps — from media rate + net EWMA +
+  quality hint) + `streamplayer` (the `StreamPlayer` QObject state machine) +
   the `ipipeline`/`ipolicy` seams. Host-testable (`tst_meetube_media`); the GStreamer/resource-policy
   impls live in `src/app/media/` (device-only). Exposed to QML as the `player` context property.
 - **`src/app/harmattan/`** — `maskeditem` + `maskeffect`: the Nokia **squircle** avatar. A `MaskedItem`
