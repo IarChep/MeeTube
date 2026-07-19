@@ -1,3 +1,19 @@
+meetube (0.8.5) unstable; urgency=low
+
+  * 480p and 720p video via dual-stream playback — separate video and audio
+    elementary streams demuxed on-device — alongside 360p progressive.
+  * Subtitles: timed-text captions overlaid during playback, selectable per track.
+  * Video seeking on progressive and dual streams.
+  * More detailed loading status: connecting / buffering / seeking / demuxing
+    phases with a live progress readout.
+  * Fixed crashes when minimizing the app during playback; playback now resumes
+    cleanly at its position on restore.
+  * Reworked search: search field in the header, type chips
+    (Videos / Channels / Playlists) and swipeable results.
+  * Settings (Region / Playback), an About page and Acknowledgements.
+
+ -- IarChep <yarchepel@gmail.com>  Mon, 20 Jul 2026 02:16:45 +0400
+
 meetube (0.1.0) unstable; urgency=low
 
   * First packaged release for the Nokia N9 (MeeGo Harmattan).

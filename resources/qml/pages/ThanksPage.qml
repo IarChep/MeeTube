@@ -55,8 +55,8 @@ Page {
                         why: "The C++ JSON library behind every parsed API response and the settings file."
                     }
                     ListElement {
-                        who: "quickjs-ng"
-                        why: "The embedded JavaScript engine that runs YouTube's stream decipher code."
+                        who: "zemonkamin (Dmitry's Fireplace)"
+                        why: "Consultation and help with the InnerTube API."
                     }
                     ListElement {
                         who: "curl and OpenSSL"

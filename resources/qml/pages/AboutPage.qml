@@ -45,7 +45,7 @@ Page {
             font.bold: true
         }
         Text {
-            text: "Version 0.1.0"
+            text: "Version 0.8.5"
             color: UI.COLOR_INVERTED_SECONDARY_FOREGROUND
             font.pixelSize: UI.FONT_LSMALL
             font.family: UI.FONT_FAMILY
