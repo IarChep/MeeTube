@@ -19,6 +19,11 @@ Item {
     property Component content: null
     property Component background: null
 
+    // Высота развёрнутого заголовка. Стандартные страницы живут на
+    // HEADER_DEFAULT_HEIGHT_PORTRAIT; страница может попросить свою
+    // (pageHeaderHeight — например, полоса категорий на Home ниже стандартной).
+    property int contentHeight: Ui.HEADER_DEFAULT_HEIGHT_PORTRAIT
+
     // Длительности. Сворачивание высоты держим равным смене содержимого, чтобы при
     // уходе на страницу без заголовка всё заканчивалось одновременно (без обрезки).
     property int contentTransitionDuration: 400
@@ -35,7 +40,7 @@ Item {
         State {
             name: ""
             when: !(content == null && background == null)
-            PropertyChanges { target: root; height: Ui.HEADER_DEFAULT_HEIGHT_PORTRAIT }
+            PropertyChanges { target: root; height: root.contentHeight }
         }
     ]
     transitions: Transition {
@@ -43,11 +48,12 @@ Item {
         PropertyAnimation { properties: "height"; easing.type: Easing.InOutExpo; duration: root.visibilityTransitionDuration }
     }
 
-    // Слой фона (снизу). Постоянная высота — не сжимается при сворачивании root.
+    // Слой фона (снизу). Высота не следует за root.height — не сжимается при
+    // сворачивании; contentHeight меняется только сменой страницы.
     Item {
         id: bgLayer
         anchors { top: parent.top; left: parent.left; right: parent.right }
-        height: Ui.HEADER_DEFAULT_HEIGHT_PORTRAIT
+        height: root.contentHeight
     }
 
     // Слой содержимого (сверху). Контейнеры живут в хосте постоянной высоты (как у
@@ -55,7 +61,7 @@ Item {
     Item {
         id: contentHost
         anchors { top: parent.top; left: parent.left; right: parent.right }
-        height: Ui.HEADER_DEFAULT_HEIGHT_PORTRAIT
+        height: root.contentHeight
     }
 
     // Задаёт фон и содержимое сразу. transition — тип перехода содержимого.

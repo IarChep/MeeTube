@@ -7,9 +7,9 @@ import "../js/UIConstants.js" as UI
 import "../js/Status.js" as Status
 
 // Home page: a swipeable pager of category feeds (one VideoModel-backed list per category),
-// with the CategoryChips strip on top as the selector. Swiping flips categories; the chip
-// strip and pager stay in sync. Exposes null pageHeader/background so the global HeaderBar
-// in main.qml collapses (MeeShop integration idiom).
+// with the CategoryChips strip as this page's HEADER (pageHeader Component hosted by the
+// global HeaderBar, so it takes part in the stock push/pop header transitions). Swiping
+// flips categories; the chip strip and pager stay in sync.
 Page {
     id: page
     orientationLock: PageOrientation.LockPortrait
@@ -120,30 +120,33 @@ Page {
         readyTimer.restart();
     }
 
-    // NO global header on Home: the CategoryChips strip IS the category selector. Leaving
-    // pageHeader/pageHeaderBackground null collapses the global HeaderBar (same as VideoPage).
-    property variant pageHeader: null
-    property variant pageHeaderBackground: null
-
-    // --- Category chips: an N9-style scrollable strip of all categories, the current one in
-    // brand red. Tapping animates the pager to that category.
-    CategoryChips {
-        id: categoryStrip
-        anchors {
-            top: parent.top
-            // Flush under the (collapsed) global header so the nav-bar panel sits at the very
-            // top of the content area, like a real N9 navigation bar.
-            topMargin: headerBar.height
-            left: parent.left
-            right: parent.right
-        }
-        categories: page.allCategories
-        currentId: appWindow.currentCategoryId
-        // Animate the auto-scroll only after the initial positioning (page.ready), so the
-        // strip doesn't visibly slide on launch.
-        animated: page.ready
-        onSelected: page.selectCategoryId(id)
+    // --- The Home header IS the CategoryChips strip, hosted by the global HeaderBar
+    // (so it slides/fades with the stock push/pop header transitions like every other
+    // page's header). The component instantiates inside the bar but its bindings and
+    // signal handlers run in THIS page's scope. The strip carries its own navbar-panel
+    // background, so pageHeaderBackground stays null; the bar adopts the strip's
+    // natural height via pageHeaderHeight (mirrors the CategoryChips height formula —
+    // label metrics + double padding).
+    Text {
+        id: chipMetrics
+        visible: false
+        text: "Ag"
+        font.pixelSize: UI.FONT_DEFAULT
+        font.family: UI.FONT_FAMILY
     }
+    property int pageHeaderHeight: chipMetrics.paintedHeight + UI.PADDING_DOUBLE * 2
+    property Component pageHeader: Component {
+        CategoryChips {
+            anchors { top: parent.top; left: parent.left; right: parent.right }
+            categories: page.allCategories
+            currentId: appWindow.currentCategoryId
+            // Animate the auto-scroll only after the initial positioning (page.ready),
+            // so the strip doesn't visibly slide on launch.
+            animated: page.ready
+            onSelected: page.selectCategoryId(id)
+        }
+    }
+    property variant pageHeaderBackground: null
 
     // --- Swipeable pager: one full-width CategoryFeedView per category, snapping one page at
     // a time. Horizontal drags flip categories; the inner vertical lists scroll independently.
@@ -151,8 +154,8 @@ Page {
     ListView {
         id: pager
         anchors {
-            top: categoryStrip.bottom
-            topMargin: UI.PADDING_MEDIUM
+            top: parent.top
+            topMargin: headerBar.height + UI.PADDING_MEDIUM
             left: parent.left
             right: parent.right
             bottom: parent.bottom

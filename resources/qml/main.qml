@@ -76,6 +76,11 @@ PageStackWindow {
               : (d < __prevDepth)    ? "pop"
               :                        "replace";
         __prevDepth = d;
+        // Per-page header height (e.g. the Home category strip is lower than the
+        // standard header); unset -> the standard portrait height.
+        headerBar.contentHeight = (cp && cp.pageHeaderHeight > 0)
+                                  ? cp.pageHeaderHeight
+                                  : UI.HEADER_DEFAULT_HEIGHT_PORTRAIT;
         headerBar.setHeader(content, bg, t);
     }
     Connections {
